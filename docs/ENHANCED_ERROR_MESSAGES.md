@@ -18,7 +18,7 @@ The library includes comprehensive error messages based on real customer experie
 **Example:**
 ```python
 # Warning during initialization:
-⚠️  ARANGO_ENDPOINT appears to be missing the port number.
+  ARANGO_ENDPOINT appears to be missing the port number.
   Current: https://example.arangodb.cloud
   Expected: https://example.arangodb.cloud:8529
   If you get 401 errors, add :8529 to your endpoint URL.
@@ -36,7 +36,7 @@ The library includes comprehensive error messages based on real customer experie
 
 **Example:**
 ```
-❌ Authentication failed (401 Unauthorized)
+ Authentication failed (401 Unauthorized)
    URL: https://example.com/_open/auth
    This usually means:
    1. Wrong username or password
@@ -44,7 +44,7 @@ The library includes comprehensive error messages based on real customer experie
    3. Network/VPN access issue
    4. Password may have extra spaces (check .env file)
 
-   ⚠️  WARNING: Your endpoint 'https://example.com' is missing port :8529
+     WARNING: Your endpoint 'https://example.com' is missing port :8529
    It should be: https://example.com:8529
    This is the #1 cause of 401 errors!
 
@@ -83,9 +83,9 @@ is_valid, issues = check_password_format(" mypassword ")
 
 **Example:**
 ```
-⚠️  Warning: Cannot list databases (user may have limited permissions)
+  Warning: Cannot list databases (user may have limited permissions)
    Attempting direct connection to 'restore' database...
-✓ Connected to database: restore
+ Connected to database: restore
 ```
 
 ### 5. Authorization Error Details
@@ -100,7 +100,7 @@ is_valid, issues = check_password_format(" mypassword ")
 
 **Example:**
 ```
-🔍 Authorization Error Detected
+ Authorization Error Detected
 
 This error means the server rejected your credentials or permissions.
 

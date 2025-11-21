@@ -5,7 +5,7 @@
 1. Visit: **https://github.com/new**
 2. Repository name: `graph-analytics-ai`
 3. Description: "Unified library for orchestrating ArangoDB Graph Analytics Engine operations"
-4. **Select: Private** 🔒
+4. **Select: Private** 
 5. **DO NOT** check any initialization options
 6. Click "Create repository"
 
@@ -51,12 +51,12 @@ When you push, GitHub may ask for authentication:
 
 ## After Pushing
 
-1. ✅ Verify on GitHub: https://github.com/YOUR_USERNAME/graph-analytics-ai
-2. 📝 Add repository description and topics
-3. 🏷️ Create initial release tag:
+1.  Verify on GitHub: https://github.com/YOUR_USERNAME/graph-analytics-ai
+2.  Add repository description and topics
+3.  Create initial release tag:
    ```bash
    git tag -a v1.0.0 -m "Initial release"
    git push origin --tags
    ```
-4. 🔒 Set up branch protection (Settings → Branches)
+4.  Set up branch protection (Settings → Branches)
 

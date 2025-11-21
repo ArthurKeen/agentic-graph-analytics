@@ -6,7 +6,7 @@ Based on customer Dima's credential issues from the psi-graph-analytics project,
 
 ## Enhancements Made
 
-### 1. Missing Port Detection ✅
+### 1. Missing Port Detection 
 
 **Location:** `graph_analytics_ai/gae_connection.py` - `GenAIGAEConnection.__init__()`
 
@@ -28,7 +28,7 @@ if ':' not in host_part:
     )
 ```
 
-### 2. Enhanced 401 Error Messages ✅
+### 2. Enhanced 401 Error Messages 
 
 **Location:** `graph_analytics_ai/gae_connection.py` - `GenAIGAEConnection._get_jwt_token()`
 
@@ -41,7 +41,7 @@ if ':' not in host_part:
 
 **Example Output:**
 ```
-❌ Authentication failed (401 Unauthorized)
+ Authentication failed (401 Unauthorized)
    URL: https://example.com/_open/auth
    This usually means:
    1. Wrong username or password
@@ -49,7 +49,7 @@ if ':' not in host_part:
    3. Network/VPN access issue
    4. Password may have extra spaces (check .env file)
 
-   ⚠️  WARNING: Your endpoint 'https://example.com' is missing port :8529
+     WARNING: Your endpoint 'https://example.com' is missing port :8529
    It should be: https://example.com:8529
    This is the #1 cause of 401 errors!
 
@@ -60,7 +60,7 @@ if ':' not in host_part:
    4. Check network/VPN connectivity
 ```
 
-### 3. Database Connection Error Messages ✅
+### 3. Database Connection Error Messages 
 
 **Location:** `graph_analytics_ai/db_connection.py` - `get_db_connection()`
 
@@ -73,7 +73,7 @@ if ':' not in host_part:
 
 **Example Output:**
 ```
-🔍 Authorization Error Detected
+ Authorization Error Detected
 
 This error means the server rejected your credentials or permissions.
 
@@ -90,7 +90,7 @@ Troubleshooting:
   4. For limited users, connect directly to target database (skip _system)
 ```
 
-### 4. Limited User Support ✅
+### 4. Limited User Support 
 
 **Location:** `graph_analytics_ai/db_connection.py` - `get_db_connection()`
 
@@ -102,12 +102,12 @@ Troubleshooting:
 
 **Example Output:**
 ```
-⚠️  Warning: Cannot list databases (user may have limited permissions)
+  Warning: Cannot list databases (user may have limited permissions)
    Attempting direct connection to 'restore' database...
-✓ Connected to database: restore
+ Connected to database: restore
 ```
 
-### 5. Utility Functions ✅
+### 5. Utility Functions 
 
 **Location:** `graph_analytics_ai/utils.py` (NEW)
 
@@ -163,22 +163,22 @@ print(report)
 ### Issue 1: Missing Port :8529
 - **Problem:** Most common cause of 401 errors
 - **Solution:** Automatic detection and warning
-- **Status:** ✅ Implemented
+- **Status:**  Implemented
 
 ### Issue 2: Password Formatting
 - **Problem:** Extra spaces from PDF copy-paste
 - **Solution:** Automatic detection and warning
-- **Status:** ✅ Implemented
+- **Status:**  Implemented
 
 ### Issue 3: Limited User Permissions
 - **Problem:** Users can't access `_system` database
 - **Solution:** Graceful fallback to direct connection
-- **Status:** ✅ Implemented
+- **Status:**  Implemented
 
 ### Issue 4: Unclear Error Messages
 - **Problem:** Generic errors don't help users
 - **Solution:** Detailed, actionable error messages
-- **Status:** ✅ Implemented
+- **Status:**  Implemented
 
 ## Testing
 
@@ -195,7 +195,7 @@ All enhancements are covered by tests:
 
 ## Summary
 
-✅ **All enhanced error messages from Dima's experience have been incorporated:**
+ **All enhanced error messages from Dima's experience have been incorporated:**
 - Missing port detection
 - Password formatting checks
 - Enhanced 401 error messages

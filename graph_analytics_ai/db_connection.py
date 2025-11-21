@@ -50,7 +50,7 @@ def get_db_connection():
             # This is an authorization error
             enhanced_msg = (
                 f"Failed to connect to ArangoDB: {error_msg}\n\n"
-                f"🔍 Authorization Error Detected\n\n"
+                f"Authorization Error Detected\n\n"
                 f"This error means the server rejected your credentials or permissions.\n\n"
                 f"Common causes:\n"
                 f"  1. User doesn't have access to _system database (limited users)\n"
@@ -87,7 +87,7 @@ def get_db_connection():
         error_str = str(e).lower()
         # If it's an authorization error, user might be limited - that's okay
         if '401' in error_str or 'not authorized' in error_str or 'err 11' in error_str:
-            print(f"⚠️  Warning: Cannot list databases (user may have limited permissions)")
+            print(f"Warning: Cannot list databases (user may have limited permissions)")
             print(f"   Attempting direct connection to '{database}' database...")
             # Continue - will try direct connection
         else:

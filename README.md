@@ -7,13 +7,13 @@ A unified Python library for orchestrating ArangoDB Graph Analytics Engine (GAE)
 
 ## Features
 
-- 🚀 **Unified Interface** - Single API for both AMP and self-managed deployments
-- 🔄 **Complete Automation** - Full workflow orchestration (deploy → load → analyze → store → cleanup)
-- 📊 **Multiple Algorithms** - Support for PageRank, WCC, SCC, Label Propagation, and more
-- 💰 **Cost Tracking** - Automatic cost calculation for AMP deployments
-- 🛡️ **Error Handling** - Robust retry logic and guaranteed cleanup
-- ⚙️ **Easy Configuration** - Simple `.env` file-based configuration
-- 📦 **Production Ready** - Extracted from three production projects
+- **Unified Interface** - Single API for both AMP and self-managed deployments
+- **Complete Automation** - Full workflow orchestration (deploy → load → analyze → store → cleanup)
+- **Multiple Algorithms** - Support for PageRank, WCC, SCC, Label Propagation, and more
+- **Cost Tracking** - Automatic cost calculation for AMP deployments
+- **Error Handling** - Robust retry logic and guaranteed cleanup
+- **Easy Configuration** - Simple `.env` file-based configuration
+- **Production Ready** - Extracted from three production projects
 
 ## Quick Start
 

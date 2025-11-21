@@ -10,19 +10,19 @@
 Based on the gap analysis from psi-graph-analytics migration, here are the gaps and the plan to address them:
 
 ### Critical Gaps (Must Fix)
-1. ✅ **Named Graph Support** - Add `graph_name` parameter to `load_graph()`
-2. ✅ **Service Discovery** - Add `list_services()` method
+1.  **Named Graph Support** - Add `graph_name` parameter to `load_graph()`
+2.  **Service Discovery** - Add `list_services()` method
 
 ### High Priority Gaps (Should Fix)
-3. ✅ **Graph Management** - Add `list_graphs()` and `delete_graph()` methods
-4. ✅ **Job Management** - Add `wait_for_job()` and `list_jobs()` methods
+3.  **Graph Management** - Add `list_graphs()` and `delete_graph()` methods
+4.  **Job Management** - Add `wait_for_job()` and `list_jobs()` methods
 
 ### Medium Priority Gaps
-5. ✅ **Database Parameter** - Make `database` optional in `store_results()` (use `self.db_name`)
-6. ✅ **Connection Testing** - Add `test_connection()` method
+5.  **Database Parameter** - Make `database` optional in `store_results()` (use `self.db_name`)
+6.  **Connection Testing** - Add `test_connection()` method
 
 ### Low Priority
-7. ✅ **Method Name** - Just rename `get_job_status()` calls to `get_job()`
+7.  **Method Name** - Just rename `get_job_status()` calls to `get_job()`
 
 ---
 
@@ -30,7 +30,7 @@ Based on the gap analysis from psi-graph-analytics migration, here are the gaps 
 
 ### dnb_gae (Already Migrated)
 
-**Status:** ✅ **No Updates Required**
+**Status:**  **No Updates Required**
 
 **Reason:**
 - Uses `GAEOrchestrator` (not direct `load_graph()` calls)
@@ -44,7 +44,7 @@ Based on the gap analysis from psi-graph-analytics migration, here are the gaps 
 
 ### dnb_er
 
-**Status:** ⚠️ **Needs Verification**
+**Status:**  **Needs Verification**
 
 **Action Required:**
 - Check if dnb_er uses `load_graph()` or `store_results()` directly
@@ -87,12 +87,12 @@ See `GAP_ANALYSIS_AND_PLAN.md` for complete implementation details.
 
 ## Next Steps
 
-1. ✅ **Review gap analysis** (this document + `GAP_ANALYSIS_AND_PLAN.md`)
-2. ⏭️ **Start Phase 1** - Implement critical gaps
-3. ⏭️ **Test with real deployment** after each phase
-4. ⏭️ **Verify dnb_gae** still works
-5. ⏭️ **Verify dnb_er** still works (if applicable)
-6. ⏭️ **Begin psi-graph-analytics migration**
+1.  **Review gap analysis** (this document + `GAP_ANALYSIS_AND_PLAN.md`)
+2.  **Start Phase 1** - Implement critical gaps
+3.  **Test with real deployment** after each phase
+4.  **Verify dnb_gae** still works
+5.  **Verify dnb_er** still works (if applicable)
+6.  **Begin psi-graph-analytics migration**
 
 ---
 

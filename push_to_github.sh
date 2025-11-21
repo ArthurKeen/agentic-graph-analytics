@@ -14,7 +14,7 @@ REPO_NAME="graph-analytics-ai"
 
 # Check if remote already exists
 if git remote get-url origin >/dev/null 2>&1; then
-    echo "⚠️  Remote 'origin' already exists:"
+    echo "Warning: Remote 'origin' already exists:"
     git remote -v
     echo ""
     read -p "Do you want to update it? (y/n) " -n 1 -r
@@ -27,23 +27,23 @@ if git remote get-url origin >/dev/null 2>&1; then
     fi
 else
     # Add remote
-    echo "📦 Adding remote repository..."
+    echo "Adding remote repository..."
     git remote add origin "https://github.com/${GITHUB_USERNAME}/${REPO_NAME}.git"
 fi
 
 # Verify remote
-echo "✅ Remote configured:"
+echo "Remote configured:"
 git remote -v
 echo ""
 
 # Push to GitHub
-echo "🚀 Pushing to GitHub..."
+echo "Pushing to GitHub..."
 git push -u origin main
 
 if [ $? -eq 0 ]; then
     echo ""
-    echo "✅ Successfully pushed to GitHub!"
-    echo "📍 Repository: https://github.com/${GITHUB_USERNAME}/${REPO_NAME}"
+    echo "Successfully pushed to GitHub!"
+    echo "Repository: https://github.com/${GITHUB_USERNAME}/${REPO_NAME}"
     echo ""
     echo "Next steps:"
     echo "  1. Create a release tag: git tag -a v1.0.0 -m 'Initial release' && git push origin --tags"
@@ -51,7 +51,7 @@ if [ $? -eq 0 ]; then
     echo "  3. Add repository description and topics"
 else
     echo ""
-    echo "❌ Push failed. Common issues:"
+    echo "Push failed. Common issues:"
     echo "  - Repository doesn't exist on GitHub (create it first)"
     echo "  - Authentication required (use GitHub CLI or SSH keys)"
     echo "  - Wrong username (update GITHUB_USERNAME in this script)"

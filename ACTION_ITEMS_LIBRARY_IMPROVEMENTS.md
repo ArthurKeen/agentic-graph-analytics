@@ -4,15 +4,15 @@
 
 All three improvements from `dnb_gae` migration have been **implemented in code**, but we need to:
 
-1. ✅ **Verify** the implementations work correctly
-2. ⏭️ **Add tests** to ensure they work as expected
-3. ⏭️ **Create GitHub issue** to document and track these improvements
+1.  **Verify** the implementations work correctly
+2.  **Add tests** to ensure they work as expected
+3.  **Create GitHub issue** to document and track these improvements
 
 ---
 
 ## What Needs to Be Done
 
-### 1. Verify `.env` File Loading Priority ✅ **CODE DONE** → ⏭️ **NEEDS TESTING**
+### 1. Verify `.env` File Loading Priority  **CODE DONE** →  **NEEDS TESTING**
 
 **What was implemented:**
 - `load_env_vars()` now checks current working directory first, then library root
@@ -44,7 +44,7 @@ def test_load_env_vars_prioritizes_cwd(mock_env_amp, tmp_path):
 
 ---
 
-### 2. Verify Config Masking Fix ✅ **CODE DONE** → ⏭️ **NEEDS TESTING**
+### 2. Verify Config Masking Fix  **CODE DONE** →  **NEEDS TESTING**
 
 **What was implemented:**
 - `get_gae_config()` now uses `mask_secrets=False` to return actual values
@@ -77,7 +77,7 @@ def test_get_gae_config_unmasks_secrets(mock_env_amp):
 
 ---
 
-### 3. Verify SSL Verification Parser ✅ **CODE DONE** → ⏭️ **NEEDS TESTING**
+### 3. Verify SSL Verification Parser  **CODE DONE** →  **NEEDS TESTING**
 
 **What was implemented:**
 - `parse_ssl_verify()` now handles both string and boolean inputs
@@ -214,12 +214,12 @@ print('String false:', parse_ssl_verify('false'))
 
 ## Summary
 
-### What's Done ✅
+### What's Done 
 - All three improvements implemented in code
 - Type hints updated
 - Code follows the pattern from `dnb_gae`
 
-### What Needs to Be Done ⏭️
+### What Needs to Be Done 
 1. **Add unit tests** for all three improvements
 2. **Run tests** to verify everything works
 3. **Manual verification** with real scenarios

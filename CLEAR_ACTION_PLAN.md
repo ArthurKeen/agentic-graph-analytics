@@ -3,15 +3,15 @@
 ## Problem Found
 
 The code is implemented correctly, but:
-1. ❌ **One test is WRONG** - expects masked values but code returns unmasked
-2. ⏭️ **Missing test** for `.env` loading priority
-3. ⏭️ **Missing test** for SSL parser with boolean values
+1.  **One test is WRONG** - expects masked values but code returns unmasked
+2.  **Missing test** for `.env` loading priority
+3.  **Missing test** for SSL parser with boolean values
 
 ---
 
 ## What Needs to Be Done (In Order)
 
-### 🔴 Step 1: Fix Broken Test (CRITICAL)
+###  Step 1: Fix Broken Test (CRITICAL)
 
 **File:** `tests/test_config.py`  
 **Line:** ~208
@@ -23,8 +23,8 @@ def test_get_gae_config(self, mock_env_amp):
     config = get_gae_config()
     
     assert config['deployment_mode'] == 'amp'
-    assert config['api_key_id'] == '***MASKED***'  # ❌ WRONG - expects masked
-    assert config['api_key_secret'] == '***MASKED***'  # ❌ WRONG - expects masked
+    assert config['api_key_id'] == '***MASKED***'  #  WRONG - expects masked
+    assert config['api_key_secret'] == '***MASKED***'  #  WRONG - expects masked
 ```
 
 **Should be (CORRECT):**
@@ -34,8 +34,8 @@ def test_get_gae_config(self, mock_env_amp):
     config = get_gae_config()
     
     assert config['deployment_mode'] == 'amp'
-    assert config['api_key_id'] != '***MASKED***'  # ✅ Should be actual value
-    assert config['api_key_secret'] != '***MASKED***'  # ✅ Should be actual value
+    assert config['api_key_id'] != '***MASKED***'  #  Should be actual value
+    assert config['api_key_secret'] != '***MASKED***'  #  Should be actual value
     assert len(config['api_key_id']) > 0  # Verify it's a real key
 ```
 
@@ -43,7 +43,7 @@ def test_get_gae_config(self, mock_env_amp):
 
 ---
 
-### ⏭️ Step 2: Add Test for `.env` Loading Priority
+###  Step 2: Add Test for `.env` Loading Priority
 
 **File:** `tests/test_config.py`  
 **Add after existing tests:**
@@ -72,7 +72,7 @@ def test_load_env_vars_prioritizes_cwd(tmp_path, monkeypatch):
 
 ---
 
-### ⏭️ Step 3: Add Test for SSL Parser with Booleans
+###  Step 3: Add Test for SSL Parser with Booleans
 
 **File:** `tests/test_config.py`  
 **Add after `test_parse_ssl_verify_false`:**
@@ -97,7 +97,7 @@ def test_parse_ssl_verify_with_boolean(self):
 
 ---
 
-### ⏭️ Step 4: Run Tests
+###  Step 4: Run Tests
 
 **Command:**
 ```bash
@@ -106,28 +106,28 @@ pytest tests/test_config.py -v
 ```
 
 **Expected:**
-- All tests pass ✅
+- All tests pass 
 - No failures
 
 ---
 
-### ⏭️ Step 5: Create GitHub Issue
+###  Step 5: Create GitHub Issue
 
 **Action:**
 1. Copy contents from `GITHUB_ISSUE_LIBRARY_IMPROVEMENTS.md`
 2. Create new GitHub issue
-3. Update status to "✅ Implemented, tests added and verified"
+3. Update status to " Implemented, tests added and verified"
 4. Add labels: `bug`, `enhancement`, `config`
 
 ---
 
 ## Summary
 
-### What's Done ✅
+### What's Done 
 - Code is implemented correctly
 - All three improvements are in place
 
-### What Needs Fixing ❌
+### What Needs Fixing 
 1. **Fix broken test** - `test_get_gae_config` expects wrong values
 2. **Add missing test** - `.env` loading priority
 3. **Add missing test** - SSL parser with booleans

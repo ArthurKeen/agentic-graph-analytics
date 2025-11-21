@@ -13,7 +13,7 @@ This document outlines the recommended settings and configurations for the `grap
 Unified library for orchestrating ArangoDB Graph Analytics Engine operations across AMP and self-managed deployments
 ```
 
-**Visibility:** Private 🔒
+**Visibility:** Private
 
 **Topics/Tags:**
 - `python`
@@ -32,54 +32,54 @@ Unified library for orchestrating ArangoDB Graph Analytics Engine operations acr
 **Branch name pattern:** `main`
 
 **Protect matching branches:**
-- ✅ Require a pull request before merging
-  - ✅ Require approvals: 1
-  - ✅ Dismiss stale pull request approvals when new commits are pushed
-  - ✅ Require review from Code Owners
-- ✅ Require status checks to pass before merging
-  - ✅ Require branches to be up to date before merging
+- Require a pull request before merging
+  - Require approvals: 1
+  - Dismiss stale pull request approvals when new commits are pushed
+  - Require review from Code Owners
+- Require status checks to pass before merging
+  - Require branches to be up to date before merging
   - Status checks: `test (3.8)`, `test (3.9)`, `test (3.10)`, `test (3.11)`, `lint`
-- ✅ Require conversation resolution before merging
-- ✅ Do not allow bypassing the above settings
-- ✅ Include administrators
+- Require conversation resolution before merging
+- Do not allow bypassing the above settings
+- Include administrators
 
 ### 3. Actions Settings
 
 **Settings → Actions → General**
 
-- ✅ Allow all actions and reusable workflows
-- ✅ Allow actions created by GitHub
-- ✅ Allow Marketplace actions by verified creators
-- ✅ Allow actions by Marketplace verified creators
-- ✅ Allow actions in GITHUB_TOKEN to be requested by workflows
+-  Allow all actions and reusable workflows
+-  Allow actions created by GitHub
+-  Allow Marketplace actions by verified creators
+-  Allow actions by Marketplace verified creators
+-  Allow actions in GITHUB_TOKEN to be requested by workflows
 
 **Workflow permissions:**
-- ✅ Read and write permissions
-- ✅ Allow GitHub Actions to create and approve pull requests
+-  Read and write permissions
+-  Allow GitHub Actions to create and approve pull requests
 
 ### 4. Security Settings
 
 **Settings → Security**
 
-- ✅ Enable Dependabot alerts
-- ✅ Enable Dependabot security updates
-- ✅ Enable secret scanning
-- ✅ Enable push protection
+- Enable Dependabot alerts
+- Enable Dependabot security updates
+- Enable secret scanning
+- Enable push protection
 
 ### 5. Code and Automation
 
 **Settings → General → Features**
 
-- ✅ Issues
-- ✅ Projects
-- ✅ Wiki (optional)
-- ✅ Discussions (optional)
+- Issues
+- Projects
+- Wiki (optional)
+- Discussions (optional)
 
 **Settings → General → Pull Requests**
 
-- ✅ Allow merge commits
-- ✅ Allow squash merging (recommended)
-- ✅ Allow rebase merging
+- Allow merge commits
+- Allow squash merging (recommended)
+- Allow rebase merging
 
 ### 6. Webhooks (Optional)
 
@@ -89,7 +89,7 @@ If you need to integrate with external services:
 ## Repository Files
 
 ### README.md
-✅ Already configured with:
+Already configured with:
 - Project description
 - Installation instructions
 - Usage examples
@@ -97,16 +97,16 @@ If you need to integrate with external services:
 - API reference
 
 ### LICENSE
-✅ MIT License already included
+ MIT License already included
 
 ### .github/workflows/ci.yml
-✅ CI/CD workflow configured for:
+ CI/CD workflow configured for:
 - Multi-version Python testing (3.8, 3.9, 3.10, 3.11)
 - Code coverage reporting
 - Linting (flake8, black, mypy)
 
 ### .github/ISSUE_TEMPLATE/
-✅ Issue templates available for:
+ Issue templates available for:
 - Library improvements
 - Bug reports
 - Feature requests
@@ -115,7 +115,7 @@ If you need to integrate with external services:
 
 1. **Add Repository Description**
    - Go to repository main page
-   - Click ⚙️ Settings → General
+   - Click Settings → General
    - Add description and topics
 
 2. **Set Up Branch Protection**

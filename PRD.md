@@ -252,20 +252,20 @@ A factory function (`get_gae_connection()`) automatically selects the appropriat
 
 ### 7.1 Functional Requirements
 
-- ✅ Support both AMP and self-managed deployments
-- ✅ Automate complete workflow (deploy → load → analyze → store → cleanup)
-- ✅ Support all major graph algorithms
-- ✅ Handle errors gracefully with retry logic
-- ✅ Track costs for AMP deployments
-- ✅ Provide clear error messages and logging
+-  Support both AMP and self-managed deployments
+-  Automate complete workflow (deploy → load → analyze → store → cleanup)
+-  Support all major graph algorithms
+-  Handle errors gracefully with retry logic
+-  Track costs for AMP deployments
+-  Provide clear error messages and logging
 
 ### 7.2 Non-Functional Requirements
 
-- ✅ Configuration via environment variables
-- ✅ Comprehensive documentation
-- ✅ Migration guides for existing projects
-- ✅ Code reusability (single library for all projects)
-- ✅ Backward compatibility where possible
+-  Configuration via environment variables
+-  Comprehensive documentation
+-  Migration guides for existing projects
+-  Code reusability (single library for all projects)
+-  Backward compatibility where possible
 
 ---
 

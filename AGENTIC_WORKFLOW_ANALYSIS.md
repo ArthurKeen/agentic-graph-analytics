@@ -345,11 +345,11 @@ Agents have access to:
 ## Conclusion
 
 This project is **highly suitable** for an agentic workflow because:
-- ✅ Complex decision-making required
-- ✅ Multiple domains of expertise
-- ✅ Need for adaptive execution
-- ✅ Quality and validation important
-- ✅ Explainability valuable
+-  Complex decision-making required
+-  Multiple domains of expertise
+-  Need for adaptive execution
+-  Quality and validation important
+-  Explainability valuable
 
 The agentic approach will provide:
 - Better decision-making

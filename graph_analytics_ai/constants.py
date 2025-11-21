@@ -45,9 +45,9 @@ AUTHORIZATION_BEARER_PREFIX = "bearer"
 API_VERSION_PREFIX = "v1/"
 
 # Status Icons (for logging)
-ICON_SUCCESS = "✅"
-ICON_ERROR = "❌"
-ICON_WARNING = "⚠️"
+ICON_SUCCESS = "[SUCCESS]"
+ICON_ERROR = "[ERROR]"
+ICON_WARNING = "[WARNING]"
 
 # Job Status Values (for normalization)
 COMPLETED_STATES = ['done', 'finished', 'completed', 'succeeded']

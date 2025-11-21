@@ -156,9 +156,9 @@ def get_credential_validation_report() -> str:
         report_lines = ["Credential Validation Report", "=" * 50]
         
         if is_valid:
-            report_lines.append("✅ All credentials appear valid")
+            report_lines.append("All credentials appear valid")
         else:
-            report_lines.append("❌ Issues found:")
+            report_lines.append("Issues found:")
             for issue in issues:
                 report_lines.append(f"  - {issue}")
         

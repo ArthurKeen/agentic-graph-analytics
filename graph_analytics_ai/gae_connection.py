@@ -652,12 +652,12 @@ class GenAIGAEConnection(GAEConnectionBase):
                 raise ValueError("No JWT token in response")
             
             self.jwt_token = token
-            print("✅ JWT token obtained")
+            print("JWT token obtained")
             return token
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
-                print(f"❌ Authentication failed (401 Unauthorized)")
+                print(f"Authentication failed (401 Unauthorized)")
                 print(f"   URL: {auth_url}")
                 print(f"   This usually means:")
                 print(f"   1. Wrong username or password")
@@ -667,14 +667,14 @@ class GenAIGAEConnection(GAEConnectionBase):
                 
                 # Check for missing port
                 if ':8529' not in self.db_endpoint:
-                    print(f"\n   ⚠️  WARNING: Your endpoint '{self.db_endpoint}' is missing port :8529")
+                    print(f"\n   WARNING: Your endpoint '{self.db_endpoint}' is missing port :8529")
                     print(f"   It should be: {self.db_endpoint}:8529")
                     print(f"   This is the #1 cause of 401 errors!")
                 
                 # Check for password formatting issues
                 if self.db_password:
                     if self.db_password.startswith(' ') or self.db_password.endswith(' '):
-                        print(f"\n   ⚠️  WARNING: Password appears to have leading/trailing spaces")
+                        print(f"\n   WARNING: Password appears to have leading/trailing spaces")
                         print(f"   Remove spaces from ARANGO_PASSWORD in .env file")
                 
                 print(f"\n   Troubleshooting steps:")
@@ -684,10 +684,10 @@ class GenAIGAEConnection(GAEConnectionBase):
                 print(f"   4. Check network/VPN connectivity")
             raise
         except Exception as e:
-            print(f"❌ Failed to get JWT token: {e}")
+            print(f"Failed to get JWT token: {e}")
             # Check for missing port in any error
             if ':8529' not in self.db_endpoint:
-                print(f"\n   ⚠️  TIP: Check if your endpoint includes port :8529")
+                print(f"\n   TIP: Check if your endpoint includes port :8529")
                 print(f"   Current: {self.db_endpoint}")
                 print(f"   Should be: {self.db_endpoint}:8529")
             raise
@@ -727,13 +727,13 @@ class GenAIGAEConnection(GAEConnectionBase):
                 raise RuntimeError("Failed to start engine")
             
             self.engine_id = service_id
-            print(f"✅ Engine started successfully")
+            print(f"Engine started successfully")
             print(f"   Service ID: {service_id}")
             
             return service_id
             
         except Exception as e:
-            print(f"❌ Failed to start engine: {e}")
+            print(f"Failed to start engine: {e}")
             raise
     
     def deploy_engine(self, size_id: str = 'e4', type_id: str = 'gral') -> Dict[str, Any]:
@@ -768,13 +768,13 @@ class GenAIGAEConnection(GAEConnectionBase):
             )
             response.raise_for_status()
             
-            print(f"✅ Engine stopped successfully")
+            print(f"Engine stopped successfully")
             if service_id == self.engine_id:
                 self.engine_id = None
             return True
             
         except Exception as e:
-            print(f"❌ Failed to stop engine: {e}")
+            print(f"Failed to stop engine: {e}")
             return False
     
     def delete_engine(self, engine_id: Optional[str] = None) -> Dict[str, Any]:
@@ -1131,10 +1131,10 @@ class GenAIGAEConnection(GAEConnectionBase):
             
             # Try to list services (lightweight operation)
             services = self.list_services()
-            print("✅ Connection test successful")
+            print("Connection test successful")
             return True
         except Exception as e:
-            print(f"❌ Connection test failed: {e}")
+            print(f"Connection test failed: {e}")
             return False
     
     def list_graphs(self) -> List[Dict[str, Any]]:
@@ -1155,7 +1155,7 @@ class GenAIGAEConnection(GAEConnectionBase):
             )
             return graphs if isinstance(graphs, list) else []
         except Exception as e:
-            print(f"❌ Failed to list graphs: {e}")
+            print(f"Failed to list graphs: {e}")
             raise
     
     def delete_graph(self, graph_id: str) -> Dict[str, Any]:

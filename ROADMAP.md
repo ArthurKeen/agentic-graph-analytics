@@ -6,7 +6,7 @@ This roadmap outlines the development plan for the Graph Analytics AI library, i
 
 ## Current Status (v1.0.0)
 
-✅ **Completed:**
+ **Completed:**
 - Core GAE orchestration (AMP and self-managed)
 - Complete workflow automation (deploy → load → analyze → store → cleanup)
 - Cost tracking for AMP deployments

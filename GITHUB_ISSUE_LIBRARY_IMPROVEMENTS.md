@@ -4,7 +4,7 @@
 
 During the migration of the `dnb_gae` project to use `graph-analytics-ai`, three improvements were identified and implemented to fix bugs and improve usability. These are general-purpose enhancements that should be incorporated into the main library.
 
-**Status:** ✅ **All improvements have been implemented in the library**
+**Status:**  **All improvements have been implemented in the library**
 
 This issue documents the improvements for reference and verification.
 
@@ -12,7 +12,7 @@ This issue documents the improvements for reference and verification.
 
 ## Improvements Identified
 
-### 1. `.env` File Loading Priority ✅ **IMPLEMENTED**
+### 1. `.env` File Loading Priority  **IMPLEMENTED**
 
 **Problem:**
 The library was looking for `.env` files in the library's project root, but when used as a dependency, projects typically have their `.env` file in the project root (current working directory).
@@ -23,7 +23,7 @@ Modified `load_env_vars()` to check the current working directory first, then fa
 **File:** `graph_analytics_ai/config.py`  
 **Function:** `load_env_vars()`
 
-**Implementation Status:** ✅ **Already implemented** (lines 65-84)
+**Implementation Status:**  **Already implemented** (lines 65-84)
 
 **Current Implementation:**
 ```python
@@ -50,13 +50,13 @@ def load_env_vars() -> None:
 ```
 
 **Verification:**
-- ✅ Works when `.env` is in project root (most common case)
-- ✅ Falls back to library root if project `.env` doesn't exist
-- ✅ Maintains backward compatibility
+-  Works when `.env` is in project root (most common case)
+-  Falls back to library root if project `.env` doesn't exist
+-  Maintains backward compatibility
 
 ---
 
-### 2. Config Masking Bug Fix ✅ **IMPLEMENTED**
+### 2. Config Masking Bug Fix  **IMPLEMENTED**
 
 **Problem:**
 The `get_gae_config()` function was returning masked secrets (`***MASKED***`) when used internally by `GAEManager`, causing authentication failures. The masking is useful for logging/display, but internal library code needs the actual values.
@@ -67,7 +67,7 @@ Changed `get_gae_config()` to use `mask_secrets=False` for internal library use.
 **File:** `graph_analytics_ai/config.py`  
 **Function:** `get_gae_config()`
 
-**Implementation Status:** ✅ **Already implemented** (line 281)
+**Implementation Status:**  **Already implemented** (line 281)
 
 **Current Implementation:**
 ```python
@@ -86,13 +86,13 @@ def get_gae_config() -> Dict[str, str]:
 ```
 
 **Verification:**
-- ✅ `GAEManager` can now read actual API key values
-- ✅ Authentication works correctly
-- ✅ `to_dict(mask_secrets=True)` still available for logging/display
+-  `GAEManager` can now read actual API key values
+-  Authentication works correctly
+-  `to_dict(mask_secrets=True)` still available for logging/display
 
 ---
 
-### 3. SSL Verification Parser Enhancement ✅ **IMPLEMENTED** (Type hint updated)
+### 3. SSL Verification Parser Enhancement  **IMPLEMENTED** (Type hint updated)
 
 **Problem:**
 The `parse_ssl_verify()` function only handled string values, but environment variables can be parsed as booleans by `python-dotenv`, causing `AttributeError: 'bool' object has no attribute 'lower'`.
@@ -103,8 +103,8 @@ Added handling for boolean input in addition to strings.
 **File:** `graph_analytics_ai/config.py`  
 **Function:** `parse_ssl_verify()`
 
-**Implementation Status:** ✅ **Already implemented** (lines 284-303)  
-**Type Hint:** ✅ **Updated** to `Union[str, bool]`
+**Implementation Status:**  **Already implemented** (lines 284-303)  
+**Type Hint:**  **Updated** to `Union[str, bool]`
 
 **Current Implementation:**
 ```python
@@ -131,10 +131,10 @@ def parse_ssl_verify(value: Union[str, bool]) -> bool:
 ```
 
 **Verification:**
-- ✅ Handles string values: `"true"`, `"false"`, `"1"`, `"0"`, etc.
-- ✅ Handles boolean values: `True`, `False`
-- ✅ Defaults to `True` for unexpected types
-- ✅ No more `AttributeError` when boolean is passed
+-  Handles string values: `"true"`, `"false"`, `"1"`, `"0"`, etc.
+-  Handles boolean values: `True`, `False`
+-  Defaults to `True` for unexpected types
+-  No more `AttributeError` when boolean is passed
 
 ---
 
@@ -199,12 +199,12 @@ These improvements were identified and implemented during the migration of the `
 
 ## Status
 
-✅ **All improvements have been implemented in the library**
+ **All improvements have been implemented in the library**
 
 The following changes were made:
-1. ✅ `.env` file loading priority - Implemented
-2. ✅ Config masking fix - Implemented
-3. ✅ SSL verification parser - Implemented (type hint updated)
+1.  `.env` file loading priority - Implemented
+2.  Config masking fix - Implemented
+3.  SSL verification parser - Implemented (type hint updated)
 
 **Action Required:**
 - Verify all improvements work as expected

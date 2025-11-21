@@ -8,11 +8,11 @@
 2. Fill in:
    - **Repository name:** `graph-analytics-ai`
    - **Description:** "Unified library for orchestrating ArangoDB Graph Analytics Engine operations"
-   - **Visibility:** Select **Private** 🔒
+   - **Visibility:** Select **Private** 
    - **DO NOT** check:
-     - ❌ Add a README file
-     - ❌ Add .gitignore
-     - ❌ Choose a license
+     -  Add a README file
+     -  Add .gitignore
+     -  Choose a license
    (We already have these files)
 3. Click **"Create repository"**
 

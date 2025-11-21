@@ -39,7 +39,7 @@ This document outlines the gaps identified between the psi-graph-analytics proje
 
 ## Detailed Gap Analysis
 
-### Gap 1: Named Graph Support ❌ **CRITICAL**
+### Gap 1: Named Graph Support  **CRITICAL**
 
 **Current psi Implementation:**
 ```python
@@ -72,7 +72,7 @@ gae.load_graph(
 
 ---
 
-### Gap 2: Service Discovery ❌ **CRITICAL**
+### Gap 2: Service Discovery  **CRITICAL**
 
 **Current psi Implementation:**
 ```python
@@ -95,7 +95,7 @@ if gae_services:
 
 ---
 
-### Gap 3: Graph Management ❌ **HIGH PRIORITY**
+### Gap 3: Graph Management  **HIGH PRIORITY**
 
 **Current psi Implementation:**
 ```python
@@ -122,7 +122,7 @@ gae.delete_graph(graph_id='9')
 
 ---
 
-### Gap 4: Job Management ❌ **HIGH PRIORITY**
+### Gap 4: Job Management  **HIGH PRIORITY**
 
 **Current psi Implementation:**
 ```python
@@ -146,7 +146,7 @@ jobs = gae.list_jobs()
 
 ---
 
-### Gap 5: Database Parameter ⚠️ **MEDIUM PRIORITY**
+### Gap 5: Database Parameter  **MEDIUM PRIORITY**
 
 **Current psi Implementation:**
 ```python
@@ -178,7 +178,7 @@ gae.store_results(
 
 ---
 
-### Gap 6: Connection Testing ❌ **LOW PRIORITY**
+### Gap 6: Connection Testing  **LOW PRIORITY**
 
 **Current psi Implementation:**
 ```python
@@ -199,7 +199,7 @@ if gae.test_connection():
 
 ---
 
-### Gap 7: Method Name Difference ⚠️ **LOW PRIORITY**
+### Gap 7: Method Name Difference  **LOW PRIORITY**
 
 **Current psi:** `get_job_status(job_id)`  
 **Library:** `get_job(job_id)`
@@ -507,12 +507,12 @@ if gae.test_connection():
 
 ## Success Criteria
 
-1. ✅ All critical gaps addressed
-2. ✅ All high priority gaps addressed
-3. ✅ Library works with psi-graph-analytics scripts
-4. ✅ No regressions in dnb_er / dnb_gae
-5. ✅ All tests pass
-6. ✅ Documentation updated
+1.  All critical gaps addressed
+2.  All high priority gaps addressed
+3.  Library works with psi-graph-analytics scripts
+4.  No regressions in dnb_er / dnb_gae
+5.  All tests pass
+6.  Documentation updated
 
 ---
 

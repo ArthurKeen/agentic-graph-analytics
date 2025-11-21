@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-**Status:** Code is implemented ✅, but we need to:
+**Status:** Code is implemented , but we need to:
 1. **Add missing tests** (30 minutes)
 2. **Verify everything works** (15 minutes)
 3. **Create GitHub issue** (5 minutes)
@@ -14,22 +14,22 @@
 All three improvements from `dnb_gae` are **already in the code**, but we need to verify they work:
 
 ### 1. `.env` File Loading Priority
-- ✅ **Code:** Implemented (checks current directory first)
-- ⏭️ **Test:** Need to add test
+-  **Code:** Implemented (checks current directory first)
+-  **Test:** Need to add test
 
 ### 2. Config Masking Fix
-- ✅ **Code:** Implemented (`mask_secrets=False`)
-- ⏭️ **Test:** Need to verify test covers this
+-  **Code:** Implemented (`mask_secrets=False`)
+-  **Test:** Need to verify test covers this
 
 ### 3. SSL Verification Parser
-- ✅ **Code:** Implemented (handles booleans)
-- ⏭️ **Test:** Need to add test for boolean handling
+-  **Code:** Implemented (handles booleans)
+-  **Test:** Need to add test for boolean handling
 
 ---
 
 ## Action Items (In Order)
 
-### ✅ Step 1: Check What Tests Already Exist
+###  Step 1: Check What Tests Already Exist
 
 **Command:**
 ```bash
@@ -44,7 +44,7 @@ grep -n "def test" tests/test_config.py
 
 ---
 
-### ⏭️ Step 2: Add Missing Tests
+###  Step 2: Add Missing Tests
 
 **File to edit:** `tests/test_config.py`
 
@@ -102,7 +102,7 @@ def test_parse_ssl_verify_with_boolean(mock_env_amp):
 
 ---
 
-### ⏭️ Step 3: Run Tests
+###  Step 3: Run Tests
 
 **Command:**
 ```bash
@@ -111,12 +111,12 @@ pytest tests/test_config.py -v
 ```
 
 **Expected result:**
-- All tests pass ✅
+- All tests pass 
 - No errors or failures
 
 ---
 
-### ⏭️ Step 4: Quick Manual Verification (Optional)
+###  Step 4: Quick Manual Verification (Optional)
 
 **Test 1: `.env` Loading**
 ```bash
@@ -162,7 +162,7 @@ print('String true:', parse_ssl_verify('true'))
 
 ---
 
-### ⏭️ Step 5: Create GitHub Issue
+###  Step 5: Create GitHub Issue
 
 **Action:**
 1. Go to GitHub repository
