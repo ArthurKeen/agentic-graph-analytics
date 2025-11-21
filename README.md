@@ -21,7 +21,7 @@ A unified Python library for orchestrating ArangoDB Graph Analytics Engine (GAE)
 
 ```bash
 # Install from source (development)
-git clone https://github.com/yourusername/graph-analytics-ai.git
+git clone https://github.com/ArthurKeen/graph-analytics-ai.git
 cd graph-analytics-ai
 pip install -e .
 

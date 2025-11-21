@@ -17,7 +17,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Arthur Keen",
     author_email="",
-    url="https://github.com/yourusername/graph-analytics-ai",
+    url="https://github.com/ArthurKeen/graph-analytics-ai",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
