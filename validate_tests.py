@@ -38,13 +38,13 @@ def main():
     test_dir = Path(__file__).parent / "tests"
     
     if not test_dir.exists():
-        print("❌ Tests directory not found")
+        print("ERROR: Tests directory not found")
         return 1
     
     test_files = list(test_dir.glob("test_*.py"))
     
     if not test_files:
-        print("❌ No test files found")
+        print("ERROR: No test files found")
         return 1
     
     print(f"Validating {len(test_files)} test files...\n")
@@ -52,20 +52,20 @@ def main():
     all_ok = True
     for test_file in sorted(test_files):
         ok, message = validate_test_file(test_file)
-        status = "✅" if ok else "❌"
+        status = "PASS" if ok else "FAIL"
         print(f"{status} {test_file.name}: {message}")
         if not ok:
             all_ok = False
     
     print()
     if all_ok:
-        print("✅ All test files validated successfully!")
+        print("All test files validated successfully!")
         print("\nTo run tests, install pytest and run:")
         print("  pip install pytest pytest-mock")
         print("  pytest tests/ -v")
         return 0
     else:
-        print("❌ Some test files have errors")
+        print("ERROR: Some test files have errors")
         return 1
 
 if __name__ == "__main__":
