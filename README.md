@@ -10,6 +10,9 @@ A unified Python library for orchestrating ArangoDB Graph Analytics Engine (GAE)
 - **Unified Interface** - Single API for both AMP and self-managed deployments
 - **Complete Automation** - Full workflow orchestration (deploy → load → analyze → store → cleanup)
 - **Multiple Algorithms** - Support for PageRank, WCC, SCC, Label Propagation, and more
+- **Result Management** - Index management, validation, comparison, and batch operations
+- **Query Helpers** - Cross-reference results, find top influential vertices, join with vertex details
+- **Export Utilities** - Export results to CSV and JSON formats
 - **Cost Tracking** - Automatic cost calculation for AMP deployments
 - **Error Handling** - Robust retry logic and guaranteed cleanup
 - **Easy Configuration** - Simple `.env` file-based configuration
@@ -97,6 +100,8 @@ print(f"Cost: ${result.estimated_cost_usd}")  # AMP only
 
 - **[PRD.md](PRD.md)** - Product Requirements Document
 - **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - Migration guide for existing projects
+- **[Result Management API](docs/RESULT_MANAGEMENT_API.md)** - API documentation for result management, queries, and export
+- **[Result Management Examples](docs/RESULT_MANAGEMENT_EXAMPLES.md)** - Usage examples for result operations
 - **[Examples](#examples)** - Code examples below
 
 ## Supported Algorithms
@@ -194,7 +199,11 @@ graph_analytics_ai/
 ├── config.py            # Configuration management
 ├── db_connection.py     # ArangoDB connection
 ├── gae_connection.py    # GAE connection (AMP & self-managed)
-└── gae_orchestrator.py  # Workflow orchestration
+├── gae_orchestrator.py  # Workflow orchestration
+├── results.py           # Result collection management & batch operations
+├── queries.py           # Result query helpers
+├── export.py            # Export utilities (CSV, JSON)
+└── utils.py             # Utility functions
 ```
 
 ### Deployment Models

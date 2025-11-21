@@ -9,7 +9,8 @@ import requests
 import time
 import subprocess
 import warnings
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Union
+from pathlib import Path
 from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
 
@@ -1257,6 +1258,194 @@ class GenAIGAEConnection(GAEConnectionBase):
         except Exception:
             # Return empty dict on error (backward compatibility)
             return {}
+    
+    def get_db(self):
+        """
+        Get ArangoDB database connection object.
+        
+        Returns:
+            StandardDatabase: ArangoDB database connection
+        """
+        from .db_connection import get_db_connection
+        return get_db_connection()
+    
+    # ====================================================================
+    # RESULT COLLECTION MANAGEMENT (delegates to results module)
+    # ====================================================================
+    
+    def ensure_result_collection_indexes(
+        self,
+        collection_names: Optional[List[str]] = None,
+        verbose: bool = False
+    ) -> Dict[str, int]:
+        """Ensure indexes exist on 'id' field for result collections."""
+        from .results import ensure_result_collection_indexes
+        return ensure_result_collection_indexes(self.get_db(), collection_names, verbose)
+    
+    def verify_result_collection(
+        self,
+        collection_name: str,
+        check_id_field: bool = True,
+        check_index: bool = True
+    ) -> Dict[str, Any]:
+        """Verify that a result collection has the expected structure."""
+        from .results import verify_result_collection
+        return verify_result_collection(self.get_db(), collection_name, check_id_field, check_index)
+    
+    def validate_result_schema(
+        self,
+        result_collection: str,
+        expected_fields: Optional[List[str]] = None,
+        expected_field_types: Optional[Dict[str, type]] = None,
+        sample_size: int = 100
+    ) -> Dict[str, Any]:
+        """Validate that result collection matches expected schema."""
+        from .results import validate_result_schema
+        return validate_result_schema(
+            self.get_db(), result_collection, expected_fields, expected_field_types, sample_size
+        )
+    
+    def compare_result_collections(
+        self,
+        collection1: str,
+        collection2: str,
+        compare_fields: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Compare two result collections."""
+        from .results import compare_result_collections
+        return compare_result_collections(self.get_db(), collection1, collection2, compare_fields)
+    
+    # ====================================================================
+    # RESULT QUERY HELPERS (delegates to queries module)
+    # ====================================================================
+    
+    def cross_reference_results(
+        self,
+        collection1: str,
+        collection2: str,
+        filter1: Optional[str] = None,
+        filter2: Optional[str] = None,
+        join_fields: Optional[Dict[str, str]] = None,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Cross-reference two result collections by 'id' field."""
+        from .queries import cross_reference_results
+        return cross_reference_results(
+            self.get_db(), collection1, collection2, filter1, filter2, join_fields, limit
+        )
+    
+    def get_top_influential_connected(
+        self,
+        pagerank_collection: str = 'pagerank_results',
+        wcc_collection: str = 'wcc_results',
+        component_id: Optional[str] = None,
+        min_influence: Optional[float] = None,
+        limit: int = 100,
+        include_vertex_details: bool = False,
+        vertex_collection: str = 'persons',
+        vertex_fields: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Get top influential vertices who are in the connected component."""
+        from .queries import get_top_influential_connected
+        return get_top_influential_connected(
+            self.get_db(), pagerank_collection, wcc_collection, component_id,
+            min_influence, limit, include_vertex_details, vertex_collection, vertex_fields
+        )
+    
+    def get_results_with_details(
+        self,
+        result_collection: str,
+        vertex_collection: str = 'persons',
+        result_filter: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+        limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Get result collection data joined with vertex details."""
+        from .queries import get_results_with_details
+        return get_results_with_details(
+            self.get_db(), result_collection, vertex_collection, result_filter, fields, limit
+        )
+    
+    # ====================================================================
+    # EXPORT UTILITIES (delegates to export module)
+    # ====================================================================
+    
+    def export_results_to_csv(
+        self,
+        result_collection: str,
+        output_path: Union[str, Path],
+        query: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+        include_headers: bool = True,
+        join_vertex: bool = False,
+        vertex_collection: str = 'persons',
+        vertex_fields: Optional[List[str]] = None
+    ) -> int:
+        """Export result collection to CSV file."""
+        from .export import export_results_to_csv
+        return export_results_to_csv(
+            self.get_db(), result_collection, output_path, query, fields,
+            include_headers, join_vertex, vertex_collection, vertex_fields
+        )
+    
+    def export_results_to_json(
+        self,
+        result_collection: str,
+        output_path: Union[str, Path],
+        query: Optional[str] = None,
+        pretty: bool = True,
+        join_vertex: bool = False,
+        vertex_collection: str = 'persons',
+        vertex_fields: Optional[List[str]] = None
+    ) -> int:
+        """Export result collection to JSON file."""
+        from .export import export_results_to_json
+        return export_results_to_json(
+            self.get_db(), result_collection, output_path, query, pretty,
+            join_vertex, vertex_collection, vertex_fields
+        )
+    
+    # ====================================================================
+    # BATCH RESULT OPERATIONS (delegates to results module)
+    # ====================================================================
+    
+    def bulk_update_result_metadata(
+        self,
+        result_collection: str,
+        metadata: Dict[str, Any],
+        filter_query: Optional[str] = None,
+        batch_size: int = 1000
+    ) -> int:
+        """Add metadata fields to all results in a collection."""
+        from .results import bulk_update_result_metadata
+        return bulk_update_result_metadata(
+            self.get_db(), result_collection, metadata, filter_query, batch_size
+        )
+    
+    def copy_results(
+        self,
+        source_collection: str,
+        target_collection: str,
+        filter_query: Optional[str] = None,
+        transform: Optional[str] = None,
+        batch_size: int = 1000
+    ) -> int:
+        """Copy results from one collection to another."""
+        from .results import copy_results
+        return copy_results(
+            self.get_db(), source_collection, target_collection,
+            filter_query, transform, batch_size
+        )
+    
+    def delete_results_by_filter(
+        self,
+        result_collection: str,
+        filter_query: str,
+        batch_size: int = 1000
+    ) -> int:
+        """Delete results matching a filter query."""
+        from .results import delete_results_by_filter
+        return delete_results_by_filter(self.get_db(), result_collection, filter_query, batch_size)
 
 
 def get_gae_connection() -> GAEConnectionBase:

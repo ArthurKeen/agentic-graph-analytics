@@ -12,7 +12,7 @@ Key Features:
 - Comprehensive error handling and retry logic
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .config import (
     get_arango_config,
@@ -39,6 +39,7 @@ from .utils import (
     validate_credentials,
     get_credential_validation_report
 )
+from . import results, queries, export
 
 __all__ = [
     # Configuration
@@ -64,5 +65,9 @@ __all__ = [
     'check_password_format',
     'validate_credentials',
     'get_credential_validation_report',
+    # Result Management Modules
+    'results',
+    'queries',
+    'export',
 ]
 
