@@ -90,10 +90,8 @@ class TestGAEManager:
         }
         mock_get_config.return_value = mock_config
         
-        manager = GAEManager()
-        
         with pytest.raises(ValueError, match="invalid characters"):
-            manager._refresh_token()
+            GAEManager()
     
     @patch('graph_analytics_ai.gae_connection.get_gae_config')
     def test_is_token_expired(self, mock_get_config, mock_env_amp):
@@ -143,7 +141,9 @@ class TestGenAIGAEConnection:
         """Test initialization with missing credentials."""
         mock_config = {
             'endpoint': '',
-            'password': ''
+            'password': '',
+            'database': 'testdb',
+            'user': 'root'
         }
         mock_get_config.return_value = mock_config
         

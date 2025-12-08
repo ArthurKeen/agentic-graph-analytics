@@ -185,7 +185,7 @@ def _extract_deployment_url(endpoint: str) -> str:
             host = host_part.split(':', 1)[0]
             return f"{parts[0]}://{host}"
         else:
-            return endpoint.rsplit(':', 1)[0] if ':' in endpoint else endpoint
+            return f"{parts[0]}://{host_part}"
     else:
         return endpoint.rsplit(':', 1)[0] if ':' in endpoint else endpoint
 

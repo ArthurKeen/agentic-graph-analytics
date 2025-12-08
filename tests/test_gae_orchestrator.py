@@ -15,7 +15,7 @@ from graph_analytics_ai.gae_orchestrator import (
 class TestAnalysisConfig:
     """Tests for AnalysisConfig dataclass."""
     
-    def test_init_minimal(self):
+    def test_init_minimal(self, mock_env_amp):
         """Test initialization with minimal parameters."""
         config = AnalysisConfig(
             name="test_analysis",
@@ -28,7 +28,7 @@ class TestAnalysisConfig:
         assert config.engine_size == "e16"  # Default
         assert config.database is not None  # Set in __post_init__
     
-    def test_init_with_params(self):
+    def test_init_with_params(self, mock_env_amp):
         """Test initialization with all parameters."""
         config = AnalysisConfig(
             name="test_analysis",
@@ -47,7 +47,7 @@ class TestAnalysisConfig:
         assert config.engine_size == "e32"
         assert config.algorithm_params == {"custom": "param"}
     
-    def test_default_algorithm_params(self):
+    def test_default_algorithm_params(self, mock_env_amp):
         """Test that default algorithm parameters are set."""
         config = AnalysisConfig(
             name="test",
@@ -74,9 +74,15 @@ class TestGAEOrchestrator:
         
         orchestrator = GAEOrchestrator()
         
+        # Connections should be lazy loaded
+        assert orchestrator.gae is None
+        assert orchestrator.db is None
+        assert orchestrator.verbose is True
+        
+        # Initialize
+        orchestrator._initialize_connections()
         assert orchestrator.gae is not None
         assert orchestrator.db is not None
-        assert orchestrator.verbose is True
     
     @patch('graph_analytics_ai.gae_orchestrator.get_gae_connection')
     @patch('graph_analytics_ai.gae_orchestrator.get_db_connection')
@@ -136,7 +142,7 @@ class TestGAEOrchestrator:
         summary = orchestrator.get_summary(result)
         
         assert "test_analysis" in summary
-        assert "1000" in summary
-        assert "5000" in summary
+        assert "1,000" in summary
+        assert "5,000" in summary
         assert "0.10" in summary
 

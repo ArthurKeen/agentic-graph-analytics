@@ -42,7 +42,7 @@ class TestValidateEndpointFormat:
         """Test endpoint missing protocol."""
         is_valid, error = validate_endpoint_format("example.com:8529")
         assert is_valid is False
-        assert "protocol" in error.lower()
+        assert "http" in error.lower() or "https" in error.lower()
     
     def test_empty_endpoint(self):
         """Test empty endpoint."""

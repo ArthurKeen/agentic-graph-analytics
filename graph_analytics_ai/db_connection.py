@@ -70,19 +70,17 @@ def get_db_connection():
     # Connect to target database
     # Note: For limited users, we may not be able to list databases
     # So we'll try to connect directly and handle errors gracefully
+    listing_succeeded = False
+    db_names = []
+    
     try:
         available_dbs = sys_db.databases()
+        listing_succeeded = True
         # Handle both dict format and string format
         if available_dbs and isinstance(available_dbs[0], dict):
             db_names = [db['name'] for db in available_dbs]
         else:
             db_names = available_dbs
-        
-        if database not in db_names:
-            raise ValueError(
-                f"Database '{database}' does not exist on this cluster. "
-                f"Available: {db_names}"
-            )
     except Exception as e:
         error_str = str(e).lower()
         # If it's an authorization error, user might be limited - that's okay
@@ -93,6 +91,13 @@ def get_db_connection():
         else:
             print(f"Warning: Could not verify database existence: {e}")
             # Continue anyway - let the connection attempt fail if database doesn't exist
+
+    if listing_succeeded:
+        if database not in db_names:
+            raise ValueError(
+                f"Database '{database}' does not exist on this cluster. "
+                f"Available: {db_names}"
+            )
     
     db = client.db(database, username=username, password=password, verify=verify_ssl)
     print(f"✓ Connected to database: {database}")
