@@ -253,9 +253,12 @@ class GAEConfig:
         return result
 
 
-def get_arango_config() -> Dict[str, str]:
+def get_arango_config(mask_secrets: bool = False) -> Dict[str, str]:
     """
     Get ArangoDB connection configuration from environment.
+    
+    Args:
+        mask_secrets: If True, mask password in output (default: False for internal use)
     
     Returns:
         dict: Configuration dictionary
@@ -264,7 +267,7 @@ def get_arango_config() -> Dict[str, str]:
         ValueError: If required variables are missing
     """
     config = ArangoConfig()
-    return config.to_dict()
+    return config.to_dict(mask_secrets=mask_secrets)
 
 
 def get_gae_config() -> Dict[str, str]:

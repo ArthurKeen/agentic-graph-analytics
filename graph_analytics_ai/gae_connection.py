@@ -618,7 +618,6 @@ class GenAIGAEConnection(GAEConnectionBase):
             host_part = self.db_endpoint.split('://', 1)[-1].split('/', 1)[0]
             # Check if port is missing (no colon in hostname part)
             if ':' not in host_part:
-                import warnings
                 warnings.warn(
                     f"ARANGO_ENDPOINT appears to be missing the port number.\n"
                     f"  Current: {self.db_endpoint}\n"
