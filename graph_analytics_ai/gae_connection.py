@@ -41,7 +41,7 @@ class GAEConnectionBase(ABC):
     """Base class for GAE connections."""
     
     @abstractmethod
-    def deploy_engine(self, size_id: str = 'e4', type_id: str = 'gral') -> Dict[str, Any]:
+    def deploy_engine(self, size_id: str = 'e8', type_id: str = 'gral') -> Dict[str, Any]:
         """Deploy a new GAE engine."""
         pass
     
@@ -313,7 +313,7 @@ class GAEManager(GAEConnectionBase):
         response = self._api_request_with_retry('GET', url, self._management_headers())
         return response.json().get('items', [])
     
-    def deploy_engine(self, size_id: str = 'e4', type_id: str = 'gral') -> Dict[str, Any]:
+    def deploy_engine(self, size_id: str = 'e8', type_id: str = 'gral') -> Dict[str, Any]:
         """Deploy a new Graph Analytics Engine."""
         self._ensure_token_valid()
         url = f"{self.base_url}/engines"
@@ -736,7 +736,7 @@ class GenAIGAEConnection(GAEConnectionBase):
             print(f"Failed to start engine: {e}")
             raise
     
-    def deploy_engine(self, size_id: str = 'e4', type_id: str = 'gral') -> Dict[str, Any]:
+    def deploy_engine(self, size_id: str = 'e8', type_id: str = 'gral') -> Dict[str, Any]:
         """Deploy engine (alias for start_engine for compatibility)."""
         service_id = self.start_engine()
         return {
@@ -1213,6 +1213,20 @@ class GenAIGAEConnection(GAEConnectionBase):
             job = self.get_job(job_id)
             status = job.get('status', {})
             state = status.get('state', job.get('state', 'unknown'))
+            
+            # Check for progress-based format (flat structure)
+            if 'progress' in job and 'total' in job:
+                progress = job.get('progress', 0)
+                total = job.get('total', 1)
+                
+                # Check for explicit error field
+                if job.get('error', False):
+                    error_msg = job.get('error_message', job.get('errorMessage', 'Unknown error'))
+                    raise RuntimeError(f"Job {job_id} failed: {error_msg}")
+                
+                if progress >= total and total > 0:
+                    print(f"{ICON_SUCCESS} Job {job_id} completed in {int(elapsed)}s")
+                    return job
             
             if state in COMPLETED_STATES:
                 print(f"{ICON_SUCCESS} Job {job_id} completed in {int(elapsed)}s")
