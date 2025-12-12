@@ -28,8 +28,10 @@ docs/planning/
 ├── 04-integration/ - Platform Integration
 │   └── COMPLETE_PLATFORM_VISION.md - How all features work together
 │
-└── examples/ - Complete Use Cases
-    └── COMPLETE_CUSTOMER_EXAMPLE.md - Supply chain risk analysis example
+├── examples/ - Complete Use Cases
+│   └── COMPLETE_CUSTOMER_EXAMPLE.md - Supply chain risk analysis example
+│
+└── TESTING_STRATEGY.md - Comprehensive testing approach
 ```
 
 ---
@@ -85,6 +87,17 @@ docs/planning/
 - Input documents, code, and outputs
 - Business impact and ROI
 - Folder: `examples/`
+
+### Testing Strategy
+
+**Comprehensive Testing Approach:**
+- Unit testing (70% coverage target: 90%+)
+- Integration testing (25%)
+- E2E testing (5%)
+- Mock strategies and fixtures
+- CI/CD integration
+- Backward compatibility tests
+- File: `TESTING_STRATEGY.md`
 
 ---
 
