@@ -10,8 +10,12 @@ from .models import (
     AnalysisTemplate,
     AlgorithmType,
     EngineSize,
-    TemplateConfig
+    TemplateConfig,
+    AlgorithmParameters,
+    DEFAULT_ALGORITHM_PARAMS,
+    recommend_engine_size
 )
+from .validator import TemplateValidator, ValidationResult, validate_template
 
 __all__ = [
     "TemplateGenerator",
@@ -20,5 +24,11 @@ __all__ = [
     "AlgorithmType",
     "EngineSize",
     "TemplateConfig",
+    "AlgorithmParameters",
+    "DEFAULT_ALGORITHM_PARAMS",
+    "recommend_engine_size",
+    "TemplateValidator",
+    "ValidationResult",
+    "validate_template",
 ]
 

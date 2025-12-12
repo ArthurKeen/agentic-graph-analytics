@@ -217,16 +217,16 @@ class TemplateGenerator:
         optimized = params.copy()
         
         # Get graph stats
-        vertex_count = schema.total_vertices
-        edge_count = schema.total_edges
-        avg_degree = edge_count / vertex_count if vertex_count > 0 else 0
+        total_docs = schema.total_documents
+        total_edges = schema.total_edges
+        avg_degree = (2 * total_edges) / total_docs if total_docs > 0 else 0
         
         # Algorithm-specific optimizations
         if algorithm_type == AlgorithmType.PAGERANK:
             # Adjust iterations based on graph size
-            if vertex_count > 10000:
+            if total_docs > 10000:
                 optimized["max_iterations"] = 50  # Fewer for large graphs
-            elif vertex_count < 1000:
+            elif total_docs < 1000:
                 optimized["max_iterations"] = 150  # More for small graphs
             
             # Adjust threshold based on density
@@ -235,18 +235,18 @@ class TemplateGenerator:
         
         elif algorithm_type == AlgorithmType.LOUVAIN:
             # Adjust resolution based on graph size
-            if vertex_count > 10000:
+            if total_docs > 10000:
                 optimized["resolution"] = 1.5  # Larger communities
-            elif vertex_count < 500:
+            elif total_docs < 500:
                 optimized["resolution"] = 0.5  # Smaller communities
             
             # Adjust min community size
-            min_size = max(2, int(vertex_count * 0.005))  # 0.5% of vertices
+            min_size = max(2, int(total_docs * 0.005))  # 0.5% of documents
             optimized["min_community_size"] = min_size
         
         elif algorithm_type == AlgorithmType.BETWEENNESS_CENTRALITY:
             # For very large graphs, might want to sample
-            if vertex_count > 50000:
+            if total_docs > 50000:
                 optimized["sample_size"] = 1000  # Sample nodes
         
         return optimized
@@ -257,7 +257,7 @@ class TemplateGenerator:
             return self.default_engine_size
         
         return recommend_engine_size(
-            vertex_count=schema.total_vertices,
+            vertex_count=schema.total_documents,
             edge_count=schema.total_edges
         )
     
@@ -302,7 +302,7 @@ class TemplateGenerator:
         if not schema:
             return None
         
-        n = schema.total_vertices
+        n = schema.total_documents
         m = schema.total_edges
         
         # Very rough complexity estimates
