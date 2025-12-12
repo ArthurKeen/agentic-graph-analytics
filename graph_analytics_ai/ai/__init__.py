@@ -61,10 +61,11 @@ from .llm import (
     get_default_provider
 )
 
-# Schema analysis (import schema submodule for convenience)
+# Schema analysis (import submodules for convenience)
 from . import schema
+from . import documents
 
-__version__ = "0.2.0"  # AI module version (separate from core library)
+__version__ = "0.3.0"  # AI module version (separate from core library)
 
 __all__ = [
     # LLM providers
@@ -75,6 +76,7 @@ __all__ = [
     "create_llm_provider",
     "get_default_provider",
     
-    # Schema module
+    # Submodules
     "schema",
+    "documents",
 ]
