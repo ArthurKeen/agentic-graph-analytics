@@ -1,0 +1,63 @@
+{
+  "title": "Analysis Report: UC-001: Maximize Customer Engagement",
+  "summary": "Analysis of 0 results using pagerank algorithm. Found 1 key insights.",
+  "generated_at": "2025-12-12T17:53:18.397782",
+  "algorithm": "pagerank",
+  "dataset_info": {
+    "job_id": "c5fa4408-d5e1-4ef8-a9ad-f439979f2c2a",
+    "execution_time": 1.376081,
+    "result_count": 0,
+    "completed_at": "2025-12-12T17:53:17.348812"
+  },
+  "insights": [
+    {
+      "title": "No Results Generated",
+      "description": "The analysis completed but produced no results. This may indicate the graph structure doesn't support this algorithm or no qualifying nodes were found.",
+      "insight_type": "key_finding",
+      "confidence": 1.0,
+      "supporting_data": {},
+      "business_impact": "Unable to derive insights without results"
+    }
+  ],
+  "recommendations": [
+    {
+      "title": "Action: No Results Generated",
+      "description": "Take action based on: The analysis completed but produced no results. This may indicate the graph structure doesn't support this algorithm or no qualifying nodes were found.",
+      "recommendation_type": "action",
+      "priority": "medium",
+      "effort": "low",
+      "expected_impact": "Unable to derive insights without results",
+      "related_insights": [
+        "No Results Generated"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "1. Overview",
+      "content": "**Algorithm:** pagerank\n**Job ID:** c5fa4408-d5e1-4ef8-a9ad-f439979f2c2a\n**Execution Time:** 1.38s\n**Results:** 0 records\n\nAnalysis of 0 results using pagerank algorithm. Found 1 key insights.",
+      "subsections": [],
+      "metadata": {}
+    },
+    {
+      "title": "2. Key Metrics",
+      "content": "_No metrics available._",
+      "subsections": [],
+      "metadata": {}
+    },
+    {
+      "title": "3. Key Insights",
+      "content": "### 1. No Results Generated\n**Type:** key_finding\n**Confidence:** 100%\n\nThe analysis completed but produced no results. This may indicate the graph structure doesn't support this algorithm or no qualifying nodes were found.\n\n**Business Impact:** Unable to derive insights without results\n",
+      "subsections": [],
+      "metadata": {}
+    },
+    {
+      "title": "4. Recommendations",
+      "content": "### Medium Priority\n- **Action: No Results Generated**\n",
+      "subsections": [],
+      "metadata": {}
+    }
+  ],
+  "metrics": {},
+  "metadata": {}
+}
