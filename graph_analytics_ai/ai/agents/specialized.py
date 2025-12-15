@@ -17,6 +17,7 @@ from ..execution import AnalysisExecutor
 from ..reporting import ReportGenerator
 
 from .base import SpecializedAgent, AgentType, AgentMessage, AgentState
+from .constants import AgentNames, AgentDefaults
 
 
 class SchemaAnalysisAgent(SpecializedAgent):
@@ -39,7 +40,7 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
     def __init__(self, llm_provider: LLMProvider, db_connection):
         super().__init__(
             agent_type=AgentType.SCHEMA_ANALYSIS,
-            name="SchemaAnalyst",
+            name=AgentNames.SCHEMA_ANALYST,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )
@@ -121,7 +122,7 @@ Your goal: Transform business needs into structured requirements."""
     def __init__(self, llm_provider: LLMProvider):
         super().__init__(
             agent_type=AgentType.REQUIREMENTS,
-            name="RequirementsAnalyst",
+            name=AgentNames.REQUIREMENTS_ANALYST,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )
@@ -220,7 +221,7 @@ Your goal: Generate actionable analytics use cases."""
     def __init__(self, llm_provider: LLMProvider):
         super().__init__(
             agent_type=AgentType.USE_CASE,
-            name="UseCaseExpert",
+            name=AgentNames.USE_CASE_EXPERT,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )
@@ -294,7 +295,7 @@ Your goal: Create optimized, executable analysis templates."""
     def __init__(self, llm_provider: LLMProvider, graph_name: str = "graph"):
         super().__init__(
             agent_type=AgentType.TEMPLATE,
-            name="TemplateEngineer",
+            name=AgentNames.TEMPLATE_ENGINEER,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )
@@ -369,7 +370,7 @@ Your goal: Execute analyses reliably and efficiently."""
     def __init__(self, llm_provider: LLMProvider):
         super().__init__(
             agent_type=AgentType.EXECUTION,
-            name="ExecutionSpecialist",
+            name=AgentNames.EXECUTION_SPECIALIST,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )
@@ -384,7 +385,7 @@ Your goal: Execute analyses reliably and efficiently."""
                 raise ValueError("Templates needed for execution")
             
             # Execute templates (limited to first few for demo)
-            max_executions = message.content.get("max_executions", 3)
+            max_executions = message.content.get("max_executions", AgentDefaults.MAX_EXECUTIONS)
             templates_to_run = state.templates[:max_executions]
             
             results = []
@@ -447,7 +448,7 @@ Your goal: Transform analysis results into actionable intelligence."""
     def __init__(self, llm_provider: LLMProvider):
         super().__init__(
             agent_type=AgentType.REPORTING,
-            name="ReportingSpecialist",
+            name=AgentNames.REPORTING_SPECIALIST,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )

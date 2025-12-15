@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Any
 
 from ..llm.base import LLMProvider
 from .base import Agent, AgentType, AgentMessage, AgentState
+from .constants import AgentNames, WorkflowSteps, AgentDefaults
 
 
 class OrchestratorAgent(Agent):
@@ -49,18 +50,11 @@ Your goal: Successfully orchestrate the complete workflow from requirements to i
         """
         super().__init__(
             agent_type=AgentType.ORCHESTRATOR,
-            name="Orchestrator",
+            name=AgentNames.ORCHESTRATOR,
             llm_provider=llm_provider
         )
         self.agents = agents
-        self.workflow_steps = [
-            "schema_analysis",
-            "requirements_extraction",
-            "use_case_generation",
-            "template_generation",
-            "execution",
-            "reporting"
-        ]
+        self.workflow_steps = WorkflowSteps.STANDARD_WORKFLOW
     
     def process(self, message: AgentMessage, state: AgentState) -> AgentMessage:
         """
@@ -204,12 +198,12 @@ Your goal: Successfully orchestrate the complete workflow from requirements to i
         """
         # Map steps to agents
         step_to_agent = {
-            "schema_analysis": "SchemaAnalyst",
-            "requirements_extraction": "RequirementsAnalyst",
-            "use_case_generation": "UseCaseExpert",
-            "template_generation": "TemplateEngineer",
-            "execution": "ExecutionSpecialist",
-            "reporting": "ReportingSpecialist"
+            WorkflowSteps.SCHEMA_ANALYSIS: AgentNames.SCHEMA_ANALYST,
+            WorkflowSteps.REQUIREMENTS_EXTRACTION: AgentNames.REQUIREMENTS_ANALYST,
+            WorkflowSteps.USE_CASE_GENERATION: AgentNames.USE_CASE_EXPERT,
+            WorkflowSteps.TEMPLATE_GENERATION: AgentNames.TEMPLATE_ENGINEER,
+            WorkflowSteps.EXECUTION: AgentNames.EXECUTION_SPECIALIST,
+            WorkflowSteps.REPORTING: AgentNames.REPORTING_SPECIALIST
         }
         
         agent_name = step_to_agent.get(step)

@@ -19,6 +19,7 @@ from .specialized import (
     ExecutionAgent,
     ReportingAgent
 )
+from .constants import AgentNames
 
 
 class AgenticWorkflowRunner:
@@ -68,24 +69,24 @@ class AgenticWorkflowRunner:
     def _create_agents(self) -> Dict[str, Any]:
         """Create all specialized agents."""
         return {
-            "SchemaAnalyst": SchemaAnalysisAgent(
+            AgentNames.SCHEMA_ANALYST: SchemaAnalysisAgent(
                 llm_provider=self.llm_provider,
                 db_connection=self.db
             ),
-            "RequirementsAnalyst": RequirementsAgent(
+            AgentNames.REQUIREMENTS_ANALYST: RequirementsAgent(
                 llm_provider=self.llm_provider
             ),
-            "UseCaseExpert": UseCaseAgent(
+            AgentNames.USE_CASE_EXPERT: UseCaseAgent(
                 llm_provider=self.llm_provider
             ),
-            "TemplateEngineer": TemplateAgent(
+            AgentNames.TEMPLATE_ENGINEER: TemplateAgent(
                 llm_provider=self.llm_provider,
                 graph_name=self.graph_name
             ),
-            "ExecutionSpecialist": ExecutionAgent(
+            AgentNames.EXECUTION_SPECIALIST: ExecutionAgent(
                 llm_provider=self.llm_provider
             ),
-            "ReportingSpecialist": ReportingAgent(
+            AgentNames.REPORTING_SPECIALIST: ReportingAgent(
                 llm_provider=self.llm_provider
             )
         }

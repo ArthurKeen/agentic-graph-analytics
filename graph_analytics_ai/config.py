@@ -138,12 +138,31 @@ class ArangoConfig:
         verify_ssl_str = os.getenv('ARANGO_VERIFY_SSL', str(DEFAULT_SSL_VERIFY))
         self.verify_ssl = parse_ssl_verify(verify_ssl_str)
         
-        # Warn if SSL verification is disabled
+        # Validate SSL configuration for production
+        self._validate_ssl_config()
+    
+    def _validate_ssl_config(self) -> None:
+        """Validate SSL configuration, especially for production environments."""
         if not self.verify_ssl:
+            # Check if we're in production
+            env = os.getenv('ENVIRONMENT', 'production').lower()
+            
+            if env in ('production', 'prod'):
+                raise ValueError(
+                    "SSL verification cannot be disabled in production environment. "
+                    "This is a security risk that could allow man-in-the-middle attacks. "
+                    "\n\nTo fix:"
+                    "\n  1. Remove ARANGO_VERIFY_SSL=false from production config"
+                    "\n  2. Or set ENVIRONMENT=development for testing environments only"
+                    "\n\nFor development with self-signed certificates, set: "
+                    "ENVIRONMENT=development"
+                )
+            
+            # For non-production, just warn
             warnings.warn(
-                "SSL verification is disabled. This is insecure and may allow "
-                "man-in-the-middle attacks. Only disable for development/testing "
-                "with self-signed certificates.",
+                f"SSL verification is disabled in {env} environment. "
+                "This is insecure and may allow man-in-the-middle attacks. "
+                "Only acceptable for development/testing with self-signed certificates.",
                 UserWarning
             )
         
