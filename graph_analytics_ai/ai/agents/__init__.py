@@ -5,7 +5,7 @@ Autonomous agents for intelligent graph analytics workflow orchestration.
 Implements a supervisor pattern with specialized domain agents.
 """
 
-from .base import Agent, AgentType, AgentMessage, AgentState
+from .base import Agent, AgentType, AgentMessage, AgentState, handle_agent_errors
 from .orchestrator import OrchestratorAgent
 from .specialized import (
     SchemaAnalysisAgent,
@@ -24,6 +24,7 @@ __all__ = [
     "AgentType",
     "AgentMessage",
     "AgentState",
+    "handle_agent_errors",
     
     # Orchestrator
     "OrchestratorAgent",

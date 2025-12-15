@@ -9,8 +9,50 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Any, Callable
+from functools import wraps
 
 from ..llm.base import LLMProvider
+
+
+def handle_agent_errors(func):
+    """
+    Decorator to handle agent processing errors consistently.
+    
+    Automatically catches exceptions in agent process() methods,
+    logs the error, updates state, and returns a properly formatted
+    error message to the orchestrator.
+    
+    Usage:
+        @handle_agent_errors
+        def process(self, message: AgentMessage, state: AgentState) -> AgentMessage:
+            # Just implement the happy path!
+            result = do_work()
+            return self.create_success_message(...)
+    
+    Benefits:
+        - Reduces code duplication
+        - Consistent error handling across all agents
+        - Cleaner agent code (focus on logic, not error handling)
+        - Automatic error logging and state updates
+    """
+    @wraps(func)
+    def wrapper(self: 'Agent', message: 'AgentMessage', state: 'AgentState') -> 'AgentMessage':
+        try:
+            return func(self, message, state)
+        except Exception as e:
+            # Log the error
+            self.log(f"Error: {e}", "error")
+            
+            # Update state
+            state.add_error(self.name, str(e))
+            
+            # Return error message to orchestrator
+            return self.create_error_message(
+                to_agent="orchestrator",
+                error=str(e),
+                reply_to=message.message_id
+            )
+    return wrapper
 
 
 class AgentType(Enum):
@@ -240,6 +282,58 @@ class Agent(ABC):
             to_agent=to_agent,
             message_type=message_type,
             content=content,
+            reply_to=reply_to
+        )
+    
+    def create_success_message(
+        self,
+        to_agent: str,
+        content: Dict[str, Any],
+        reply_to: Optional[str] = None
+    ) -> AgentMessage:
+        """
+        Create a success result message.
+        
+        Helper method to reduce boilerplate for successful operations.
+        
+        Args:
+            to_agent: Recipient agent
+            content: Success message content
+            reply_to: Message ID being replied to
+            
+        Returns:
+            Success message with status='success'
+        """
+        return self.create_message(
+            to_agent=to_agent,
+            message_type="result",
+            content={"status": "success", **content},
+            reply_to=reply_to
+        )
+    
+    def create_error_message(
+        self,
+        to_agent: str,
+        error: str,
+        reply_to: Optional[str] = None
+    ) -> AgentMessage:
+        """
+        Create an error message.
+        
+        Helper method to reduce boilerplate for error handling.
+        
+        Args:
+            to_agent: Recipient agent
+            error: Error message
+            reply_to: Message ID being replied to
+            
+        Returns:
+            Error message
+        """
+        return self.create_message(
+            to_agent=to_agent,
+            message_type="error",
+            content={"error": error},
             reply_to=reply_to
         )
     
