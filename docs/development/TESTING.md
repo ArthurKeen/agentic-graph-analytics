@@ -6,21 +6,21 @@
 
 ---
 
-## 📊 Testing Overview
+##  Testing Overview
 
 ### Current Status
 
 | Metric | Value | Target | Status |
 |--------|-------|--------|--------|
-| **Test Coverage** | 90%+ | 80%+ | ✅ Excellent |
-| **Total Tests** | 150+ | 100+ | ✅ Exceeds |
-| **Unit Tests** | 130+ | - | ✅ Good |
-| **Integration Tests** | 20+ | - | ✅ Good |
-| **Test Runtime** | < 30s | < 60s | ✅ Fast |
+| **Test Coverage** | 90%+ | 80%+ |  Excellent |
+| **Total Tests** | 150+ | 100+ |  Exceeds |
+| **Unit Tests** | 130+ | - |  Good |
+| **Integration Tests** | 20+ | - |  Good |
+| **Test Runtime** | < 30s | < 60s |  Fast |
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Running Tests
 
@@ -56,7 +56,7 @@ open htmlcov/index.html
 
 ---
 
-## 📁 Test Structure
+##  Test Structure
 
 ```
 tests/
@@ -160,29 +160,29 @@ def test_with_mock_db(mock_get_db):
 
 ---
 
-## 🎯 Test Coverage Requirements
+##  Test Coverage Requirements
 
 ### Minimum Coverage by Component
 
 | Component | Minimum | Current |
 |-----------|---------|---------|
-| **Agents** | 85% | 92% ✅ |
-| **LLM** | 80% | 88% ✅ |
-| **Schema** | 85% | 90% ✅ |
-| **Documents** | 80% | 87% ✅ |
-| **Execution** | 85% | 91% ✅ |
-| **Reporting** | 80% | 89% ✅ |
-| **Templates** | 85% | 90% ✅ |
-| **Workflow** | 85% | 93% ✅ |
+| **Agents** | 85% | 92%  |
+| **LLM** | 80% | 88%  |
+| **Schema** | 85% | 90%  |
+| **Documents** | 80% | 87%  |
+| **Execution** | 85% | 91%  |
+| **Reporting** | 80% | 89%  |
+| **Templates** | 85% | 90%  |
+| **Workflow** | 85% | 93%  |
 
 ### What to Test
 
 **Always Test:**
-- ✅ Happy path (normal operation)
-- ✅ Error handling
-- ✅ Edge cases
-- ✅ Boundary conditions
-- ✅ Invalid input handling
+-  Happy path (normal operation)
+-  Error handling
+-  Edge cases
+-  Boundary conditions
+-  Invalid input handling
 
 **Example:**
 ```python
@@ -206,7 +206,7 @@ class TestSchemaExtractor:
 
 ---
 
-## 🧪 Test Types
+##  Test Types
 
 ### 1. Unit Tests
 
@@ -266,7 +266,7 @@ def test_algorithm_type_detection(algorithm, expected_type):
 
 ---
 
-## 🔧 Test Utilities
+##  Test Utilities
 
 ### Creating Test Data
 
@@ -314,7 +314,7 @@ def assert_successful_execution(result):
 
 ---
 
-## 📋 Pre-Commit Checklist
+##  Pre-Commit Checklist
 
 Before committing code:
 
@@ -356,7 +356,7 @@ pytest --lf  # Run last failed tests
 
 ---
 
-## 🐛 Debugging Tests
+##  Debugging Tests
 
 ### Running Failed Tests
 
@@ -402,7 +402,7 @@ pytest -m "not slow"
 
 ---
 
-## 🎯 Continuous Integration
+##  Continuous Integration
 
 ### GitHub Actions Workflow
 
@@ -439,9 +439,9 @@ jobs:
 
 ---
 
-## 📚 Testing Best Practices
+##  Testing Best Practices
 
-### DO ✅
+### DO 
 
 - Write tests for all new features
 - Test error conditions
@@ -452,7 +452,7 @@ jobs:
 - Maintain 80%+ coverage
 - Run tests before committing
 
-### DON'T ❌
+### DON'T 
 
 - Test implementation details
 - Write tests that depend on each other
@@ -464,7 +464,7 @@ jobs:
 
 ---
 
-## 🔍 Common Testing Patterns
+##  Common Testing Patterns
 
 ### Testing Exceptions
 
@@ -501,7 +501,7 @@ def test_with_temp_file():
 
 ---
 
-## 📊 Test Metrics
+##  Test Metrics
 
 ### Current Stats (v3.0.0)
 
@@ -517,24 +517,24 @@ def test_with_temp_file():
 ```
 graph_analytics_ai/
 ├── ai/
-│   ├── agents/          92% ✅
-│   ├── llm/             88% ✅
-│   ├── schema/          90% ✅
-│   ├── documents/       87% ✅
-│   ├── execution/       91% ✅
-│   ├── reporting/       89% ✅
-│   ├── templates/       90% ✅
-│   └── workflow/        93% ✅
-├── db_connection.py     85% ✅
-├── gae_orchestrator.py  88% ✅
-└── config.py            92% ✅
+│   ├── agents/          92% 
+│   ├── llm/             88% 
+│   ├── schema/          90% 
+│   ├── documents/       87% 
+│   ├── execution/       91% 
+│   ├── reporting/       89% 
+│   ├── templates/       90% 
+│   └── workflow/        93% 
+├── db_connection.py     85% 
+├── gae_orchestrator.py  88% 
+└── config.py            92% 
 
-Overall: 90%+ ✅
+Overall: 90%+ 
 ```
 
 ---
 
-## 🚀 Next Steps
+##  Next Steps
 
 ### Planned Improvements (v3.1.0)
 
@@ -557,7 +557,7 @@ Overall: 90%+ ✅
 
 ---
 
-## 📞 Getting Help
+##  Getting Help
 
 **Questions about testing?**
 
@@ -570,5 +570,5 @@ Overall: 90%+ ✅
 
 **Maintained By:** Development Team  
 **Last Updated:** December 12, 2025  
-**Test Coverage:** 90%+ ✅
+**Test Coverage:** 90%+ 
 

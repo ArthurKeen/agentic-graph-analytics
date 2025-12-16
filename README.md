@@ -1,4 +1,4 @@
-# 🤖 AI-Assisted Graph Analytics Platform
+#  AI-Assisted Graph Analytics Platform
 
 **Enterprise-grade AI platform for automated graph analytics workflow orchestration**
 
@@ -10,26 +10,26 @@ Transform business requirements into actionable graph analytics insights with AI
 
 ---
 
-## ✨ Key Features
+##  Key Features
 
-🤖 **Autonomous Workflow**
+ **Autonomous Workflow**
 - 6 specialized AI agents with domain expertise
 - Supervisor pattern for intelligent coordination
 - Self-healing error recovery
 - Explainable AI decisions
 
-📊 **Complete Automation**
+ **Complete Automation**
 - Requirements (PDF/DOCX) → Actionable Intelligence
 - Schema analysis → Use case generation → Template creation → Execution → Reports
 - Zero manual configuration required
 
-🎯 **Production Ready**
+ **Production Ready**
 - Real ArangoDB AMP cluster integration
 - Graph Analytics Engine (GAE) support
 - Multiple LLM providers (OpenAI, Anthropic, Gemini)
 - Enterprise-grade error handling
 
-📈 **Intelligent Output**
+ **Intelligent Output**
 - Actionable intelligence reports
 - Business insights with confidence scores
 - Prioritized recommendations
@@ -37,7 +37,7 @@ Transform business requirements into actionable graph analytics insights with AI
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Installation
 
@@ -106,16 +106,16 @@ for report in state.reports:
 ```
 
 **That's it!** The AI agents will:
-1. ✅ Analyze your graph schema
-2. ✅ Extract business requirements
-3. ✅ Generate analytics use cases
-4. ✅ Create optimized GAE templates
-5. ✅ Execute analyses on your cluster
-6. ✅ Generate actionable intelligence reports
+1.  Analyze your graph schema
+2.  Extract business requirements
+3.  Generate analytics use cases
+4.  Create optimized GAE templates
+5.  Execute analyses on your cluster
+6.  Generate actionable intelligence reports
 
 ---
 
-## 🎯 Two Workflow Modes
+##  Two Workflow Modes
 
 ### 1. Linear Workflow (Simple)
 
@@ -177,14 +177,14 @@ state = runner.run()
 
 **Agent Communication:**
 ```
-[Orchestrator] 🚀 Starting workflow
+[Orchestrator]  Starting workflow
 [SchemaAnalyst] ✓ Extracted: 3V + 5E
 [RequirementsAnalyst] ✓ Extracted: 1 objectives
 [UseCaseExpert] ✓ Generated 2 use cases
 [TemplateEngineer] ✓ Generated 2 templates
 [ExecutionSpecialist] ✓ Completed in 2.8s
 [ReportingSpecialist] ✓ Generated 2 reports
-[Orchestrator] ✅ Workflow complete!
+[Orchestrator]  Workflow complete!
 ```
 
 ---
@@ -251,7 +251,7 @@ state = runner.run()
 
 ---
 
-## 📚 CLI Interface
+##  CLI Interface
 
 The platform includes a comprehensive CLI:
 
@@ -281,7 +281,7 @@ gaai status --checkpoint checkpoint.json
 
 ---
 
-## 📖 Examples
+##  Examples
 
 ### Example 1: E-commerce Analytics
 
@@ -368,7 +368,7 @@ with open('report.md', 'w') as f:
 
 ---
 
-## 🔧 Advanced Configuration
+##  Advanced Configuration
 
 ### Custom LLM Configuration
 
@@ -428,7 +428,7 @@ result = orchestrator.run_complete_workflow(
 
 ---
 
-## 📊 Example Output
+##  Example Output
 
 ### Intelligence Report
 
@@ -498,7 +498,7 @@ pytest tests/integration/
 
 ---
 
-## 📈 Performance
+##  Performance
 
 ### Benchmarks
 
@@ -512,14 +512,14 @@ pytest tests/integration/
 
 ### Scalability
 
-- ✅ Handles graphs up to 10M+ nodes
-- ✅ Parallel agent execution (future)
-- ✅ Batch analysis support
-- ✅ Checkpointing for long-running workflows
+-  Handles graphs up to 10M+ nodes
+-  Parallel agent execution (future)
+-  Batch analysis support
+-  Checkpointing for long-running workflows
 
 ---
 
-## 🛠️ Development
+##  Development
 
 ### Project Structure
 
@@ -567,7 +567,7 @@ graph-analytics-ai/
 
 ---
 
-## 🎓 Documentation
+##  Documentation
 
 - **[Architecture Overview](docs/ARCHITECTURE.md)** - System design
 - **[API Reference](docs/API.md)** - Complete API documentation
@@ -577,22 +577,22 @@ graph-analytics-ai/
 
 ---
 
-## 🏆 Platform Features by Phase
+##  Platform Features by Phase
 
 | Phase | Feature | Status |
 |-------|---------|--------|
-| 1 | LLM Foundation | ✅ Complete |
-| 2 | Schema Analysis | ✅ Complete |
-| 3 | Document Processing | ✅ Complete |
-| 4 | PRD Generation | ✅ Complete |
-| 5 | Use Case Generation | ✅ Complete |
-| 6 | Workflow Orchestration | ✅ Complete |
-| 7 | Template Generation | ✅ Complete |
-| 8 | Analysis Execution | ✅ Complete |
-| 9 | Report Generation | ✅ Complete |
-| 10 | Agentic Workflow | ✅ Complete |
+| 1 | LLM Foundation |  Complete |
+| 2 | Schema Analysis |  Complete |
+| 3 | Document Processing |  Complete |
+| 4 | PRD Generation |  Complete |
+| 5 | Use Case Generation |  Complete |
+| 6 | Workflow Orchestration |  Complete |
+| 7 | Template Generation |  Complete |
+| 8 | Analysis Execution |  Complete |
+| 9 | Report Generation |  Complete |
+| 10 | Agentic Workflow |  Complete |
 
-**Progress: 100% (10/10 phases)** 🎉
+**Progress: 100% (10/10 phases)** 
 
 ---
 
@@ -624,7 +624,7 @@ graph-analytics-ai/
 
 ---
 
-## 📝 License
+##  License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
@@ -639,7 +639,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📞 Support
+##  Support
 
 - **Issues**: [GitHub Issues](https://github.com/ArthurKeen/graph-analytics-ai/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/ArthurKeen/graph-analytics-ai/discussions)
@@ -647,9 +647,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🚀 Roadmap
+##  Roadmap
 
-### Completed ✅
+### Completed 
 - [x] LLM abstraction layer
 - [x] Schema analysis
 - [x] Document processing
@@ -661,7 +661,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Report generation
 - [x] Agentic workflow
 
-### Future Enhancements 🔮
+### Future Enhancements 
 - [ ] Parallel agent execution
 - [ ] Agent learning from history
 - [ ] Human-in-the-loop workflows
@@ -672,7 +672,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 📊 Statistics
+##  Statistics
 
 - **~15,000+** lines of production code
 - **6** autonomous AI agents
@@ -684,15 +684,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## ⭐ Star History
+##  Star History
 
-If you find this project useful, please consider giving it a star! ⭐
+If you find this project useful, please consider giving it a star! 
 
 ---
 
-**Built with ❤️ by the Graph Analytics AI team**
+**Built with  by the Graph Analytics AI team**
 
-**Version 3.0.0** | **100% Complete** | **Production Ready** 🚀
+**Version 3.0.0** | **100% Complete** | **Production Ready** 
 
 ---
 
