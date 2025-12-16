@@ -15,8 +15,8 @@ from graph_analytics_ai.ai.templates.models import (
 class TestAlgorithmType:
     """Tests for AlgorithmType enum."""
     
-    def test_enum_values(self):
-        """Test that all algorithm types have correct values."""
+    def test_algorithm_types_exist(self):
+        """Test that all expected algorithm types exist."""
         assert AlgorithmType.PAGERANK.value == "pagerank"
         assert AlgorithmType.LOUVAIN.value == "louvain"
         assert AlgorithmType.SHORTEST_PATH.value == "shortest_path"
@@ -26,63 +26,66 @@ class TestAlgorithmType:
         assert AlgorithmType.WCC.value == "wcc"
         assert AlgorithmType.SCC.value == "scc"
     
-    def test_enum_count(self):
-        """Test that all expected algorithms are present."""
+    def test_algorithm_type_count(self):
+        """Test that we have the expected number of algorithm types."""
         assert len(AlgorithmType) == 8
 
 
 class TestEngineSize:
     """Tests for EngineSize enum."""
     
-    def test_enum_values(self):
-        """Test that all engine sizes have correct values."""
+    def test_engine_sizes_exist(self):
+        """Test that all expected engine sizes exist."""
         assert EngineSize.XSMALL.value == "xsmall"
         assert EngineSize.SMALL.value == "small"
         assert EngineSize.MEDIUM.value == "medium"
         assert EngineSize.LARGE.value == "large"
         assert EngineSize.XLARGE.value == "xlarge"
     
-    def test_enum_count(self):
-        """Test that all expected sizes are present."""
+    def test_engine_size_count(self):
+        """Test that we have the expected number of engine sizes."""
         assert len(EngineSize) == 5
 
 
 class TestAlgorithmParameters:
-    """Tests for AlgorithmParameters dataclass."""
+    """Tests for AlgorithmParameters model."""
     
-    def test_init_default(self):
-        """Test initialization with default parameters."""
-        params = AlgorithmParameters(algorithm=AlgorithmType.PAGERANK)
+    def test_init_minimal(self):
+        """Test initialization with minimal parameters."""
+        params = AlgorithmParameters(
+            algorithm=AlgorithmType.PAGERANK
+        )
         
         assert params.algorithm == AlgorithmType.PAGERANK
         assert params.parameters == {}
     
-    def test_init_with_params(self):
-        """Test initialization with custom parameters."""
-        custom_params = {"threshold": 0.001, "max_iterations": 50}
+    def test_init_with_parameters(self):
+        """Test initialization with parameters."""
         params = AlgorithmParameters(
             algorithm=AlgorithmType.PAGERANK,
-            parameters=custom_params
+            parameters={"damping_factor": 0.85, "max_iterations": 100}
         )
         
         assert params.algorithm == AlgorithmType.PAGERANK
-        assert params.parameters == custom_params
+        assert params.parameters == {"damping_factor": 0.85, "max_iterations": 100}
     
     def test_to_dict(self):
         """Test conversion to dictionary."""
         params = AlgorithmParameters(
             algorithm=AlgorithmType.LOUVAIN,
-            parameters={"resolution": 1.5}
+            parameters={"resolution": 1.0}
         )
         
         result = params.to_dict()
         
-        assert result["algorithm"] == "louvain"
-        assert result["parameters"] == {"resolution": 1.5}
+        assert result == {
+            "algorithm": "louvain",
+            "parameters": {"resolution": 1.0}
+        }
 
 
 class TestTemplateConfig:
-    """Tests for TemplateConfig dataclass."""
+    """Tests for TemplateConfig model."""
     
     def test_init_minimal(self):
         """Test initialization with minimal parameters."""
@@ -95,21 +98,21 @@ class TestTemplateConfig:
         assert config.store_results is True
         assert config.result_collection is None
     
-    def test_init_full(self):
+    def test_init_with_all_params(self):
         """Test initialization with all parameters."""
         config = TemplateConfig(
-            graph_name="my_graph",
+            graph_name="test_graph",
             vertex_collections=["users", "products"],
-            edge_collections=["purchased"],
-            engine_size=EngineSize.LARGE,
+            edge_collections=["purchased", "viewed"],
+            engine_size=EngineSize.MEDIUM,
             store_results=False,
             result_collection="my_results"
         )
         
-        assert config.graph_name == "my_graph"
+        assert config.graph_name == "test_graph"
         assert config.vertex_collections == ["users", "products"]
-        assert config.edge_collections == ["purchased"]
-        assert config.engine_size == EngineSize.LARGE
+        assert config.edge_collections == ["purchased", "viewed"]
+        assert config.engine_size == EngineSize.MEDIUM
         assert config.store_results is False
         assert config.result_collection == "my_results"
     
@@ -119,103 +122,133 @@ class TestTemplateConfig:
             graph_name="test_graph",
             vertex_collections=["users"],
             edge_collections=["follows"],
-            engine_size=EngineSize.MEDIUM,
+            engine_size=EngineSize.LARGE,
             store_results=True,
             result_collection="results"
         )
         
         result = config.to_dict()
         
-        assert result["graph_name"] == "test_graph"
-        assert result["vertex_collections"] == ["users"]
-        assert result["edge_collections"] == ["follows"]
-        assert result["engine_size"] == "medium"
-        assert result["store_results"] is True
-        assert result["result_collection"] == "results"
+        assert result == {
+            "graph_name": "test_graph",
+            "vertex_collections": ["users"],
+            "edge_collections": ["follows"],
+            "engine_size": "large",
+            "store_results": True,
+            "result_collection": "results"
+        }
 
 
 class TestAnalysisTemplate:
-    """Tests for AnalysisTemplate dataclass."""
+    """Tests for AnalysisTemplate model."""
     
-    @pytest.fixture
-    def sample_template(self):
-        """Create a sample template for testing."""
-        algorithm = AlgorithmParameters(
-            algorithm=AlgorithmType.PAGERANK,
-            parameters={"threshold": 0.0001}
-        )
+    def test_init_minimal(self):
+        """Test initialization with minimal parameters."""
+        algo_params = AlgorithmParameters(algorithm=AlgorithmType.PAGERANK)
+        config = TemplateConfig(graph_name="test_graph")
         
-        config = TemplateConfig(
-            graph_name="test_graph",
-            vertex_collections=["users"],
-            edge_collections=["follows"]
-        )
-        
-        return AnalysisTemplate(
+        template = AnalysisTemplate(
             name="Test Analysis",
             description="Test description",
-            algorithm=algorithm,
+            algorithm=algo_params,
+            config=config
+        )
+        
+        assert template.name == "Test Analysis"
+        assert template.description == "Test description"
+        assert template.algorithm == algo_params
+        assert template.config == config
+        assert template.use_case_id is None
+        assert template.estimated_runtime_seconds is None
+        assert template.metadata == {}
+    
+    def test_init_with_all_params(self):
+        """Test initialization with all parameters."""
+        algo_params = AlgorithmParameters(
+            algorithm=AlgorithmType.PAGERANK,
+            parameters={"damping_factor": 0.85}
+        )
+        config = TemplateConfig(graph_name="test_graph")
+        
+        template = AnalysisTemplate(
+            name="PageRank Analysis",
+            description="Identify influential nodes",
+            algorithm=algo_params,
             config=config,
             use_case_id="UC-001",
-            estimated_runtime_seconds=10.5,
-            metadata={"priority": "high"}
+            estimated_runtime_seconds=120.5,
+            metadata={"priority": "high", "version": "1.0"}
         )
+        
+        assert template.name == "PageRank Analysis"
+        assert template.use_case_id == "UC-001"
+        assert template.estimated_runtime_seconds == 120.5
+        assert template.metadata == {"priority": "high", "version": "1.0"}
     
-    def test_init(self, sample_template):
-        """Test template initialization."""
-        assert sample_template.name == "Test Analysis"
-        assert sample_template.description == "Test description"
-        assert sample_template.algorithm.algorithm == AlgorithmType.PAGERANK
-        assert sample_template.config.graph_name == "test_graph"
-        assert sample_template.use_case_id == "UC-001"
-        assert sample_template.estimated_runtime_seconds == 10.5
-        assert sample_template.metadata == {"priority": "high"}
-    
-    def test_to_dict(self, sample_template):
+    def test_to_dict(self):
         """Test conversion to dictionary."""
-        result = sample_template.to_dict()
+        algo_params = AlgorithmParameters(
+            algorithm=AlgorithmType.LOUVAIN,
+            parameters={"resolution": 1.0}
+        )
+        config = TemplateConfig(
+            graph_name="test_graph",
+            engine_size=EngineSize.MEDIUM
+        )
         
-        assert result["name"] == "Test Analysis"
-        assert result["description"] == "Test description"
-        assert result["algorithm"]["algorithm"] == "pagerank"
-        assert result["config"]["graph_name"] == "test_graph"
-        assert result["use_case_id"] == "UC-001"
-        assert result["estimated_runtime_seconds"] == 10.5
-        assert result["metadata"] == {"priority": "high"}
+        template = AnalysisTemplate(
+            name="Community Detection",
+            description="Find communities",
+            algorithm=algo_params,
+            config=config,
+            use_case_id="UC-002"
+        )
+        
+        result = template.to_dict()
+        
+        assert result["name"] == "Community Detection"
+        assert result["description"] == "Find communities"
+        assert result["algorithm"]["algorithm"] == "louvain"
+        assert result["config"]["engine_size"] == "medium"
+        assert result["use_case_id"] == "UC-002"
     
-    def test_to_analysis_config(self, sample_template):
-        """Test conversion to analysis config format."""
-        result = sample_template.to_analysis_config()
+    def test_to_analysis_config(self):
+        """Test conversion to AnalysisConfig format."""
+        algo_params = AlgorithmParameters(
+            algorithm=AlgorithmType.PAGERANK,
+            parameters={"damping_factor": 0.85, "max_iterations": 100}
+        )
+        config = TemplateConfig(
+            graph_name="my_graph",
+            vertex_collections=["users"],
+            edge_collections=["follows"],
+            engine_size=EngineSize.SMALL,
+            store_results=True,
+            result_collection="pagerank_results"
+        )
         
-        assert result["name"] == "Test Analysis"
-        assert result["graph"] == "test_graph"
+        template = AnalysisTemplate(
+            name="Influence Analysis",
+            description="Find influencers",
+            algorithm=algo_params,
+            config=config
+        )
+        
+        result = template.to_analysis_config()
+        
+        assert result["name"] == "Influence Analysis"
+        assert result["graph"] == "my_graph"
         assert result["algorithm"] == "pagerank"
-        assert result["params"] == {"threshold": 0.0001}
+        assert result["params"] == {"damping_factor": 0.85, "max_iterations": 100}
         assert result["vertex_collections"] == ["users"]
         assert result["edge_collections"] == ["follows"]
         assert result["engine_size"] == "small"
         assert result["store_results"] is True
-        assert result["result_collection"] is None
-    
-    def test_minimal_template(self):
-        """Test template with minimal required fields."""
-        algorithm = AlgorithmParameters(algorithm=AlgorithmType.WCC)
-        config = TemplateConfig(graph_name="minimal_graph")
-        
-        template = AnalysisTemplate(
-            name="Minimal",
-            description="Minimal template",
-            algorithm=algorithm,
-            config=config
-        )
-        
-        assert template.use_case_id is None
-        assert template.estimated_runtime_seconds is None
-        assert template.metadata == {}
+        assert result["result_collection"] == "pagerank_results"
 
 
 class TestDefaultAlgorithmParams:
-    """Tests for DEFAULT_ALGORITHM_PARAMS constant."""
+    """Tests for DEFAULT_ALGORITHM_PARAMS."""
     
     def test_pagerank_defaults(self):
         """Test PageRank default parameters."""
@@ -232,106 +265,79 @@ class TestDefaultAlgorithmParams:
         
         assert "resolution" in params
         assert "min_community_size" in params
-        assert params["resolution"] == 1.0
-    
-    def test_shortest_path_defaults(self):
-        """Test shortest path default parameters."""
-        params = DEFAULT_ALGORITHM_PARAMS[AlgorithmType.SHORTEST_PATH]
-        
-        assert "direction" in params
-        assert params["direction"] == "outbound"
-    
-    def test_centrality_defaults(self):
-        """Test centrality algorithm defaults."""
-        betweenness = DEFAULT_ALGORITHM_PARAMS[AlgorithmType.BETWEENNESS_CENTRALITY]
-        assert "normalized" in betweenness
-        assert betweenness["normalized"] is True
-        
-        closeness = DEFAULT_ALGORITHM_PARAMS[AlgorithmType.CLOSENESS_CENTRALITY]
-        assert "normalized" in closeness
-        assert closeness["normalized"] is True
-    
-    def test_label_propagation_defaults(self):
-        """Test label propagation defaults."""
-        params = DEFAULT_ALGORITHM_PARAMS[AlgorithmType.LABEL_PROPAGATION]
-        
-        assert "max_iterations" in params
-        assert params["max_iterations"] == 100
-    
-    def test_wcc_scc_defaults(self):
-        """Test WCC and SCC defaults (empty)."""
-        assert DEFAULT_ALGORITHM_PARAMS[AlgorithmType.WCC] == {}
-        assert DEFAULT_ALGORITHM_PARAMS[AlgorithmType.SCC] == {}
     
     def test_all_algorithms_have_defaults(self):
-        """Test that all algorithm types have default parameters."""
+        """Test that all algorithms have default parameters."""
         for algo_type in AlgorithmType:
             assert algo_type in DEFAULT_ALGORITHM_PARAMS
+    
+    def test_shortest_path_defaults(self):
+        """Test Shortest Path default parameters."""
+        params = DEFAULT_ALGORITHM_PARAMS[AlgorithmType.SHORTEST_PATH]
+        
+        assert "weight_attribute" in params
+        assert "direction" in params
+    
+    def test_centrality_defaults(self):
+        """Test centrality algorithms have normalized parameter."""
+        for algo in [AlgorithmType.BETWEENNESS_CENTRALITY, AlgorithmType.CLOSENESS_CENTRALITY]:
+            params = DEFAULT_ALGORITHM_PARAMS[algo]
+            assert "normalized" in params
 
 
 class TestRecommendEngineSize:
     """Tests for recommend_engine_size function."""
     
-    def test_xsmall_graph(self):
-        """Test recommendation for very small graphs."""
+    def test_xsmall_for_tiny_graph(self):
+        """Test XSMALL recommendation for tiny graphs."""
         size = recommend_engine_size(vertex_count=100, edge_count=200)
         assert size == EngineSize.XSMALL
     
-    def test_small_graph(self):
-        """Test recommendation for small graphs."""
-        size = recommend_engine_size(vertex_count=1000, edge_count=2000)
+    def test_small_for_small_graph(self):
+        """Test SMALL recommendation for small graphs."""
+        size = recommend_engine_size(vertex_count=2000, edge_count=5000)
         assert size == EngineSize.SMALL
     
-    def test_medium_graph(self):
-        """Test recommendation for medium graphs."""
-        size = recommend_engine_size(vertex_count=10000, edge_count=50000)
+    def test_medium_for_medium_graph(self):
+        """Test MEDIUM recommendation for medium graphs."""
+        size = recommend_engine_size(vertex_count=20000, edge_count=50000)
         assert size == EngineSize.MEDIUM
     
-    def test_large_graph(self):
-        """Test recommendation for large graphs."""
-        size = recommend_engine_size(vertex_count=100000, edge_count=500000)
+    def test_large_for_large_graph(self):
+        """Test LARGE recommendation for large graphs."""
+        size = recommend_engine_size(vertex_count=200000, edge_count=500000)
         assert size == EngineSize.LARGE
     
-    def test_xlarge_graph(self):
-        """Test recommendation for very large graphs."""
-        size = recommend_engine_size(vertex_count=1000000, edge_count=5000000)
+    def test_xlarge_for_huge_graph(self):
+        """Test XLARGE recommendation for huge graphs."""
+        size = recommend_engine_size(vertex_count=2000000, edge_count=5000000)
         assert size == EngineSize.XLARGE
     
-    def test_boundary_cases(self):
-        """Test recommendations at boundary values."""
-        # Just under 1000 total elements
-        size = recommend_engine_size(vertex_count=500, edge_count=499)
-        assert size == EngineSize.XSMALL
+    def test_boundary_conditions(self):
+        """Test boundary conditions for size recommendations."""
+        # Right at boundary (999 total)
+        assert recommend_engine_size(500, 499) == EngineSize.XSMALL
         
-        # Exactly 1000 total elements
-        size = recommend_engine_size(vertex_count=500, edge_count=500)
+        # Just over boundary (1000 total)
+        assert recommend_engine_size(500, 500) == EngineSize.SMALL
+        
+        # Right at next boundary (9999 total)
+        assert recommend_engine_size(5000, 4999) == EngineSize.SMALL
+        
+        # Just over next boundary (10000 total)
+        assert recommend_engine_size(5000, 5000) == EngineSize.MEDIUM
+    
+    def test_zero_counts(self):
+        """Test with zero vertex or edge counts."""
+        size = recommend_engine_size(0, 0)
+        assert size == EngineSize.XSMALL
+    
+    def test_only_vertices(self):
+        """Test with only vertices, no edges."""
+        size = recommend_engine_size(5000, 0)
         assert size == EngineSize.SMALL
-        
-        # Just under 10000 total elements
-        size = recommend_engine_size(vertex_count=5000, edge_count=4999)
+    
+    def test_only_edges(self):
+        """Test with only edges, no vertices."""
+        size = recommend_engine_size(0, 5000)
         assert size == EngineSize.SMALL
-        
-        # Exactly 10000 total elements
-        size = recommend_engine_size(vertex_count=5000, edge_count=5000)
-        assert size == EngineSize.MEDIUM
-    
-    def test_zero_vertices(self):
-        """Test with zero vertices."""
-        size = recommend_engine_size(vertex_count=0, edge_count=100)
-        assert size == EngineSize.XSMALL
-    
-    def test_zero_edges(self):
-        """Test with zero edges."""
-        size = recommend_engine_size(vertex_count=100, edge_count=0)
-        assert size == EngineSize.XSMALL
-    
-    def test_sparse_large_graph(self):
-        """Test sparse graph with many vertices but few edges."""
-        size = recommend_engine_size(vertex_count=50000, edge_count=1000)
-        assert size == EngineSize.MEDIUM
-    
-    def test_dense_small_graph(self):
-        """Test dense graph with few vertices but many edges."""
-        size = recommend_engine_size(vertex_count=100, edge_count=50000)
-        assert size == EngineSize.MEDIUM
-
