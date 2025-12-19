@@ -4,7 +4,7 @@ Specialized domain agents.
 Each agent has specific expertise and responsibilities.
 """
 
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List
 
 from ..llm.base import LLMProvider
 from ..schema.extractor import SchemaExtractor
@@ -253,14 +253,24 @@ Your expertise:
 
 Your goal: Create optimized, executable analysis templates."""
     
-    def __init__(self, llm_provider: LLMProvider, graph_name: str = "graph"):
+    def __init__(
+        self,
+        llm_provider: LLMProvider,
+        graph_name: str = "graph",
+        core_collections: Optional[List[str]] = None,
+        satellite_collections: Optional[List[str]] = None
+    ):
         super().__init__(
             agent_type=AgentType.TEMPLATE,
             name=AgentNames.TEMPLATE_ENGINEER,
             llm_provider=llm_provider,
             system_prompt=self.SYSTEM_PROMPT
         )
-        self.generator = TemplateGenerator(graph_name=graph_name)
+        self.generator = TemplateGenerator(
+            graph_name=graph_name,
+            core_collections=core_collections,
+            satellite_collections=satellite_collections
+        )
     
     @handle_agent_errors
     def process(self, message: AgentMessage, state: AgentState) -> AgentMessage:

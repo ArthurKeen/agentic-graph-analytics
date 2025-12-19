@@ -217,7 +217,8 @@ class Agent(ABC):
         agent_type: AgentType,
         name: str,
         llm_provider: LLMProvider,
-        tools: Optional[Dict[str, Callable]] = None
+        tools: Optional[Dict[str, Callable]] = None,
+        trace_collector: Optional[Any] = None
     ):
         """
         Initialize agent.
@@ -227,12 +228,14 @@ class Agent(ABC):
             name: Agent name
             llm_provider: LLM provider for reasoning
             tools: Available tools for this agent
+            trace_collector: Optional trace collector for observability
         """
         self.agent_type = agent_type
         self.name = name
         self.llm_provider = llm_provider
         self.tools = tools or {}
         self.memory: List[Dict[str, Any]] = []
+        self.trace_collector = trace_collector
     
     @abstractmethod
     def process(
@@ -262,7 +265,33 @@ class Agent(ABC):
         Returns:
             LLM response
         """
+        # Record LLM call start
+        if self.trace_collector:
+            from ..tracing import TraceEventType
+            timer_id = f"llm_{self.name}_{id(prompt)}"
+            self.trace_collector.start_timer(timer_id)
+            self.trace_collector.record_event(
+                TraceEventType.LLM_CALL_START,
+                agent_name=self.name,
+                data={"prompt_length": len(prompt)}
+            )
+        
         response = self.llm_provider.generate(prompt)
+        
+        # Record LLM call end
+        if self.trace_collector:
+            duration_ms = self.trace_collector.stop_timer(timer_id)
+            self.trace_collector.record_event(
+                TraceEventType.LLM_CALL_END,
+                agent_name=self.name,
+                duration_ms=duration_ms,
+                data={
+                    "tokens_input": getattr(response, 'input_tokens', 0),
+                    "tokens_output": getattr(response, 'output_tokens', 0),
+                    "response_length": len(response.content)
+                }
+            )
+        
         return response.content
     
     def use_tool(self, tool_name: str, **kwargs) -> Any:
@@ -279,7 +308,30 @@ class Agent(ABC):
         if tool_name not in self.tools:
             raise ValueError(f"Tool '{tool_name}' not available to agent {self.name}")
         
-        return self.tools[tool_name](**kwargs)
+        # Record tool invocation
+        if self.trace_collector:
+            from ..tracing import TraceEventType
+            timer_id = f"tool_{self.name}_{tool_name}"
+            self.trace_collector.start_timer(timer_id)
+            self.trace_collector.record_event(
+                TraceEventType.TOOL_INVOKED,
+                agent_name=self.name,
+                data={"tool": tool_name, "args": list(kwargs.keys())}
+            )
+        
+        result = self.tools[tool_name](**kwargs)
+        
+        # Record tool completion
+        if self.trace_collector:
+            duration_ms = self.trace_collector.stop_timer(timer_id)
+            self.trace_collector.record_event(
+                TraceEventType.TOOL_COMPLETED,
+                agent_name=self.name,
+                duration_ms=duration_ms,
+                data={"tool": tool_name}
+            )
+        
+        return result
     
     def add_to_memory(self, entry: Dict[str, Any]) -> None:
         """Add entry to agent memory."""
@@ -370,6 +422,22 @@ class Agent(ABC):
     def log(self, message: str, level: str = "info") -> None:
         """Log a message."""
         print(f"[{self.name}] {level.upper()}: {message}")
+        
+        # Also log to debug mode if tracing
+        if self.trace_collector and hasattr(self.trace_collector, 'debug_mode'):
+            debug_mode = self.trace_collector.debug_mode
+            if debug_mode:
+                debug_mode.log(level.upper(), f"[{self.name}] {message}")
+    
+    def _trace_event(self, event_type, data: Optional[Dict[str, Any]] = None, duration_ms: Optional[float] = None) -> None:
+        """Helper to record trace event."""
+        if self.trace_collector:
+            self.trace_collector.record_event(
+                event_type,
+                agent_name=self.name,
+                data=data,
+                duration_ms=duration_ms
+            )
     
     def __repr__(self) -> str:
         return f"<{self.__class__.__name__}(name={self.name}, type={self.agent_type.value})>"
@@ -388,7 +456,8 @@ class SpecializedAgent(Agent):
         name: str,
         llm_provider: LLMProvider,
         system_prompt: str,
-        tools: Optional[Dict[str, Callable]] = None
+        tools: Optional[Dict[str, Callable]] = None,
+        trace_collector: Optional[Any] = None
     ):
         """
         Initialize specialized agent.
@@ -399,8 +468,9 @@ class SpecializedAgent(Agent):
             llm_provider: LLM provider
             system_prompt: System prompt defining agent's expertise
             tools: Available tools
+            trace_collector: Optional trace collector for observability
         """
-        super().__init__(agent_type, name, llm_provider, tools)
+        super().__init__(agent_type, name, llm_provider, tools, trace_collector)
         self.system_prompt = system_prompt
     
     def reason_with_context(self, prompt: str, context: Dict[str, Any]) -> str:

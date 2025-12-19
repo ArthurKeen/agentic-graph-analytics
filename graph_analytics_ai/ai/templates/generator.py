@@ -74,7 +74,9 @@ class TemplateGenerator:
         self,
         graph_name: str = "ecommerce_graph",
         default_engine_size: EngineSize = EngineSize.SMALL,
-        auto_optimize: bool = True
+        auto_optimize: bool = True,
+        satellite_collections: Optional[List[str]] = None,
+        core_collections: Optional[List[str]] = None
     ):
         """
         Initialize template generator.
@@ -83,10 +85,29 @@ class TemplateGenerator:
             graph_name: Name of the graph to analyze
             default_engine_size: Default engine size if not optimized
             auto_optimize: Whether to auto-optimize parameters
+            satellite_collections: Collections to exclude from connectivity algorithms (WCC, SCC)
+            core_collections: Core business entity collections (prioritized)
         """
         self.graph_name = graph_name
         self.default_engine_size = default_engine_size
         self.auto_optimize = auto_optimize
+        self.satellite_collections = satellite_collections or []
+        self.core_collections = core_collections or []
+        
+        # Build collection hints for CollectionSelector
+        self.collection_hints = {}
+        if self.satellite_collections:
+            self.collection_hints['satellite_collections'] = self.satellite_collections
+        if self.core_collections:
+            self.collection_hints['core_collections'] = self.core_collections
+        
+        # Initialize collection selector
+        try:
+            from .collection_selector import CollectionSelector
+            self.collection_selector = CollectionSelector()
+        except (ImportError, AttributeError) as e:
+            # CollectionSelector not available, will use fallback
+            self.collection_selector = None
     
     def generate_templates(
         self,
@@ -161,27 +182,31 @@ class TemplateGenerator:
         
         # Use CollectionSelector to choose algorithm-appropriate collections
         selection_metadata = {}
-        if schema and schema.vertex_collections:
-            collection_selection = self.collection_selector.select_collections(
-                algorithm=algorithm_type,
-                schema=schema,
-                collection_hints=self.collection_hints if self.collection_hints else None,
-                use_case_context=use_case.description
-            )
-            
-            # Override with algorithm-specific selection
-            vertex_collections = collection_selection.vertex_collections
-            edge_collections = collection_selection.edge_collections
-            
-            # Store selection reasoning in template metadata
-            selection_metadata = {
-                "collection_selection_reasoning": collection_selection.reasoning,
-                "excluded_collections": {
-                    "vertices": collection_selection.excluded_vertices,
-                    "edges": collection_selection.excluded_edges
-                },
-                "estimated_graph_size": collection_selection.estimated_graph_size
-            }
+        if self.collection_selector and schema and schema.vertex_collections:
+            try:
+                collection_selection = self.collection_selector.select_collections(
+                    algorithm=algorithm_type,
+                    schema=schema,
+                    collection_hints=self.collection_hints if self.collection_hints else None,
+                    use_case_context=use_case.description
+                )
+                
+                # Override with algorithm-specific selection
+                vertex_collections = collection_selection.vertex_collections
+                edge_collections = collection_selection.edge_collections
+                
+                # Store selection reasoning in template metadata
+                selection_metadata = {
+                    "collection_selection_reasoning": collection_selection.reasoning,
+                    "excluded_collections": {
+                        "vertices": collection_selection.excluded_vertices,
+                        "edges": collection_selection.excluded_edges
+                    },
+                    "estimated_graph_size": collection_selection.estimated_graph_size
+                }
+            except Exception as e:
+                # Fall back to manual extraction if collection selector fails
+                selection_metadata = {"collection_selection_error": str(e)}
         elif (not vertex_collections or not edge_collections) and schema:
             # Fallback if selector can't be used
             if not vertex_collections and schema.vertex_collections:
