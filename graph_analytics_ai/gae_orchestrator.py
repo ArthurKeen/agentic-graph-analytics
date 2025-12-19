@@ -38,6 +38,16 @@ class AnalysisStatus(Enum):
     CLEANING_UP = "cleaning_up"
 
 
+# Standard field names for algorithm results
+ALGORITHM_RESULT_FIELDS = {
+    "pagerank": "rank",
+    "wcc": "component",
+    "scc": "component",
+    "label_propagation": "community",
+    "betweenness": "centrality"
+}
+
+
 @dataclass
 class AnalysisConfig:
     """Configuration for a GAE analysis."""
@@ -80,7 +90,8 @@ class AnalysisConfig:
             self.database = config['database']
         
         if not self.result_field:
-            self.result_field = f"{self.algorithm}_{self.name}"
+            # Use standard algorithm-specific field name
+            self.result_field = ALGORITHM_RESULT_FIELDS.get(self.algorithm, "value")
         
         # Map generic engine sizes to AMP sizes
         self.engine_size = self._map_engine_size(self.engine_size)
@@ -331,6 +342,7 @@ class GAEOrchestrator:
                 self._load_graph(result)
                 self._run_algorithm(result)
                 self._store_results(result)
+                self._validate_results(result)  # Validate results after storing
                 
                 # Mark as completed
                 result.status = AnalysisStatus.COMPLETED
@@ -437,7 +449,8 @@ class GAEOrchestrator:
             database=result.config.database,
             vertex_collections=result.config.vertex_collections,
             edge_collections=result.config.edge_collections,
-            vertex_attributes=result.config.vertex_attributes
+            vertex_attributes=result.config.vertex_attributes,
+            graph_name=None  # Explicitly no named graph - use collection list
         )
         
         result.graph_id = graph_info.get('graph_id') or graph_info.get('id')
@@ -590,6 +603,113 @@ class GAEOrchestrator:
             # Still mark as complete if store_results succeeded, but note the issue
             result.results_stored = True  # Assume API succeeded
             result.documents_updated = 0
+    
+    def _validate_results(self, result: AnalysisResult):
+        """
+        Validate algorithm results are correct.
+        
+        Checks:
+        1. Standard field names are used
+        2. WCC/SCC components are valid (not 1:1 with vertices)
+        3. Collection restriction is respected
+        
+        Args:
+            result: AnalysisResult to validate
+            
+        Raises:
+            ValueError: If validation fails
+        """
+        if not result.results_stored or result.documents_updated == 0:
+            self._log("Skipping validation - no results stored")
+            return
+        
+        try:
+            collection = self.db.collection(result.config.target_collection)
+            cursor = collection.all(limit=100)
+            samples = [doc for doc in cursor]
+            
+            if not samples:
+                self._log("Skipping validation - no sample documents")
+                return
+            
+            self._log("Validating results...")
+            
+            # Check 1: Standard field name exists
+            expected_field = ALGORITHM_RESULT_FIELDS.get(result.config.algorithm)
+            if expected_field:
+                has_field = any(expected_field in doc for doc in samples)
+                if not has_field:
+                    # Check what fields are actually present
+                    actual_fields = set()
+                    for doc in samples:
+                        actual_fields.update(doc.keys())
+                    raise ValueError(
+                        f"Results missing expected field '{expected_field}'. "
+                        f"Found fields: {sorted(actual_fields)}"
+                    )
+                self._log(f"  ✓ Standard field '{expected_field}' present")
+            
+            # Check 2: WCC/SCC component structure
+            if result.config.algorithm in ["wcc", "scc"]:
+                vertex_ids = set()
+                components = set()
+                
+                for doc in samples:
+                    # Get vertex ID (could be 'id' or 'vertex_id')
+                    vid = doc.get('id', doc.get('vertex_id', ''))
+                    if vid:
+                        vertex_ids.add(vid)
+                    
+                    # Get component (use expected field name)
+                    comp = doc.get('component', doc.get(result.config.result_field, ''))
+                    if comp:
+                        components.add(comp)
+                
+                # If every vertex is its own component, WCC didn't actually run
+                if len(components) > 0 and len(components) == len(vertex_ids):
+                    raise ValueError(
+                        f"WCC/SCC validation failed: Every vertex is its own component "
+                        f"({len(components)} components for {len(vertex_ids)} vertices). "
+                        f"This suggests the algorithm didn't run properly or result field is incorrect."
+                    )
+                
+                self._log(f"  ✓ Component structure valid: {len(components)} components for {len(vertex_ids)} vertices")
+                
+                # Additional sanity check: should have at least some clustering
+                if len(vertex_ids) > 10 and len(components) > len(vertex_ids) * 0.9:
+                    self._log(
+                        f"  ⚠️  Warning: High component count ({len(components)}) suggests weak clustering",
+                        "WARN"
+                    )
+            
+            # Check 3: Collection restriction
+            if result.config.vertex_collections:
+                excluded_collections = []
+                allowed_collections = set(result.config.vertex_collections)
+                
+                for doc in samples:
+                    doc_id = doc.get('id', doc.get('vertex_id', ''))
+                    if '/' in doc_id:
+                        collection_name = doc_id.split('/')[0]
+                        if collection_name not in allowed_collections:
+                            excluded_collections.append(collection_name)
+                
+                if excluded_collections:
+                    unique_excluded = set(excluded_collections)
+                    raise ValueError(
+                        f"Results contain documents from excluded collections: {unique_excluded}. "
+                        f"Expected only: {allowed_collections}. "
+                        f"This suggests load_graph included collections beyond those specified."
+                    )
+                
+                self._log(f"  ✓ Collection restriction respected: Results only contain specified collections")
+            
+            self._log("✓ All validations passed")
+            
+        except Exception as e:
+            # If validation fails, it's a critical bug
+            self._log(f"✗ Result validation failed: {e}", "ERROR")
+            raise
     
     def _cleanup_engine(self, result: AnalysisResult):
         """Delete the engine to stop billing."""
