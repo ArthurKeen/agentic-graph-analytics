@@ -213,17 +213,27 @@ class AnalysisExecutor:
         """Convert template to AnalysisConfig for orchestrator."""
         config_dict = template.to_analysis_config()
         
+        # Extract vertex and edge collections from template
+        vertex_collections = config_dict.get('vertex_collections', [])
+        edge_collections = config_dict.get('edge_collections', [])
+        
+        # Fallback: try template.vertex_collections if config_dict doesn't have them
+        if not vertex_collections and hasattr(template, 'vertex_collections'):
+            vertex_collections = template.vertex_collections
+        if not edge_collections and hasattr(template, 'edge_collections'):
+            edge_collections = template.edge_collections
+        
         # Create AnalysisConfig object
-        # Note: AnalysisConfig doesn't use 'graph' parameter, 
-        # it discovers the graph from vertex/edge collections
         return AnalysisConfig(
             name=config_dict['name'],
             description=template.description,
-            vertex_collections=config_dict.get('vertex_collections', []),
-            edge_collections=config_dict.get('edge_collections', []),
+            vertex_collections=vertex_collections,
+            edge_collections=edge_collections,
             algorithm=config_dict['algorithm'],
             algorithm_params=config_dict['params'],
-            engine_size=config_dict.get('engine_size', 'e16')
+            engine_size=config_dict.get('engine_size', 'e16'),
+            target_collection=config_dict.get('result_collection', 'graph_analysis_results'),
+            result_field=config_dict.get('result_field', config_dict['name'])
         )
     
     def _submit_job(self, config: AnalysisConfig) -> str:
@@ -236,13 +246,16 @@ class AnalysisExecutor:
         Returns:
             Job ID
         """
-        # Use existing orchestrator to run analysis
-        # For now, we'll execute synchronously
-        # In future, this would submit to GAE API and return job ID
+        # Actually run the analysis using GAEOrchestrator
+        result = self.orchestrator.run_analysis(config)
         
-        # Generate a job ID
-        import uuid
-        job_id = str(uuid.uuid4())
+        # Store the result for later retrieval
+        if not hasattr(self, '_analysis_results'):
+            self._analysis_results = {}
+        
+        # Use the result's job_id if available, otherwise generate one
+        job_id = result.job_id if result.job_id else str(__import__('uuid').uuid4())
+        self._analysis_results[job_id] = result
         
         return job_id
     
@@ -256,25 +269,25 @@ class AnalysisExecutor:
         Returns:
             True if successful, False if failed
         """
-        elapsed = 0.0
+        # Get the actual analysis result
+        if not hasattr(self, '_analysis_results') or job.job_id not in self._analysis_results:
+            job.error_message = "Job result not found"
+            return False
         
-        while elapsed < self.config.max_wait_seconds:
-            # In a real implementation, this would poll GAE API
-            # For now, we'll simulate immediate completion
-            
-            # Simulate processing time based on estimate
-            if job.metadata.get('estimated_runtime'):
-                time.sleep(min(
-                    job.metadata['estimated_runtime'],
-                    self.config.max_wait_seconds
-                ))
-            
-            # Mark as complete
+        result = self._analysis_results[job.job_id]
+        
+        # Check if analysis succeeded
+        if result.status == __import__('graph_analytics_ai.gae_orchestrator', fromlist=['AnalysisStatus']).AnalysisStatus.COMPLETED:
+            # Update job with result details
+            if result.duration_seconds:
+                job.execution_time_seconds = result.duration_seconds
             return True
-        
-        # Timeout
-        job.error_message = f"Job timed out after {elapsed}s"
-        return False
+        elif result.status == __import__('graph_analytics_ai.gae_orchestrator', fromlist=['AnalysisStatus']).AnalysisStatus.FAILED:
+            job.error_message = result.error_message or "Analysis failed"
+            return False
+        else:
+            job.error_message = f"Unexpected status: {result.status}"
+            return False
     
     def _collect_results(self, job: AnalysisJob) -> List[Dict[str, Any]]:
         """
@@ -290,22 +303,36 @@ class AnalysisExecutor:
             return []
         
         try:
+            # Get the analysis result
+            if hasattr(self, '_analysis_results') and job.job_id in self._analysis_results:
+                result = self._analysis_results[job.job_id]
+                # Update job with result count
+                if result.documents_updated:
+                    job.result_count = result.documents_updated
+            
             # Get database connection
             from ...db_connection import get_db_connection
             db = get_db_connection()
             
             # Check if result collection exists
             if not db.has_collection(job.result_collection):
+                print(f"Warning: Result collection {job.result_collection} not found")
                 return []
             
             # Fetch results
             collection = db.collection(job.result_collection)
+            count = collection.count()
+            
+            if count == 0:
+                print(f"Warning: Result collection {job.result_collection} is empty")
+                return []
             
             # Get up to max_results
             results = list(collection.all(
                 limit=self.config.max_results_to_fetch
             ))
             
+            print(f"✓ Collected {len(results)} results from {job.result_collection}")
             return results
         
         except Exception as e:

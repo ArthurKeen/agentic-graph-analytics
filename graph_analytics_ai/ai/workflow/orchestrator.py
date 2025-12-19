@@ -6,7 +6,7 @@ error handling, and checkpointing.
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -16,6 +16,9 @@ from ..llm.factory import create_llm_provider
 from ..documents.models import Document, ExtractedRequirements
 from ..schema.models import GraphSchema, SchemaAnalysis
 from ..generation.use_cases import UseCase
+from ..execution.metrics import ExecutionSummary
+from ..reporting.config import WorkflowReportConfig
+from ..reporting.formatter import ExecutionReportFormatter
 
 from .state import WorkflowState, WorkflowStatus, WorkflowStep
 from .steps import WorkflowSteps
@@ -51,10 +54,16 @@ class WorkflowResult:
     requirements_path: Optional[str] = None
     """Path to requirements summary."""
     
+    execution_report_path: Optional[str] = None
+    """Path to execution report (if execution was performed)."""
+    
+    execution_summary: Optional[ExecutionSummary] = None
+    """Execution summary with metrics (if execution was performed)."""
+    
     error_message: Optional[str] = None
     """Error message if workflow failed."""
     
-    completed_steps: List[str] = None
+    completed_steps: List[str] = field(default_factory=list)
     """List of completed step names."""
     
     total_duration_seconds: Optional[float] = None
@@ -91,7 +100,8 @@ class WorkflowOrchestrator:
         output_dir: str = "./workflow_output",
         llm_provider: Optional[LLMProvider] = None,
         enable_checkpoints: bool = True,
-        max_retries: int = 3
+        max_retries: int = 3,
+        report_config: Optional[WorkflowReportConfig] = None
     ):
         """
         Initialize workflow orchestrator.
@@ -101,6 +111,7 @@ class WorkflowOrchestrator:
             llm_provider: LLM provider (creates default if not provided).
             enable_checkpoints: Whether to save state checkpoints.
             max_retries: Maximum number of retries for failed steps.
+            report_config: Configuration for report generation (uses defaults if not provided).
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +119,7 @@ class WorkflowOrchestrator:
         self.llm_provider = llm_provider or create_llm_provider()
         self.enable_checkpoints = enable_checkpoints
         self.max_retries = max_retries
+        self.report_config = report_config or WorkflowReportConfig()
         
         self.steps_executor = WorkflowSteps(self.llm_provider)
         self.state: Optional[WorkflowState] = None
@@ -379,6 +391,38 @@ class WorkflowOrchestrator:
             return WorkflowState.load_checkpoint(latest_checkpoint)
         except Exception as e:
             raise WorkflowCheckpointError(f"Failed to load checkpoint: {e}")
+    
+    def _generate_execution_report(
+        self,
+        execution_summary: ExecutionSummary
+    ) -> Optional[str]:
+        """
+        Generate execution report from summary.
+        
+        Args:
+            execution_summary: Summary of execution metrics
+            
+        Returns:
+            Path to generated report file, or None if reporting disabled
+        """
+        if not self.report_config.enable_execution_reporting:
+            return None
+        
+        try:
+            # Create reports subdirectory
+            reports_dir = self.output_dir / self.report_config.report_directory
+            reports_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate report
+            formatter = ExecutionReportFormatter(self.report_config.execution_report)
+            report_path = reports_dir / "execution_report.md"
+            formatter.save_report(execution_summary, report_path)
+            
+            return str(report_path)
+        except Exception as e:
+            # Log error but don't fail workflow
+            print(f"Warning: Failed to generate execution report: {e}")
+            return None
     
     def get_state(self) -> Optional[WorkflowState]:
         """Get current workflow state."""
