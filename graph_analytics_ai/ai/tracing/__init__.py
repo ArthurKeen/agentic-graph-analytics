@@ -349,11 +349,13 @@ class WorkflowTrace:
         if event.event_type == TraceEventType.WORKFLOW_START:
             return "Workflow execution started"
         elif event.event_type == TraceEventType.WORKFLOW_END:
-            return f"Workflow completed in {event.duration_ms:.0f}ms"
+            duration_str = f" in {event.duration_ms:.0f}ms" if event.duration_ms else ""
+            return f"Workflow completed{duration_str}"
         elif event.event_type == TraceEventType.AGENT_INVOKED:
             return f"{event.agent_name} invoked"
         elif event.event_type == TraceEventType.AGENT_COMPLETED:
-            return f"{event.agent_name} completed in {event.duration_ms:.0f}ms"
+            duration_str = f" in {event.duration_ms:.0f}ms" if event.duration_ms else ""
+            return f"{event.agent_name} completed{duration_str}"
         elif event.event_type == TraceEventType.AGENT_ERROR:
             error = event.data.get("error", "Unknown error")
             return f"{event.agent_name} error: {error}"

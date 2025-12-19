@@ -58,8 +58,8 @@ class AgenticWorkflowRunner:
             graph_name: Name of graph for templates
             core_collections: Core business entity collections for analysis
             satellite_collections: Satellite/metadata collections to exclude from connectivity algorithms
-            enable_tracing: Whether to enable workflow tracing
-            enable_debug_mode: Whether to enable verbose debug mode
+            enable_tracing: Whether to enable workflow tracing (default: True)
+            enable_debug_mode: Whether to enable verbose debug mode (default: False)
         """
         self.db = db_connection or get_db_connection()
         self.llm_provider = llm_provider or create_llm_provider()
@@ -75,9 +75,10 @@ class AgenticWorkflowRunner:
         if enable_tracing:
             from ..tracing import TraceCollector
             from ..tracing.replay import DebugMode
+            import time
             
             self.trace_collector = TraceCollector(
-                workflow_id=f"workflow-{int(__import__('time').time() * 1000)}",
+                workflow_id=f"workflow-{int(time.time() * 1000)}",
                 enable_state_snapshots=enable_debug_mode
             )
             
@@ -357,7 +358,8 @@ class AgenticWorkflowRunner:
             print("Performance:")
             print(f"  Total Time: {perf.total_time_ms/1000:.2f}s")
             print(f"  Steps Completed: {perf.steps_completed}")
-            print(f"  Avg Time/Step: {perf.avg_time_per_step_ms:.0f}ms")
+            if perf.steps_completed > 0:
+                print(f"  Avg Time/Step: {perf.avg_time_per_step_ms:.0f}ms")
             print()
             
             print("LLM Usage:")
@@ -372,15 +374,19 @@ class AgenticWorkflowRunner:
             print(f"  Errors: {perf.total_errors}")
             print()
             
-            print("Slowest Agents:")
-            for i, agent_info in enumerate(perf.get_slowest_agents(3), 1):
-                print(f"  {i}. {agent_info['agent']}: {agent_info['total_time_ms']:.0f}ms")
-            print()
+            slowest = perf.get_slowest_agents(3)
+            if slowest:
+                print("Slowest Agents:")
+                for i, agent_info in enumerate(slowest, 1):
+                    print(f"  {i}. {agent_info['agent']}: {agent_info['total_time_ms']:.0f}ms")
+                print()
             
-            print("Top LLM Consumers:")
-            for i, agent_info in enumerate(perf.get_top_llm_consumers(3), 1):
-                print(f"  {i}. {agent_info['agent']}: {agent_info['total_tokens']:,} tokens")
-            print()
+            top_llm = perf.get_top_llm_consumers(3)
+            if top_llm:
+                print("Top LLM Consumers:")
+                for i, agent_info in enumerate(top_llm, 1):
+                    print(f"  {i}. {agent_info['agent']}: {agent_info['total_tokens']:,} tokens")
+                print()
 
 
 def run_agentic_workflow(
@@ -404,5 +410,4 @@ def run_agentic_workflow(
         enable_tracing=enable_tracing
     )
     return runner.run(max_executions=max_executions)
-
 

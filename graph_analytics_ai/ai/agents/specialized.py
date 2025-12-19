@@ -37,12 +37,13 @@ Your expertise:
 
 Your goal: Provide deep insights about graph structure to guide analytics."""
     
-    def __init__(self, llm_provider: LLMProvider, db_connection):
+    def __init__(self, llm_provider: LLMProvider, db_connection, trace_collector: Optional[Any] = None):
         super().__init__(
             agent_type=AgentType.SCHEMA_ANALYSIS,
             name=AgentNames.SCHEMA_ANALYST,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT
+            system_prompt=self.SYSTEM_PROMPT,
+            trace_collector=trace_collector
         )
         self.db = db_connection
         self.extractor = SchemaExtractor(db_connection)
@@ -106,12 +107,13 @@ Your expertise:
 
 Your goal: Transform business needs into structured requirements."""
     
-    def __init__(self, llm_provider: LLMProvider):
+    def __init__(self, llm_provider: LLMProvider, trace_collector: Optional[Any] = None):
         super().__init__(
             agent_type=AgentType.REQUIREMENTS,
             name=AgentNames.REQUIREMENTS_ANALYST,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT
+            system_prompt=self.SYSTEM_PROMPT,
+            trace_collector=trace_collector
         )
         self.parser = DocumentParser()
         self.extractor = RequirementsExtractor(llm_provider)
@@ -192,12 +194,13 @@ Your expertise:
 
 Your goal: Generate actionable analytics use cases."""
     
-    def __init__(self, llm_provider: LLMProvider):
+    def __init__(self, llm_provider: LLMProvider, trace_collector: Optional[Any] = None):
         super().__init__(
             agent_type=AgentType.USE_CASE,
             name=AgentNames.USE_CASE_EXPERT,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT
+            system_prompt=self.SYSTEM_PROMPT,
+            trace_collector=trace_collector
         )
         self.generator = UseCaseGenerator()
     
@@ -258,13 +261,15 @@ Your goal: Create optimized, executable analysis templates."""
         llm_provider: LLMProvider,
         graph_name: str = "graph",
         core_collections: Optional[List[str]] = None,
-        satellite_collections: Optional[List[str]] = None
+        satellite_collections: Optional[List[str]] = None,
+        trace_collector: Optional[Any] = None
     ):
         super().__init__(
             agent_type=AgentType.TEMPLATE,
             name=AgentNames.TEMPLATE_ENGINEER,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT
+            system_prompt=self.SYSTEM_PROMPT,
+            trace_collector=trace_collector
         )
         self.generator = TemplateGenerator(
             graph_name=graph_name,
@@ -325,12 +330,13 @@ Your expertise:
 
 Your goal: Execute analyses reliably and efficiently."""
     
-    def __init__(self, llm_provider: LLMProvider):
+    def __init__(self, llm_provider: LLMProvider, trace_collector: Optional[Any] = None):
         super().__init__(
             agent_type=AgentType.EXECUTION,
             name=AgentNames.EXECUTION_SPECIALIST,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT
+            system_prompt=self.SYSTEM_PROMPT,
+            trace_collector=trace_collector
         )
         self.executor = AnalysisExecutor()
     
@@ -390,12 +396,13 @@ Your expertise:
 
 Your goal: Transform analysis results into actionable intelligence."""
     
-    def __init__(self, llm_provider: LLMProvider):
+    def __init__(self, llm_provider: LLMProvider, trace_collector: Optional[Any] = None):
         super().__init__(
             agent_type=AgentType.REPORTING,
             name=AgentNames.REPORTING_SPECIALIST,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT
+            system_prompt=self.SYSTEM_PROMPT,
+            trace_collector=trace_collector
         )
         self.generator = ReportGenerator(llm_provider, use_llm_interpretation=False)
     
