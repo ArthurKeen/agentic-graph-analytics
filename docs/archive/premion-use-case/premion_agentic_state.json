@@ -1,0 +1,259 @@
+{
+  "workflow": {
+    "current_step": "reporting",
+    "completed_steps": [
+      "schema_analysis",
+      "requirements_extraction",
+      "use_case_generation",
+      "template_generation",
+      "execution"
+    ],
+    "messages_count": 14,
+    "errors_count": 2,
+    "started_at": "2025-12-17T13:25:40.704858",
+    "metadata": {}
+  },
+  "messages": [
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "SchemaAnalyst",
+      "message_type": "task",
+      "content": {
+        "step": "schema_analysis",
+        "instructions": "Execute schema_analysis"
+      },
+      "timestamp": "2025-12-17T13:25:40.704880",
+      "reply_to": null,
+      "message_id": "msg_1766003140.70488"
+    },
+    {
+      "from_agent": "SchemaAnalyst",
+      "to_agent": "orchestrator",
+      "message_type": "result",
+      "content": {
+        "status": "success",
+        "schema": {
+          "vertices": 10,
+          "edges": 7,
+          "total_documents": 687564,
+          "total_edges": 264836
+        },
+        "analysis": {
+          "domain": "AdTech & Identity Resolution",
+          "complexity": 6.5
+        }
+      },
+      "timestamp": "2025-12-17T13:25:48.719825",
+      "reply_to": "msg_1766003140.70488",
+      "message_id": "msg_1766003148.71988"
+    },
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "RequirementsAnalyst",
+      "message_type": "task",
+      "content": {
+        "step": "requirements_extraction",
+        "instructions": "Execute requirements_extraction"
+      },
+      "timestamp": "2025-12-17T13:25:48.719928",
+      "reply_to": null,
+      "message_id": "msg_1766003148.719929"
+    },
+    {
+      "from_agent": "RequirementsAnalyst",
+      "to_agent": "orchestrator",
+      "message_type": "result",
+      "content": {
+        "status": "success",
+        "requirements": {
+          "domain": "Graph Analytics",
+          "objectives_count": 1,
+          "requirements_count": 1
+        }
+      },
+      "timestamp": "2025-12-17T13:25:48.720075",
+      "reply_to": "msg_1766003148.719929",
+      "message_id": "msg_1766003148.720076"
+    },
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "UseCaseExpert",
+      "message_type": "task",
+      "content": {
+        "step": "use_case_generation",
+        "instructions": "Execute use_case_generation"
+      },
+      "timestamp": "2025-12-17T13:25:48.720082",
+      "reply_to": null,
+      "message_id": "msg_1766003148.720083"
+    },
+    {
+      "from_agent": "UseCaseExpert",
+      "to_agent": "orchestrator",
+      "message_type": "result",
+      "content": {
+        "status": "success",
+        "use_cases_count": 7,
+        "use_cases": [
+          {
+            "id": "UC-001",
+            "title": "Analyze Graph Structure",
+            "use_case_type": "pattern"
+          },
+          {
+            "id": "UC-S01",
+            "title": "Household & Identity Clustering",
+            "use_case_type": "community"
+          },
+          {
+            "id": "UC-S02",
+            "title": "Ad Fraud Detection",
+            "use_case_type": "anomaly"
+          },
+          {
+            "id": "UC-S03",
+            "title": "Supply Chain Transparency",
+            "use_case_type": "pathfinding"
+          },
+          {
+            "id": "UC-S04",
+            "title": "High-Value Inventory Identification",
+            "use_case_type": "centrality"
+          }
+        ]
+      },
+      "timestamp": "2025-12-17T13:25:48.720362",
+      "reply_to": "msg_1766003148.720083",
+      "message_id": "msg_1766003148.720364"
+    },
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "TemplateEngineer",
+      "message_type": "task",
+      "content": {
+        "step": "template_generation",
+        "instructions": "Execute template_generation"
+      },
+      "timestamp": "2025-12-17T13:25:48.720373",
+      "reply_to": null,
+      "message_id": "msg_1766003148.720374"
+    },
+    {
+      "from_agent": "TemplateEngineer",
+      "to_agent": "orchestrator",
+      "message_type": "result",
+      "content": {
+        "status": "success",
+        "templates_count": 7,
+        "templates": [
+          {
+            "name": "UC-001: Analyze Graph Structure",
+            "algorithm": "AlgorithmParameters(algorithm=<AlgorithmType.PAGERANK: 'pagerank'>, parameters={'threshold': 0.0001, 'max_iterations': 50, 'damping_factor': 0.85})",
+            "engine_size": "large"
+          },
+          {
+            "name": "UC-S01: Household & Identity Clustering",
+            "algorithm": "AlgorithmParameters(algorithm=<AlgorithmType.LOUVAIN: 'louvain'>, parameters={'resolution': 1.5, 'min_community_size': 3437})",
+            "engine_size": "large"
+          },
+          {
+            "name": "UC-S02: Ad Fraud Detection",
+            "algorithm": "AlgorithmParameters(algorithm=<AlgorithmType.BETWEENNESS_CENTRALITY: 'betweenness_centrality'>, parameters={'normalized': True, 'directed': True, 'sample_size': 1000})",
+            "engine_size": "large"
+          },
+          {
+            "name": "UC-S03: Supply Chain Transparency",
+            "algorithm": "AlgorithmParameters(algorithm=<AlgorithmType.SHORTEST_PATH: 'shortest_path'>, parameters={'weight_attribute': None, 'direction': 'outbound'})",
+            "engine_size": "large"
+          },
+          {
+            "name": "UC-S04: High-Value Inventory Identification",
+            "algorithm": "AlgorithmParameters(algorithm=<AlgorithmType.PAGERANK: 'pagerank'>, parameters={'threshold': 0.0001, 'max_iterations': 50, 'damping_factor': 0.85})",
+            "engine_size": "large"
+          }
+        ]
+      },
+      "timestamp": "2025-12-17T13:25:48.721395",
+      "reply_to": "msg_1766003148.720374",
+      "message_id": "msg_1766003148.721397"
+    },
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "ExecutionSpecialist",
+      "message_type": "task",
+      "content": {
+        "step": "execution",
+        "instructions": "Execute execution"
+      },
+      "timestamp": "2025-12-17T13:25:48.721411",
+      "reply_to": null,
+      "message_id": "msg_1766003148.721411"
+    },
+    {
+      "from_agent": "ExecutionSpecialist",
+      "to_agent": "orchestrator",
+      "message_type": "result",
+      "content": {
+        "status": "success",
+        "total": 3,
+        "successful": 0,
+        "failed": 3
+      },
+      "timestamp": "2025-12-17T13:27:46.519122",
+      "reply_to": "msg_1766003148.721411",
+      "message_id": "msg_1766003266.519123"
+    },
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "ReportingSpecialist",
+      "message_type": "task",
+      "content": {
+        "step": "reporting",
+        "instructions": "Execute reporting"
+      },
+      "timestamp": "2025-12-17T13:27:46.519166",
+      "reply_to": null,
+      "message_id": "msg_1766003266.519166"
+    },
+    {
+      "from_agent": "ReportingSpecialist",
+      "to_agent": "orchestrator",
+      "message_type": "error",
+      "content": {
+        "error": "No successful executions to report on"
+      },
+      "timestamp": "2025-12-17T13:27:46.519194",
+      "reply_to": "msg_1766003266.519166",
+      "message_id": "msg_1766003266.519194"
+    },
+    {
+      "from_agent": "Orchestrator",
+      "to_agent": "ReportingSpecialist",
+      "message_type": "task",
+      "content": {
+        "step": "reporting",
+        "instructions": "Execute reporting"
+      },
+      "timestamp": "2025-12-17T13:27:46.519213",
+      "reply_to": null,
+      "message_id": "msg_1766003266.519214"
+    },
+    {
+      "from_agent": "ReportingSpecialist",
+      "to_agent": "orchestrator",
+      "message_type": "error",
+      "content": {
+        "error": "No successful executions to report on"
+      },
+      "timestamp": "2025-12-17T13:27:46.519220",
+      "reply_to": "msg_1766003266.519214",
+      "message_id": "msg_1766003266.51922"
+    }
+  ],
+  "results": {
+    "use_cases": 7,
+    "templates": 7,
+    "executions": 3,
+    "reports": 0
+  }
+}

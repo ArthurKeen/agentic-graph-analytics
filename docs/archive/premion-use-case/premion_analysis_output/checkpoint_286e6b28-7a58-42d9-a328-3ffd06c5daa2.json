@@ -1,0 +1,101 @@
+{
+  "workflow_id": "286e6b28-7a58-42d9-a328-3ffd06c5daa2",
+  "status": "failed",
+  "created_at": "2025-12-17T01:23:31.396437",
+  "updated_at": "2025-12-17T01:23:40.731985",
+  "current_step": "save_outputs",
+  "completed_steps": [
+    "parse_documents",
+    "extract_requirements",
+    "extract_schema",
+    "analyze_schema",
+    "generate_prd",
+    "generate_use_cases"
+  ],
+  "step_results": {
+    "parse_documents": {
+      "step": "parse_documents",
+      "status": "completed",
+      "started_at": "2025-12-17T01:23:31.396637",
+      "completed_at": "2025-12-17T01:23:31.397569",
+      "error_message": null,
+      "output_data": {
+        "documents": "<class 'list'>"
+      }
+    },
+    "extract_requirements": {
+      "step": "extract_requirements",
+      "status": "completed",
+      "started_at": "2025-12-17T01:23:31.397870",
+      "completed_at": "2025-12-17T01:23:34.161708",
+      "error_message": null,
+      "output_data": {
+        "extracted_requirements": "<class 'graph_analytics_ai.ai.documents.models.ExtractedRequirements'>"
+      }
+    },
+    "extract_schema": {
+      "step": "extract_schema",
+      "status": "completed",
+      "started_at": "2025-12-17T01:23:34.162370",
+      "completed_at": "2025-12-17T01:23:38.351703",
+      "error_message": null,
+      "output_data": {
+        "schema": "<class 'graph_analytics_ai.ai.schema.models.GraphSchema'>"
+      }
+    },
+    "analyze_schema": {
+      "step": "analyze_schema",
+      "status": "completed",
+      "started_at": "2025-12-17T01:23:38.355183",
+      "completed_at": "2025-12-17T01:23:40.673190",
+      "error_message": null,
+      "output_data": {
+        "schema_analysis": "<class 'graph_analytics_ai.ai.schema.models.SchemaAnalysis'>"
+      }
+    },
+    "generate_prd": {
+      "step": "generate_prd",
+      "status": "completed",
+      "started_at": "2025-12-17T01:23:40.682832",
+      "completed_at": "2025-12-17T01:23:40.688553",
+      "error_message": null,
+      "output_data": {
+        "prd_content": "<class 'str'>"
+      }
+    },
+    "generate_use_cases": {
+      "step": "generate_use_cases",
+      "status": "completed",
+      "started_at": "2025-12-17T01:23:40.693854",
+      "completed_at": "2025-12-17T01:23:40.700219",
+      "error_message": null,
+      "output_data": {
+        "use_cases": "<class 'list'>"
+      }
+    },
+    "save_outputs": {
+      "step": "save_outputs",
+      "status": "failed",
+      "started_at": "2025-12-17T01:23:40.721954",
+      "completed_at": "2025-12-17T01:23:40.727115",
+      "error_message": "save_outputs failed: 'ExtractedRequirements' object has no attribute 'all_requirements'",
+      "output_data": {}
+    }
+  },
+  "error_message": "Step 'save_outputs' failed: 'ExtractedRequirements' object has no attribute 'all_requirements'",
+  "inputs": {
+    "business_requirements": [
+      "consumer_media_use_cases.md"
+    ],
+    "database_endpoint": "https://31a55ba6a81d.arangodb.cloud:8529",
+    "database_name": "sharded_premion_graph",
+    "database_username": "root",
+    "product_name": "Premion Identity Graph Analytics"
+  },
+  "outputs": {
+    "documents": [
+      {
+        "metadata": {
+          "file_path": "consumer_media_use_cases.md",
+          "file_name": "consumer_media_use_cases.md",
+          "document_type": 
