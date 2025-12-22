@@ -408,7 +408,7 @@ Your goal: Transform analysis results into actionable intelligence."""
     
     @handle_agent_errors
     def process(self, message: AgentMessage, state: AgentState) -> AgentMessage:
-        """Generate reports."""
+        """Generate reports with full context."""
         self.log("Generating reports...")
         
         if not state.execution_results:
@@ -420,9 +420,47 @@ Your goal: Transform analysis results into actionable intelligence."""
         if not successful_results:
             raise ValueError("No successful executions to report on")
         
+        # Build rich context from workflow state
+        context = {
+            "requirements": {
+                "domain": state.requirements.domain if state.requirements else None,
+                "summary": state.requirements.summary if state.requirements else None,
+                "objectives": [
+                    {
+                        "title": obj.title,
+                        "description": obj.description,
+                        "success_criteria": obj.success_criteria
+                    }
+                    for obj in (state.requirements.objectives if state.requirements else [])
+                ],
+                "constraints": state.requirements.constraints if state.requirements else []
+            },
+            "schema_analysis": {
+                "domain": state.schema_analysis.domain if state.schema_analysis else None,
+                "complexity_score": state.schema_analysis.complexity_score if state.schema_analysis else None,
+                "description": state.schema_analysis.description if state.schema_analysis else None,
+                "key_entities": state.schema_analysis.key_entities if state.schema_analysis else [],
+                "key_relationships": state.schema_analysis.key_relationships if state.schema_analysis else []
+            },
+            "use_cases": [
+                {
+                    "id": uc.id,
+                    "title": uc.title,
+                    "objective": getattr(uc, 'objective', None),
+                    "use_case_type": uc.use_case_type.value if hasattr(uc, 'use_case_type') else None
+                }
+                for uc in state.use_cases
+            ]
+        }
+        
         reports = []
-        for result in successful_results:
-            report = self.generator.generate_report(result)
+        for i, result in enumerate(successful_results):
+            # Add use case-specific context if available
+            use_case_context = context.copy()
+            if i < len(state.use_cases):
+                use_case_context["use_case"] = context["use_cases"][i]
+            
+            report = self.generator.generate_report(result, context=use_case_context)
             reports.append(report)
         
         state.reports = reports

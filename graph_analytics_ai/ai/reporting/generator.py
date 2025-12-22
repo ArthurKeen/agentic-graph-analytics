@@ -250,7 +250,7 @@ class ReportGenerator:
         execution_result: ExecutionResult,
         context: Optional[Dict[str, Any]] = None
     ) -> List[Insight]:
-        """Generate insights using LLM interpretation."""
+        """Generate insights using LLM interpretation with validation."""
         try:
             # Prepare data for LLM
             job = execution_result.job
@@ -264,12 +264,67 @@ class ReportGenerator:
             # Parse LLM response into insights
             insights = self._parse_llm_insights(response.content)
             
+            # Validate insights
+            insights = self._validate_insights(insights)
+            
             return insights
         
         except Exception as e:
             # Fallback to heuristic insights
             print(f"LLM insight generation failed, using heuristics: {e}")
             return self._generate_insights_heuristic(execution_result)
+    
+    def _validate_insights(self, insights: List[Insight]) -> List[Insight]:
+        """
+        Validate insight quality and add warnings for low-quality insights.
+        
+        Args:
+            insights: List of insights to validate
+            
+        Returns:
+            Validated insights (may filter out very low quality ones)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        validated_insights = []
+        
+        for insight in insights:
+            warnings = []
+            
+            # Check confidence score
+            if insight.confidence < 0.3:
+                logger.warning(f"Very low confidence insight ({insight.confidence:.2f}): {insight.title}")
+                warnings.append("Very low confidence - use with caution")
+            
+            # Check business impact
+            if not insight.business_impact:
+                insight.business_impact = "Impact unknown - requires further analysis"
+                warnings.append("Business impact not specified")
+            
+            # Check description quality
+            if not insight.description or len(insight.description) < 20:
+                warnings.append("Description too brief")
+                insight.confidence *= 0.7
+            
+            # Check title quality  
+            if not insight.title or len(insight.title) < 10:
+                warnings.append("Title too brief")
+                insight.confidence *= 0.8
+            
+            # Only include insights above minimum threshold
+            if insight.confidence >= 0.2:  # Very low bar - just filter garbage
+                validated_insights.append(insight)
+                if warnings:
+                    logger.debug(f"Insight validation warnings for '{insight.title}': {'; '.join(warnings)}")
+            else:
+                logger.warning(f"Filtered out very low quality insight: {insight.title} (confidence: {insight.confidence:.2f})")
+        
+        if len(validated_insights) == 0 and len(insights) > 0:
+            logger.error("All insights filtered out due to low quality - returning original insights")
+            return insights  # Better to return something than nothing
+        
+        return validated_insights
     
     def _generate_recommendations(
         self,
@@ -433,18 +488,165 @@ class ReportGenerator:
         results_sample: List[Dict[str, Any]],
         context: Optional[Dict[str, Any]]
     ) -> str:
-        """Create prompt for LLM insight generation."""
-        return f"""Analyze these {job.algorithm} results and provide business insights:
+        """Create prompt for LLM insight generation with algorithm-specific guidance and business context."""
+        
+        # Extract context information
+        context = context or {}
+        requirements = context.get("requirements", {})
+        schema_analysis = context.get("schema_analysis", {})
+        use_case = context.get("use_case", {})
+        
+        # Build business context section
+        business_context = ""
+        if use_case:
+            business_context += f"\n**Use Case**: {use_case.get('title', 'N/A')}"
+            if use_case.get('objective'):
+                business_context += f"\n**Objective**: {use_case.get('objective')}"
+        
+        if requirements.get('domain'):
+            business_context += f"\n**Domain**: {requirements['domain']}"
+        
+        if requirements.get('objectives'):
+            objectives = requirements['objectives']
+            if objectives:
+                business_context += "\n**Business Objectives**:"
+                for obj in objectives[:2]:  # Top 2 objectives
+                    business_context += f"\n  - {obj.get('title')}: {obj.get('description', '')}"
+                    if obj.get('success_criteria'):
+                        business_context += f"\n    Success Criteria: {', '.join(obj['success_criteria'][:2])}"
+        
+        # Build technical context section
+        technical_context = ""
+        if schema_analysis.get('domain'):
+            technical_context += f"\n**Graph Domain**: {schema_analysis['domain']}"
+        if schema_analysis.get('complexity_score'):
+            technical_context += f"\n**Graph Complexity**: {schema_analysis['complexity_score']}/10"
+        if schema_analysis.get('key_entities'):
+            technical_context += f"\n**Key Entities**: {', '.join(schema_analysis['key_entities'][:5])}"
+        
+        # Algorithm-specific guidance
+        algorithm_guidance = {
+            "pagerank": """
+Focus on:
+- Top influencers (nodes with highest rank)
+- Power law distribution (do few nodes dominate?)
+- Rank concentration (top 10% hold what % of total rank?)
+- Unexpected high-rank nodes (low degree but high rank = bridge nodes)
 
-Algorithm: {job.algorithm}
-Sample Results: {results_sample}
+Business questions to answer:
+- Who are the key influencers?
+- Is influence concentrated or distributed?
+- Which nodes punch above their weight?
+""",
+            "wcc": """
+Focus on:
+- Number and size of components
+- Largest component (what % of total nodes?)
+- Singleton nodes (isolated entities)
+- Component distribution (power law? many small clusters?)
 
-Provide 3-5 key insights in this format:
-- Title: [brief title]
-  Description: [detailed finding]
-  Business Impact: [how this affects business]
-  Confidence: [0.0-1.0]
+Business questions to answer:
+- Is the graph well-connected or fragmented?
+- What do disconnected clusters represent?
+- Should we investigate why singletons are isolated?
+""",
+            "scc": """
+Focus on:
+- Strongly connected components with bidirectional paths
+- Cycle detection (circular relationships)
+- Component hierarchy (how SCCs relate to WCCs)
+
+Business questions to answer:
+- Where are the reciprocal relationships?
+- Do cycles indicate problems or natural patterns?
+- How does strong connectivity differ from weak?
+""",
+            "label_propagation": """
+Focus on:
+- Community/cluster count and sizes
+- Community cohesion (how tight are clusters?)
+- Cross-community edges (weak connections between groups)
+
+Business questions to answer:
+- What natural communities exist?
+- Are communities isolated or interconnected?
+- What defines each community's identity?
+""",
+            "betweenness": """
+Focus on:
+- Bridge nodes (high betweenness, critical for flow)
+- Bottlenecks (single points of failure)
+- Bridge vs hub distinction (high betweenness + low degree = pure bridge)
+
+Business questions to answer:
+- Which nodes are critical for connectivity?
+- What happens if a bridge node fails?
+- How to reduce dependency on bottlenecks?
 """
+        }
+        
+        guidance = algorithm_guidance.get(job.algorithm, "")
+        
+        # Example insights for few-shot learning
+        example_insights = """
+# Example Insight 1 (PageRank):
+- Title: Top 5 Nodes Control 82% of Network Influence
+  Description: Analysis reveals extreme influence concentration. The 5 highest-ranked nodes (representing 0.1% of total) account for 82% of cumulative PageRank score. Node "Product/P123" leads with rank 0.347, 10x higher than median.
+  Business Impact: Focus marketing efforts and quality assurance on these 5 critical nodes. Their performance disproportionately affects overall network health and customer perception.
+  Confidence: 0.95
+
+# Example Insight 2 (WCC):
+- Title: Network Fragmented into 3 Major Clusters and 127 Singletons
+  Description: Weak component analysis reveals 3 large connected clusters (45K, 12K, 3K nodes) and 127 completely isolated singleton nodes. Main cluster contains 75% of all nodes. Singletons are primarily recent additions (< 30 days old).
+  Business Impact: Investigate why 127 entities are isolated - likely data quality issues or onboarding problems. Connect main clusters to improve cross-cluster collaboration and information flow.
+  Confidence: 0.92
+
+# Example Insight 3 (Betweenness):
+- Title: 7 Critical Bridge Nodes Connect All Major Departments
+  Description: Seven nodes exhibit exceptionally high betweenness centrality (>0.08) despite moderate degree (15-25 connections). These nodes bridge otherwise disconnected departments. Node "User/U456" connects Engineering, Sales, and Support.
+  Business Impact: These 7 individuals are organizational bottlenecks. Ensure backup personnel, document their knowledge, and consider reorganization to reduce dependency. If any leave, communication pathways break.
+  Confidence: 0.89
+"""
+        
+        prompt = f"""Analyze these {job.algorithm} results in the context of business objectives and provide actionable insights.
+
+{example_insights}
+
+# Business Context
+{business_context if business_context else "No business context provided"}
+
+# Technical Context
+{technical_context if technical_context else "No technical context provided"}
+Algorithm: {job.algorithm}
+Total Results: {len(results_sample)}
+
+# Algorithm-Specific Guidance
+{guidance}
+
+# Results to Analyze
+
+Sample Results (showing top entries):
+{results_sample}
+
+# Your Analysis Task
+
+Provide 3-5 key insights following the same format and analytical depth as the examples above.
+Connect your insights to the business objectives and success criteria mentioned in the context.
+
+- Title: [brief, specific title with numbers]
+  Description: [detailed finding with concrete data points and context]
+  Business Impact: [specific, actionable recommendations tied to business objectives]
+  Confidence: [0.0-1.0 based on data quality and result clarity]
+
+Focus on:
+1. How results relate to stated business objectives
+2. Concrete numbers and percentages
+3. Unexpected or actionable patterns
+4. Specific recommendations that address success criteria
+5. Business implications (not just technical observations)
+"""
+        
+        return prompt
     
     def _parse_llm_insights(self, llm_response: str) -> List[Insight]:
         """Parse LLM response into insight objects."""

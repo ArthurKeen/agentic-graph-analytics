@@ -15,37 +15,131 @@ from ..llm import LLMProvider, get_default_provider
 from .models import GraphSchema, SchemaAnalysis
 
 
-# LLM prompt for schema analysis
+# LLM prompt for schema analysis with few-shot examples
 SCHEMA_ANALYSIS_PROMPT = """You are a graph database expert analyzing the structure of an ArangoDB graph.
 
-Given the following graph schema, provide a comprehensive analysis.
+# Example Analysis 1: E-commerce Graph
+
+Input Schema:
+{{
+  "vertex_collections": {{
+    "Customer": {{"document_count": 50000, "sample_document": {{"_key": "C123", "name": "John Doe", "email": "john@example.com", "registration_date": "2023-01-15"}}}},
+    "Product": {{"document_count": 5000, "sample_document": {{"_key": "P456", "name": "Laptop", "price": 999.99, "category": "Electronics"}}}},
+    "Order": {{"document_count": 200000, "sample_document": {{"_key": "O789", "total": 1299.99, "date": "2024-03-20"}}}}
+  }},
+  "edge_collections": {{
+    "purchased": {{"document_count": 300000, "from": ["Customer"], "to": ["Product"], "sample_document": {{"_from": "Customer/C123", "_to": "Product/P456", "quantity": 2}}}},
+    "reviewed": {{"document_count": 45000, "from": ["Customer"], "to": ["Product"]}}
+  }}
+}}
+
+Expected Output:
+{{
+  "description": "E-commerce graph tracking customer purchase behavior across products and orders. The graph contains 50K customers who have made 200K orders, purchasing from 5K products. The purchase and review edges create a bipartite network enabling product recommendation and customer segmentation analytics.",
+  "domain": "e-commerce",
+  "key_entities": ["Customer", "Product", "Order"],
+  "key_relationships": ["purchased", "reviewed"],
+  "suggested_analyses": [
+    {{
+      "type": "pagerank",
+      "title": "Product Popularity and Influence Ranking",
+      "reason": "Identify influential products based on purchase patterns and review networks. High-rank products are popular and could be prioritized in recommendations."
+    }},
+    {{
+      "type": "wcc",
+      "title": "Customer Purchase Communities",
+      "reason": "Detect disconnected customer segments to identify different market niches or isolated user groups requiring targeted marketing."
+    }},
+    {{
+      "type": "label_propagation",
+      "title": "Product Category Clustering",
+      "reason": "Discover natural product groupings based on co-purchase patterns beyond predefined categories, enabling better cross-sell strategies."
+    }},
+    {{
+      "type": "betweenness",
+      "title": "Gateway Product Identification",
+      "reason": "Find products that bridge different customer segments or product categories, useful for inventory optimization and promotional planning."
+    }},
+    {{
+      "type": "scc",
+      "title": "Customer Loyalty Loop Detection",
+      "reason": "Identify groups of customers with cyclical purchase patterns indicating strong brand loyalty and potential for subscription models."
+    }}
+  ],
+  "complexity_score": 4.5
+}}
+
+# Example Analysis 2: Social Network Graph
+
+Input Schema:
+{{
+  "vertex_collections": {{
+    "User": {{"document_count": 1000000, "sample_document": {{"_key": "U001", "username": "alice", "join_date": "2022-05-10"}}}},
+    "Post": {{"document_count": 5000000, "sample_document": {{"_key": "POST001", "content": "Hello world", "timestamp": "2024-01-15T10:30:00"}}}},
+    "Group": {{"document_count": 50000, "sample_document": {{"_key": "G001", "name": "Photography Enthusiasts", "members": 1500}}}}
+  }},
+  "edge_collections": {{
+    "follows": {{"document_count": 10000000, "from": ["User"], "to": ["User"]}},
+    "posted": {{"document_count": 5000000, "from": ["User"], "to": ["Post"]}},
+    "member_of": {{"document_count": 2000000, "from": ["User"], "to": ["Group"]}}
+  }}
+}}
+
+Expected Output:
+{{
+  "description": "Large-scale social network with 1M users creating 5M posts and participating in 50K groups. The follower network has 10M connections, creating a complex web of social relationships. This structure enables influence analysis, community detection, and content propagation studies.",
+  "domain": "social network",
+  "key_entities": ["User", "Post", "Group"],
+  "key_relationships": ["follows", "posted", "member_of"],
+  "suggested_analyses": [
+    {{
+      "type": "pagerank",
+      "title": "Influencer Identification",
+      "reason": "Rank users by their influence in the network, accounting for both follower count and the importance of their followers. Critical for identifying key opinion leaders."
+    }},
+    {{
+      "type": "label_propagation",
+      "title": "Organic Community Detection",
+      "reason": "Discover natural communities beyond formal groups, revealing hidden social clusters and improving content recommendation algorithms."
+    }},
+    {{
+      "type": "betweenness",
+      "title": "Network Bridge User Identification",
+      "reason": "Find users who connect disparate communities, important for information dissemination and network resilience analysis."
+    }},
+    {{
+      "type": "wcc",
+      "title": "Network Connectivity Analysis",
+      "reason": "Identify disconnected user clusters or isolated users, helping improve engagement strategies and platform connectivity."
+    }},
+    {{
+      "type": "scc",
+      "title": "Reciprocal Relationship Groups",
+      "reason": "Detect tightly-knit user groups with mutual connections, indicating strong relationships useful for targeted feature testing."
+    }}
+  ],
+  "complexity_score": 7.5
+}}
+
+# Your Task
+
+Given the following graph schema, provide a comprehensive analysis following the same format and reasoning depth as the examples above.
 
 # Graph Schema
 
 {schema_json}
 
-# Analysis Tasks
+# Analysis Guidelines
 
-1. **Description**: Provide a clear, human-readable description of what this graph represents (2-3 sentences).
-
-2. **Domain**: Identify the domain or use case (e.g., "social network", "supply chain", "knowledge graph", "fraud detection", "recommendation system", etc.).
-
-3. **Key Entities**: List the 3 most important vertex collections based on their centrality in the graph.
-
-4. **Key Relationships**: List the 3 most important edge collections based on their potential analytical value.
-
-5. **Suggested Analyses**: Suggest 5 specific graph analytics that would be valuable for this graph:
-   - Centrality analysis (PageRank, Betweenness, etc.)
-   - Community detection
-   - Pathfinding
-   - Pattern detection
-   - Risk/anomaly detection
-   For each, explain why it's relevant to this specific graph.
-
-6. **Complexity Score**: Rate the graph complexity on a scale of 0-10, where:
-   - 0-3: Simple (few collections, clear structure)
-   - 4-7: Moderate (multiple collections, some complexity)
-   - 8-10: Complex (many collections, intricate relationships)
+- **Key Entities**: Prioritize collections by document count, connectivity (degree centrality), and business relevance
+- **Key Relationships**: Focus on edges with high counts, connecting important entities, or enabling valuable analysis patterns
+- **Complexity Scoring**:
+  - Count collections (vertices + edges)
+  - Assess interconnectedness (many-to-many vs simple links)
+  - Consider domain complexity (finance/healthcare = higher, simple catalogs = lower)
+  - 0-3: ≤5 collections, simple relationships
+  - 4-7: 6-15 collections, moderate interconnections
+  - 8-10: >15 collections, complex multi-hop patterns
 
 # Response Format
 
@@ -58,9 +152,9 @@ Respond with valid JSON matching this structure:
   "key_relationships": ["edge1", "edge2", "edge3"],
   "suggested_analyses": [
     {{
-      "type": "analysis type (e.g., pagerank, community_detection)",
+      "type": "analysis type (e.g., pagerank, wcc, label_propagation, betweenness, scc)",
       "title": "Human-readable title",
-      "reason": "Why this analysis is valuable for this graph"
+      "reason": "Why this analysis is valuable for this specific graph"
     }},
     ...
   ],
@@ -154,11 +248,82 @@ class SchemaAnalyzer:
                 complexity_score=float(result.get('complexity_score', 0))
             )
             
+            # Validate and add confidence/warnings
+            analysis = self._validate_analysis(analysis, schema)
+            
             return analysis
         
         except Exception as e:
             # If LLM fails, return basic analysis
             return self._create_fallback_analysis(schema, error=str(e))
+    
+    def _validate_analysis(self, analysis: SchemaAnalysis, schema: GraphSchema) -> SchemaAnalysis:
+        """
+        Validate analysis quality and add confidence score with warnings.
+        
+        Args:
+            analysis: Initial analysis from LLM
+            schema: Original schema
+            
+        Returns:
+            Analysis with confidence and warnings added
+        """
+        warnings = []
+        confidence = 1.0
+        
+        # Validate key entities
+        if len(analysis.key_entities) < 3:
+            warnings.append(f"Only {len(analysis.key_entities)} key entities identified (expected 3)")
+            confidence *= 0.8
+        
+        # Check if key entities actually exist in schema
+        actual_collections = set(schema.vertex_collections.keys())
+        invalid_entities = [e for e in analysis.key_entities if e not in actual_collections]
+        if invalid_entities:
+            warnings.append(f"Invalid key entities (not in schema): {', '.join(invalid_entities)}")
+            confidence *= 0.6
+        
+        # Validate key relationships
+        if len(analysis.key_relationships) < 3:
+            warnings.append(f"Only {len(analysis.key_relationships)} key relationships identified (expected 3)")
+            confidence *= 0.8
+        
+        actual_edges = set(schema.edge_collections.keys())
+        invalid_relationships = [r for r in analysis.key_relationships if r not in actual_edges]
+        if invalid_relationships:
+            warnings.append(f"Invalid relationships (not in schema): {', '.join(invalid_relationships)}")
+            confidence *= 0.6
+        
+        # Validate complexity score
+        if analysis.complexity_score < 0 or analysis.complexity_score > 10:
+            warnings.append(f"Invalid complexity score: {analysis.complexity_score} (must be 0-10)")
+            # Clamp to valid range
+            analysis.complexity_score = max(0, min(10, analysis.complexity_score))
+            confidence *= 0.5
+        
+        # Validate suggested analyses
+        if len(analysis.suggested_analyses) < 5:
+            warnings.append(f"Only {len(analysis.suggested_analyses)} analyses suggested (expected 5)")
+            confidence *= 0.9
+        
+        # Check domain is not empty/generic
+        if not analysis.domain or analysis.domain.lower() in ['unknown', 'general', 'graph']:
+            warnings.append("Domain identification unclear or too generic")
+            confidence *= 0.7
+        
+        # Check description quality
+        if not analysis.description or len(analysis.description) < 50:
+            warnings.append("Description too brief or missing")
+            confidence *= 0.7
+        
+        # Add validation metadata (if SchemaAnalysis supports it)
+        # For now, log warnings
+        if warnings:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Schema analysis validation issues (confidence: {confidence:.2f}): {'; '.join(warnings)}")
+        
+        return analysis
     
     def _get_response_schema(self) -> Dict[str, Any]:
         """Get JSON schema for LLM response."""
