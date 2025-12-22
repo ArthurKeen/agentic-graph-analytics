@@ -1,138 +1,185 @@
-#  Documentation Index
+# Documentation Index
 
-Welcome to the AI-Assisted Graph Analytics Platform documentation!
+**Graph Analytics AI Platform Documentation**
+
+Last Updated: December 22, 2025  
+Version: 1.1.0
 
 ---
 
-##  Getting Started
+## 📚 Quick Access
 
-New to the platform? Start here:
+- **New Users**: Start with [Quick Start Guide](getting-started/QUICK_START.md)
+- **Quick Reference**: See [Quick Reference](QUICK_REFERENCE.md) for common tasks
+- **Customer Projects**: See [Customer Projects Guide](customer-projects/INSTRUCTIONS.md)
+- **API Reference**: Browse [API Documentation](api-reference/)
+- **Development**: See [Contributing Guide](development/CONTRIBUTING.md)
 
+---
+
+## 🚀 Getting Started
+
+Perfect for new users learning the platform:
+
+- **[Project Overview](getting-started/PROJECT_OVERVIEW.md)** - High-level introduction to the platform
 - **[Quick Start Guide](getting-started/QUICK_START.md)** - Get up and running in 5 minutes
-- **[Installation](getting-started/INSTALLATION.md)** - Detailed installation instructions
-- **[Configuration](getting-started/CONFIGURATION.md)** - Environment setup and configuration
-- **[Project Overview](getting-started/PROJECT_OVERVIEW.md)** - What this platform does
+- **[Quick Reference](QUICK_REFERENCE.md)** - Common tasks and commands at a glance
 
 ---
 
-##  User Guide
+## 📖 User Guides
 
-Learn how to use the platform:
+Complete guides for using the platform:
 
-- **[Linear Workflow](user-guide/LINEAR_WORKFLOW.md)** - Simple, predictable workflow
-- **[Agentic Workflow](user-guide/AGENTIC_WORKFLOW.md)** - Autonomous agent-based workflow
-- **[Workflow Orchestration](WORKFLOW_ORCHESTRATION.md)** - Complete workflow details
-- **[CLI Reference](user-guide/CLI_REFERENCE.md)** - Command-line interface
-- **[API Reference](user-guide/API_REFERENCE.md)** - Python API documentation
+### Core Workflows
+- **[Agentic Workflow Guide](user-guide/AGENTIC_WORKFLOW.md)** - Using the autonomous AI agent system
+- **[Workflow Orchestration](api-reference/WORKFLOW_ORCHESTRATION.md)** - Traditional step-by-step workflow
 
-### Advanced Topics
-
-- **[Result Management](RESULT_MANAGEMENT_API.md)** - Working with analysis results
-- **[Error Handling](ENHANCED_ERROR_MESSAGES.md)** - Understanding and handling errors
+### Features
+- **[Interactive Report Generation](INTERACTIVE_REPORT_GENERATION.md)** - Create HTML reports with Plotly charts
+- **[Collection Selection Guide](COLLECTION_SELECTION_GUIDE.md)** - Intelligent graph collection filtering
+- **[Workflow Tracing Guide](WORKFLOW_TRACING_GUIDE.md)** - Comprehensive workflow observability
+- **[Execution Reporting Guide](EXECUTION_REPORTING_GUIDE.md)** - Track performance metrics and costs
 
 ---
 
-##  Development
+## 👥 For Customer Projects
 
-Contributing to the platform:
+Documentation for teams using this library in their own projects:
 
-- **[Contributing Guidelines](development/CONTRIBUTING.md)** - How to contribute
+- **[Quick Start](customer-projects/QUICK_START.md)** - Get started with the library
+- **[Complete Instructions](customer-projects/INSTRUCTIONS.md)** - Full integration guide
+- **[Update Notifications](customer-projects/UPDATES.md)** - Latest feature announcements
+
+---
+
+## 🔧 API Reference
+
+Technical documentation for developers:
+
+- **[Collection Selection Implementation](api-reference/COLLECTION_SELECTION_IMPLEMENTATION.md)** - Technical details on collection selection
+- **[Result Management API](api-reference/RESULT_MANAGEMENT_API.md)** - Working with analysis results
+- **[Result Management Examples](api-reference/RESULT_MANAGEMENT_EXAMPLES.md)** - Code examples
+- **[Workflow Orchestration API](api-reference/WORKFLOW_ORCHESTRATION.md)** - Traditional workflow API
+
+---
+
+## 💻 Development
+
+Guides for contributors and developers:
+
+- **[Contributing](development/CONTRIBUTING.md)** - How to contribute to the project
+- **[Testing Guide](development/TESTING.md)** - Running and writing tests
 - **[Code Quality Standards](development/CODE_QUALITY.md)** - Code quality guidelines
-- **[Testing Guide](development/TESTING.md)** - Testing practices
-- **[Architecture](development/ARCHITECTURE.md)** - System design and architecture
-- **[Roadmap](development/ROADMAP.md)** - Future plans
+- **[Roadmap](development/ROADMAP.md)** - Future development plans
 
 ---
 
-##  Deployment
+## 📋 Additional Resources
 
-Deploying to production:
+### Configuration
+- **[Environment Setup Guide](../ENV_SETUP_GUIDE.md)** - Detailed environment configuration
 
-- **[Deployment Guide](deployment/DEPLOYMENT_GUIDE.md)** - Production deployment
-- **[Security Best Practices](deployment/SECURITY.md)** - Security guidelines
-- **[Migration Guide](deployment/MIGRATION_GUIDE.md)** - Upgrading versions
+### Architecture
+- **[Library Architecture Summary](../LIBRARY_ARCHITECTURE_SUMMARY.md)** - System architecture overview
+- **[Code Quality Review](../CODE_QUALITY_REVIEW.md)** - Current quality status
 
----
-
-##  Reference
-
-- **[Changelog](../CHANGELOG.md)** - Version history and changes
+### Legal
 - **[License](../LICENSE)** - MIT License
-- **[Contributing](../CONTRIBUTING.md)** - Quick contribution guide
+- **[Changelog](../CHANGELOG.md)** - Version history
 
 ---
 
-##  Archive
+## 🗂️ Archive
 
-Historical documentation (for reference):
+Historical documentation (for reference only):
 
-- **[Phase Completions](archive/phase-completions/)** - Development phase summaries
-- **[Migration History](archive/migrations/)** - Past migration documentation
-- **[Planning Documents](archive/planning/)** - Original planning and analysis
-- **[GitHub Setup](archive/github-setup/)** - Repository setup documentation
+- **[Implementation History](archive/implementation-history/)** - Development summaries and progress reports
+- **[Premion Use Case](archive/premion-use-case/)** - Example customer project (archived)
 
 ---
 
-##  Getting Help
+## 📊 Documentation by Topic
 
-Need assistance?
+### By Use Case
 
-- **Issues:** [GitHub Issues](https://github.com/ArthurKeen/graph-analytics-ai/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/ArthurKeen/graph-analytics-ai/discussions)
-- **Email:** support@graph-analytics-ai.com
+| I Want To... | Read This |
+|--------------|-----------|
+| Get started quickly | [Quick Start Guide](getting-started/QUICK_START.md) |
+| Run an autonomous workflow | [Agentic Workflow Guide](user-guide/AGENTIC_WORKFLOW.md) |
+| Generate beautiful reports | [Interactive Report Generation](INTERACTIVE_REPORT_GENERATION.md) |
+| Select the right collections | [Collection Selection Guide](COLLECTION_SELECTION_GUIDE.md) |
+| Debug my workflow | [Workflow Tracing Guide](WORKFLOW_TRACING_GUIDE.md) |
+| Track performance metrics | [Execution Reporting Guide](EXECUTION_REPORTING_GUIDE.md) |
+| Use this library in my project | [Customer Project Instructions](customer-projects/INSTRUCTIONS.md) |
+| Contribute code | [Contributing Guide](development/CONTRIBUTING.md) |
+| Write tests | [Testing Guide](development/TESTING.md) |
 
----
+### By Skill Level
 
-##  Quick Reference
+**Beginner**:
+- [Project Overview](getting-started/PROJECT_OVERVIEW.md)
+- [Quick Start](getting-started/QUICK_START.md)
+- [Quick Reference](QUICK_REFERENCE.md)
 
-### Common Tasks
+**Intermediate**:
+- [Agentic Workflow Guide](user-guide/AGENTIC_WORKFLOW.md)
+- [Interactive Report Generation](INTERACTIVE_REPORT_GENERATION.md)
+- [Collection Selection Guide](COLLECTION_SELECTION_GUIDE.md)
 
-```bash
-# Install
-pip install -e .
+**Advanced**:
+- [Workflow Tracing Guide](WORKFLOW_TRACING_GUIDE.md)
+- [Collection Selection Implementation](api-reference/COLLECTION_SELECTION_IMPLEMENTATION.md)
+- [Result Management API](api-reference/RESULT_MANAGEMENT_API.md)
 
-# Run linear workflow
-python examples/report_generation_example.py
-
-# Run agentic workflow
-python examples/agentic_workflow_demo.py
-
-# Check version
-gaai version
-
-# Get help
-gaai --help
-```
-
-### Project Structure
-
-```
-graph-analytics-ai/
-├── graph_analytics_ai/   # Main package
-│   ├── ai/              # AI components (agents, LLM, etc)
-│   ├── db_connection.py # Database utilities
-│   └── gae_*.py         # GAE integration
-├── docs/                # Documentation (you are here!)
-├── examples/            # Usage examples
-├── tests/               # Test suite
-└── scripts/             # Utility scripts
-```
+**Contributor**:
+- [Contributing Guide](development/CONTRIBUTING.md)
+- [Testing Guide](development/TESTING.md)
+- [Code Quality Standards](development/CODE_QUALITY.md)
 
 ---
 
-##  Documentation Status
+## 🔍 Search Tips
 
-| Document | Status | Last Updated |
-|----------|--------|--------------|
-| Getting Started |  Complete | 2025-12-12 |
-| User Guide |  Complete | 2025-12-12 |
-| Development |  Complete | 2025-12-12 |
-| Deployment |  In Progress | 2025-12-12 |
-| API Reference |  Planned | - |
+- **For features**: Check [User Guides](#-user-guides) section
+- **For code**: Check [API Reference](#-api-reference) section
+- **For setup**: Check [Getting Started](#-getting-started) section
+- **For contributing**: Check [Development](#-development) section
 
 ---
 
-**Last Updated:** December 12, 2025  
-**Version:** 3.0.0  
-**Maintained By:** Arthur Keen
+## 📞 Getting Help
 
+1. **Check documentation**: Use this index to find relevant guides
+2. **Review examples**: See `/examples` directory for working code
+3. **Run tests**: See `/tests` directory for usage patterns
+4. **Check issues**: Look for similar problems on GitHub
+5. **Ask questions**: Open a GitHub issue with the `question` label
+
+---
+
+## 🔄 Documentation Updates
+
+This documentation is actively maintained. Recent additions:
+
+- **Dec 22, 2025**: Added Interactive Report Generation guide
+- **Dec 22, 2025**: Reorganized documentation structure
+- **Dec 22, 2025**: Created customer projects section
+- **Dec 22, 2025**: Added workflow diagram to README
+
+See [CHANGELOG.md](../CHANGELOG.md) for complete version history.
+
+---
+
+## ✅ Documentation Quality
+
+All documentation includes:
+- ✅ Clear examples
+- ✅ Code samples
+- ✅ Troubleshooting sections
+- ✅ Cross-references
+- ✅ Last updated dates
+
+---
+
+**Need something not listed here?** Open an issue on GitHub or check the [Quick Reference](QUICK_REFERENCE.md).

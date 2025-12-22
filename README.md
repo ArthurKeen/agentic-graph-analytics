@@ -316,6 +316,81 @@ Both workflow modes execute the same underlying pipeline:
 - Explainable AI decision-making
 - Autonomous workflow adaptation
 
+### Agentic Workflow Architecture
+
+The agentic system uses 6 specialized AI agents coordinated by a supervisor:
+
+```
+                    ┌─────────────────────────────┐
+                    │   Agentic Workflow System   │
+                    │   6 Specialized AI Agents   │
+                    └──────────────┬──────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │   Orchestrator Agent        │
+                    │  (Supervisor Pattern)       │
+                    │  • Coordinates all agents   │
+                    │  • Intelligent routing      │
+                    │  • Self-healing             │
+                    └──────────────┬──────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │     Specialized Agents      │
+                    └──────────────┬──────────────┘
+                                   │
+           ┌───────────────────────┼───────────────────────┐
+           │                       │                       │
+    ┌──────▼──────┐       ┌───────▼───────┐       ┌──────▼──────┐
+    │   Schema    │       │  Requirements │       │   Use Case  │
+    │   Analysis  │───────│   Extraction  │───────│  Generation │
+    │   Agent     │       │     Agent     │       │    Agent    │
+    └─────────────┘       └───────────────┘       └─────────────┘
+         │                         │                       │
+         └─────────────────────────┼───────────────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │     Template Agent          │
+                    │  • Collection selection     │
+                    │  • Algorithm parameters     │
+                    └──────────────┬──────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │    Execution Agent          │
+                    │  • GAE orchestration        │
+                    │  • Result validation        │
+                    └──────────────┬──────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │    Reporting Agent          │
+                    │  • AI insights              │
+                    │  • Interactive charts       │
+                    │  • Recommendations          │
+                    └──────────────┬──────────────┘
+                                   │
+                    ┌──────────────▼──────────────┐
+                    │   Intelligence Reports      │
+                    │  • HTML with Plotly charts  │
+                    │  • Markdown                 │
+                    │  • JSON                     │
+                    └─────────────────────────────┘
+
+                  Input: Business Requirements (PDF/DOCX/Text)
+                  Output: Actionable Intelligence Reports
+                  Time: Minutes, not weeks
+```
+
+**Agent Responsibilities:**
+
+| Agent | Role | Tools |
+|-------|------|-------|
+| **Orchestrator** | Supervisor, routing, error recovery | All agent coordination |
+| **Schema Analysis** | Extract graph structure | Database queries, LLM analysis |
+| **Requirements** | Parse business needs | Document parsing, LLM extraction |
+| **Use Case** | Map needs to algorithms | LLM reasoning, algorithm selection |
+| **Template** | Generate GAE configurations | Collection selection, parameter optimization |
+| **Execution** | Run analyses on GAE | GAE API, result validation |
+| **Reporting** | Generate insights | LLM interpretation, chart generation |
+
 ### Technology Stack
 
 - **Python 3.8+** - Core platform

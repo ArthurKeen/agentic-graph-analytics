@@ -649,7 +649,7 @@ selection = select_collections_for_algorithm(
 ## Documentation References
 
 - **User Guide**: `docs/COLLECTION_SELECTION_GUIDE.md` in the library repo
-- **Implementation Details**: `docs/COLLECTION_SELECTION_IMPLEMENTATION.md`
+- **Implementation Details**: `docs/api-reference/COLLECTION_SELECTION_IMPLEMENTATION.md`
 - **Unit Tests**: `tests/unit/ai/templates/test_collection_selector.py` (examples)
 
 ---
