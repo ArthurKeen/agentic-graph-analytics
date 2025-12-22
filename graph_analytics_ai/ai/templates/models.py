@@ -28,12 +28,12 @@ class AlgorithmType(Enum):
     BETWEENNESS_CENTRALITY = "betweenness"
 
     @classmethod
-    def get_supported_names(cls) -> list[str]:
+    def get_supported_names(cls) -> List[str]:
         """Get list of supported algorithm names."""
         return [alg.value for alg in cls]
 
     @classmethod
-    def get_display_names(cls) -> dict[str, str]:
+    def get_display_names(cls) -> Dict[str, str]:
         """Get mapping of algorithm values to display names."""
         return {
             cls.PAGERANK.value: "PageRank",
