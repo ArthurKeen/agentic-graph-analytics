@@ -19,12 +19,13 @@ class TestAnalysisConfig:
         """Test initialization with minimal parameters."""
         config = AnalysisConfig(
             name="test_analysis",
+            algorithm="pagerank",  # Now required (no default after Fix #1)
             vertex_collections=["v1"],
             edge_collections=["e1"]
         )
         
         assert config.name == "test_analysis"
-        assert config.algorithm == "pagerank"  # Default
+        assert config.algorithm == "pagerank"
         assert config.engine_size == "e16"  # Default
         assert config.database is not None  # Set in __post_init__
     
@@ -106,6 +107,7 @@ class TestGAEOrchestrator:
         
         config = AnalysisConfig(
             name="test",
+            algorithm="pagerank",  # Now required (no default after Fix #1)
             vertex_collections=["v1"],
             edge_collections=["e1"],
             engine_size="e16"
@@ -124,6 +126,7 @@ class TestGAEOrchestrator:
         
         config = AnalysisConfig(
             name="test_analysis",
+            algorithm="wcc",  # Now required (no default after Fix #1)
             vertex_collections=["v1"],
             edge_collections=["e1"]
         )
