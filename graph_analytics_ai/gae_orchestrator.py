@@ -62,8 +62,8 @@ class AnalysisConfig:
     vertex_attributes: Optional[List[str]] = None  # Attributes to load (e.g., ['_key'])
     database: Optional[str] = None  # None = use default from config
     
-    # Algorithm configuration
-    algorithm: str = "pagerank"  # pagerank, label_propagation, scc, wcc, betweenness
+    # Algorithm configuration (NO DEFAULT - must be explicitly specified!)
+    algorithm: str  # pagerank, label_propagation, scc, wcc, betweenness - REQUIRED!
     algorithm_params: Dict[str, Any] = field(default_factory=dict)
     result_field: Optional[str] = None  # e.g., "pagerank_product_demand"
     
@@ -437,6 +437,14 @@ class GAEOrchestrator:
     def _load_graph(self, result: AnalysisResult):
         """Load graph data into engine."""
         result.status = AnalysisStatus.GRAPH_LOADING
+        
+        # DEBUG LOGGING - Track what we're about to load
+        self._log(f"\n[ORCHESTRATOR DEBUG] About to load graph:")
+        self._log(f"  Config name: {result.config.name}")
+        self._log(f"  Config algorithm: {result.config.algorithm}")
+        self._log(f"  Vertex collections ({len(result.config.vertex_collections)}): {result.config.vertex_collections}")
+        self._log(f"  Edge collections ({len(result.config.edge_collections)}): {result.config.edge_collections}")
+        
         self._log(f"Loading graph from {result.config.database}...")
         self._log(f"  Vertices: {result.config.vertex_collections}")
         self._log(f"  Edges: {result.config.edge_collections}")
@@ -455,6 +463,9 @@ class GAEOrchestrator:
         
         result.graph_id = graph_info.get('graph_id') or graph_info.get('id')
         
+        # DEBUG LOGGING - Confirm what was loaded
+        self._log(f"[ORCHESTRATOR DEBUG] GAE returned graph_id: {result.graph_id}")
+        
         # Wait for load to complete
         job_id = graph_info.get('job_id') or graph_info.get('id')
         if job_id:
@@ -467,6 +478,7 @@ class GAEOrchestrator:
             graph_details = self.gae.get_graph(result.graph_id)
             result.vertex_count = graph_details.get('vertex_count', 0)
             result.edge_count = graph_details.get('edge_count', 0)
+            self._log(f"[ORCHESTRATOR DEBUG] Graph details from GAE: {result.vertex_count:,} vertices, {result.edge_count:,} edges")
         except:
             # Graph details may not be available immediately
             pass
@@ -480,6 +492,13 @@ class GAEOrchestrator:
     def _run_algorithm(self, result: AnalysisResult):
         """Run the configured algorithm."""
         result.status = AnalysisStatus.ALGORITHM_RUNNING
+        
+        # DEBUG LOGGING - Track which algorithm is about to run
+        self._log(f"\n[ORCHESTRATOR DEBUG] About to run algorithm:")
+        self._log(f"  Config algorithm: '{result.config.algorithm}'")
+        self._log(f"  Graph ID: {result.graph_id}")
+        self._log(f"  Algorithm params: {result.config.algorithm_params}")
+        
         self._log(f"Running {result.config.algorithm}...")
         
         exec_start = datetime.now()
@@ -493,14 +512,19 @@ class GAEOrchestrator:
         # Call the appropriate algorithm
         # Only algorithms supported by GAEConnectionBase are available
         if result.config.algorithm == "pagerank":
+            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_pagerank()")
             job_info = self.gae.run_pagerank(**params)
         elif result.config.algorithm == "label_propagation":
+            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_label_propagation()")
             job_info = self.gae.run_label_propagation(**params)
         elif result.config.algorithm == "betweenness":
+            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_betweenness()")
             job_info = self.gae.run_betweenness(**params)
         elif result.config.algorithm == "scc":
+            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_scc()")
             job_info = self.gae.run_scc(**params)
         elif result.config.algorithm == "wcc":
+            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_wcc()")
             job_info = self.gae.run_wcc(**params)
         else:
             # Provide helpful error message with supported algorithms
@@ -512,6 +536,7 @@ class GAEOrchestrator:
             )
         
         result.job_id = job_info.get('job_id') or job_info.get('id')
+        self._log(f"[ORCHESTRATOR DEBUG] Algorithm job started: {result.job_id}")
         
         # Wait for completion
         job_result = self._wait_for_job(result.job_id, f"{result.config.algorithm} computation")

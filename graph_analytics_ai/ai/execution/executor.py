@@ -216,28 +216,54 @@ class AnalysisExecutor:
         # Extract vertex and edge collections from template
         vertex_collections = config_dict.get('vertex_collections', [])
         edge_collections = config_dict.get('edge_collections', [])
+        algorithm = config_dict.get('algorithm')
+        
+        # DEBUG LOGGING - Track collection and algorithm values
+        print(f"\n[EXECUTOR DEBUG] Template to Config Conversion:")
+        print(f"  Template name: {template.name}")
+        print(f"  Template algorithm: {template.algorithm.algorithm.value if hasattr(template.algorithm, 'algorithm') else template.algorithm}")
+        print(f"  Config dict algorithm: {algorithm}")
+        print(f"  Vertex collections ({len(vertex_collections)}): {vertex_collections}")
+        print(f"  Edge collections ({len(edge_collections)}): {edge_collections}")
         
         # Fallback: try template.vertex_collections if config_dict doesn't have them
         if not vertex_collections and hasattr(template, 'vertex_collections'):
             vertex_collections = template.vertex_collections
+            print(f"  [EXECUTOR DEBUG] Using fallback vertex_collections from template")
         if not edge_collections and hasattr(template, 'edge_collections'):
             edge_collections = template.edge_collections
+            print(f"  [EXECUTOR DEBUG] Using fallback edge_collections from template")
+        
+        # Validate algorithm is present
+        if not algorithm:
+            raise ValueError(f"Template '{template.name}' has no algorithm specified! This is a critical bug.")
         
         # Create AnalysisConfig object
         # NOTE: We intentionally DON'T pass result_field here
         # Let AnalysisConfig.__post_init__ generate the standard field name
         # based on ALGORITHM_RESULT_FIELDS mapping (e.g., wcc -> "component")
-        return AnalysisConfig(
+        config = AnalysisConfig(
             name=config_dict['name'],
             description=template.description,
             vertex_collections=vertex_collections,
             edge_collections=edge_collections,
-            algorithm=config_dict['algorithm'],
+            algorithm=algorithm,
             algorithm_params=config_dict['params'],
             engine_size=config_dict.get('engine_size', 'e16'),
             target_collection=config_dict.get('result_collection', 'graph_analysis_results')
             # result_field is NOT passed - will be auto-generated as standard name
         )
+        
+        # DEBUG LOGGING - Verify AnalysisConfig was created correctly
+        print(f"[EXECUTOR DEBUG] Created AnalysisConfig:")
+        print(f"  Name: {config.name}")
+        print(f"  Algorithm: {config.algorithm}")
+        print(f"  Vertex collections ({len(config.vertex_collections)}): {config.vertex_collections}")
+        print(f"  Edge collections ({len(config.edge_collections)}): {config.edge_collections}")
+        print(f"  Result field: {config.result_field}")
+        print(f"[EXECUTOR DEBUG] End of conversion\n")
+        
+        return config
     
     def _submit_job(self, config: AnalysisConfig) -> str:
         """
