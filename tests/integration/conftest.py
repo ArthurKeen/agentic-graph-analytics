@@ -16,7 +16,7 @@ def pytest_addoption(parser):
         "--run-integration",
         action="store_true",
         default=False,
-        help="Run integration tests (requires external services)"
+        help="Run integration tests (requires external services)",
     )
 
 
@@ -24,19 +24,16 @@ def pytest_configure(config):
     """Configure pytest with custom markers."""
     config.addinivalue_line(
         "markers",
-        "integration: mark test as integration test (requires --run-integration flag)"
+        "integration: mark test as integration test (requires --run-integration flag)",
     )
     config.addinivalue_line(
-        "markers",
-        "requires_llm: mark test as requiring LLM provider"
+        "markers", "requires_llm: mark test as requiring LLM provider"
     )
     config.addinivalue_line(
-        "markers",
-        "requires_db: mark test as requiring database connection"
+        "markers", "requires_db: mark test as requiring database connection"
     )
     config.addinivalue_line(
-        "markers",
-        "requires_gae: mark test as requiring GAE access"
+        "markers", "requires_gae: mark test as requiring GAE access"
     )
 
 
@@ -45,7 +42,7 @@ def pytest_collection_modifyitems(config, items):
     if config.getoption("--run-integration"):
         # Running integration tests - don't skip
         return
-    
+
     skip_integration = pytest.mark.skip(reason="need --run-integration option to run")
     for item in items:
         if "integration" in item.keywords:
@@ -54,18 +51,19 @@ def pytest_collection_modifyitems(config, items):
 
 # Fixtures
 
+
 @pytest.fixture(scope="session")
 def test_env_vars():
     """Load test environment variables."""
     from dotenv import load_dotenv
-    
+
     # Try to load .env.test if it exists
     test_env = Path(__file__).parent.parent.parent / ".env.test"
     if test_env.exists():
         load_dotenv(test_env)
     else:
         load_dotenv()  # Fall back to regular .env
-    
+
     return {
         "llm_api_key": os.getenv("OPENROUTER_API_KEY"),
         "llm_model": os.getenv("LLM_MODEL", "google/gemini-flash-1.5"),
@@ -81,16 +79,16 @@ def test_env_vars():
 def check_env_vars(test_env_vars):
     """Verify required environment variables are set."""
     missing = []
-    
+
     if not test_env_vars["llm_api_key"]:
         missing.append("OPENROUTER_API_KEY")
-    
+
     if not test_env_vars["db_password"]:
         missing.append("ARANGO_PASSWORD")
-    
+
     if missing:
         pytest.skip(f"Missing required environment variables: {', '.join(missing)}")
-    
+
     return test_env_vars
 
 
@@ -107,10 +105,10 @@ def test_use_case_file():
     """Path to test use case file."""
     fixtures_dir = Path(__file__).parent / "fixtures"
     use_case_file = fixtures_dir / "test_use_case.md"
-    
+
     if not use_case_file.exists():
         pytest.skip(f"Test use case file not found: {use_case_file}")
-    
+
     return str(use_case_file)
 
 
@@ -118,11 +116,11 @@ def test_use_case_file():
 def mock_llm_provider():
     """Create a mock LLM provider for testing without API calls."""
     from unittest.mock import Mock
-    
+
     mock = Mock()
     mock.generate.return_value = "Mock LLM response"
     mock.generate_with_schema.return_value = {"mock": "data"}
-    
+
     return mock
 
 
@@ -130,17 +128,18 @@ def mock_llm_provider():
 def test_graph_schema():
     """Sample graph schema for testing."""
     from graph_analytics_ai.ai.schema.models import GraphSchema, CollectionInfo
-    
+
     return GraphSchema(
         database="test_db",
         vertex_collections=[
             CollectionInfo(name="users", count=100, sample_doc={"name": "Alice"}),
-            CollectionInfo(name="products", count=50, sample_doc={"title": "Widget"})
+            CollectionInfo(name="products", count=50, sample_doc={"title": "Widget"}),
         ],
         edge_collections=[
             CollectionInfo(name="purchased", count=200, sample_doc={"quantity": 1}),
-            CollectionInfo(name="viewed", count=500, sample_doc={"timestamp": "2024-01-01"})
+            CollectionInfo(
+                name="viewed", count=500, sample_doc={"timestamp": "2024-01-01"}
+            ),
         ],
-        named_graphs=[]
+        named_graphs=[],
     )
-

@@ -14,7 +14,7 @@ works perfectly fine without this module.
 Example - Schema Analysis:
     >>> from graph_analytics_ai.ai import create_llm_provider
     >>> from graph_analytics_ai.ai.schema import create_extractor, SchemaAnalyzer
-    >>> 
+    >>>
     >>> # Extract schema from database
     >>> extractor = create_extractor(
     ...     endpoint='http://localhost:8529',
@@ -22,24 +22,24 @@ Example - Schema Analysis:
     ...     password='password'
     ... )
     >>> schema = extractor.extract()
-    >>> 
+    >>>
     >>> # Analyze with LLM
     >>> provider = create_llm_provider()
     >>> analyzer = SchemaAnalyzer(provider)
     >>> analysis = analyzer.analyze(schema)
-    >>> 
+    >>>
     >>> print(analysis.description)
     >>> print(f"Suggested analyses: {len(analysis.suggested_analyses)}")
 
 Example - Direct LLM Use:
     >>> from graph_analytics_ai.ai import create_llm_provider
-    >>> 
+    >>>
     >>> # Create LLM provider
     >>> provider = create_llm_provider(
     ...     provider="openrouter",
     ...     model="google/gemini-2.5-flash"
     ... )
-    >>> 
+    >>>
     >>> # Use for generation
     >>> response = provider.generate("What is graph analytics?")
     >>> print(response.content)
@@ -58,7 +58,7 @@ from .llm import (
     LLMResponse,
     LLMProviderError,
     create_llm_provider,
-    get_default_provider
+    get_default_provider,
 )
 
 # Schema analysis / documents / generation / workflow (import submodules for convenience)
@@ -77,7 +77,6 @@ __all__ = [
     "LLMProviderError",
     "create_llm_provider",
     "get_default_provider",
-    
     # Submodules
     "schema",
     "documents",

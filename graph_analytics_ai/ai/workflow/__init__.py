@@ -3,7 +3,7 @@ Workflow orchestration for AI-assisted graph analytics.
 
 This module provides end-to-end workflow automation that connects all AI components:
 - Schema extraction and analysis
-- Document parsing and requirements extraction  
+- Document parsing and requirements extraction
 - PRD generation
 - Use case generation
 - State management and checkpointing
@@ -11,7 +11,7 @@ This module provides end-to-end workflow automation that connects all AI compone
 
 Example:
     >>> from graph_analytics_ai.ai.workflow import WorkflowOrchestrator
-    >>> 
+    >>>
     >>> orchestrator = WorkflowOrchestrator(output_dir="./workflow_output")
     >>> result = orchestrator.run_complete_workflow(
     ...     business_requirements=["requirements.pdf"],
@@ -29,7 +29,7 @@ from .exceptions import (
     WorkflowError,
     WorkflowStepError,
     WorkflowStateError,
-    WorkflowCheckpointError
+    WorkflowCheckpointError,
 )
 
 __all__ = [
@@ -44,4 +44,3 @@ __all__ = [
     "WorkflowStateError",
     "WorkflowCheckpointError",
 ]
-

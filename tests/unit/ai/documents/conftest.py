@@ -16,7 +16,7 @@ from graph_analytics_ai.ai.documents.models import (
     RequirementType,
     Stakeholder,
     Objective,
-    Priority
+    Priority,
 )
 
 
@@ -96,10 +96,7 @@ def sample_document_metadata(temp_text_file):
 @pytest.fixture
 def sample_document(sample_document_metadata, sample_text_content):
     """Sample document object."""
-    return Document(
-        metadata=sample_document_metadata,
-        content=sample_text_content
-    )
+    return Document(metadata=sample_document_metadata, content=sample_text_content)
 
 
 @pytest.fixture
@@ -107,18 +104,13 @@ def sample_chunked_document(sample_document):
     """Sample document with chunks."""
     doc = sample_document
     doc.chunks = [
-        TextChunk(
-            content=doc.content[:500],
-            chunk_index=0,
-            start_char=0,
-            end_char=500
-        ),
+        TextChunk(content=doc.content[:500], chunk_index=0, start_char=0, end_char=500),
         TextChunk(
             content=doc.content[400:900],  # Overlapping
             chunk_index=1,
             start_char=400,
-            end_char=900
-        )
+            end_char=900,
+        ),
     ]
     return doc
 
@@ -132,22 +124,22 @@ def sample_requirements():
             text="The system must handle 10,000 concurrent users",
             requirement_type=RequirementType.NON_FUNCTIONAL,
             priority=Priority.CRITICAL,
-            stakeholders=["Jane Smith"]
+            stakeholders=["Jane Smith"],
         ),
         Requirement(
             id="REQ-002",
             text="Shopping cart must persist across sessions",
             requirement_type=RequirementType.FUNCTIONAL,
             priority=Priority.HIGH,
-            stakeholders=["Bob Johnson"]
+            stakeholders=["Bob Johnson"],
         ),
         Requirement(
             id="REQ-003",
             text="Implement real-time inventory tracking",
             requirement_type=RequirementType.FUNCTIONAL,
             priority=Priority.HIGH,
-            stakeholders=["Sarah Lee", "Bob Johnson"]
-        )
+            stakeholders=["Sarah Lee", "Bob Johnson"],
+        ),
     ]
 
 
@@ -160,22 +152,22 @@ def sample_stakeholders():
             role="VP of Engineering",
             organization="Engineering",
             interests=["Performance", "Scalability"],
-            requirements=["REQ-001"]
+            requirements=["REQ-001"],
         ),
         Stakeholder(
             name="Bob Johnson",
             role="Product Manager",
             organization="Product",
             interests=["User Experience", "Features"],
-            requirements=["REQ-002", "REQ-003"]
+            requirements=["REQ-002", "REQ-003"],
         ),
         Stakeholder(
             name="Sarah Lee",
             role="Head of Operations",
             organization="Operations",
             interests=["Reliability", "Inventory Management"],
-            requirements=["REQ-003"]
-        )
+            requirements=["REQ-003"],
+        ),
     ]
 
 
@@ -190,10 +182,10 @@ def sample_objectives():
             priority=Priority.CRITICAL,
             success_criteria=[
                 "Handle 10,000 concurrent users",
-                "99.9% uptime during sales events"
+                "99.9% uptime during sales events",
             ],
             related_requirements=["REQ-001"],
-            stakeholders=["Jane Smith"]
+            stakeholders=["Jane Smith"],
         ),
         Objective(
             id="OBJ-002",
@@ -202,20 +194,17 @@ def sample_objectives():
             priority=Priority.HIGH,
             success_criteria=[
                 "Cart persistence across sessions",
-                "Real-time inventory updates"
+                "Real-time inventory updates",
             ],
             related_requirements=["REQ-002", "REQ-003"],
-            stakeholders=["Bob Johnson", "Sarah Lee"]
-        )
+            stakeholders=["Bob Johnson", "Sarah Lee"],
+        ),
     ]
 
 
 @pytest.fixture
 def sample_extracted_requirements(
-    sample_document,
-    sample_requirements,
-    sample_stakeholders,
-    sample_objectives
+    sample_document, sample_requirements, sample_stakeholders, sample_objectives
 ):
     """Sample complete extracted requirements."""
     return ExtractedRequirements(
@@ -228,16 +217,10 @@ def sample_extracted_requirements(
         constraints=[
             "Budget limit of $500,000",
             "Must be completed by Q2 2025",
-            "Backward compatibility required"
+            "Backward compatibility required",
         ],
-        assumptions=[
-            "Existing API will be maintained",
-            "Current user base will grow"
-        ],
-        risks=[
-            "Database migration downtime",
-            "Payment integration complexity"
-        ]
+        assumptions=["Existing API will be maintained", "Current user base will grow"],
+        risks=["Database migration downtime", "Payment integration complexity"],
     )
 
 
@@ -245,7 +228,7 @@ def sample_extracted_requirements(
 def mock_llm_provider():
     """Mock LLM provider for testing."""
     provider = Mock()
-    
+
     # Mock generate_structured to return valid requirements extraction
     provider.generate_structured.return_value = {
         "summary": "E-commerce platform modernization project.",
@@ -256,29 +239,29 @@ def mock_llm_provider():
                 "text": "The system must handle 10,000 concurrent users",
                 "type": "non_functional",
                 "priority": "critical",
-                "stakeholders": ["Jane Smith"]
+                "stakeholders": ["Jane Smith"],
             },
             {
                 "id": "REQ-002",
                 "text": "Shopping cart must persist",
                 "type": "functional",
                 "priority": "high",
-                "stakeholders": ["Bob Johnson"]
-            }
+                "stakeholders": ["Bob Johnson"],
+            },
         ],
         "stakeholders": [
             {
                 "name": "Jane Smith",
                 "role": "VP of Engineering",
                 "organization": "Engineering",
-                "interests": ["Performance"]
+                "interests": ["Performance"],
             },
             {
                 "name": "Bob Johnson",
                 "role": "Product Manager",
                 "organization": "Product",
-                "interests": ["UX"]
-            }
+                "interests": ["UX"],
+            },
         ],
         "objectives": [
             {
@@ -287,12 +270,12 @@ def mock_llm_provider():
                 "description": "Handle peak loads",
                 "priority": "critical",
                 "success_criteria": ["10K concurrent users"],
-                "related_requirements": ["REQ-001"]
+                "related_requirements": ["REQ-001"],
             }
         ],
         "constraints": ["Budget $500K", "Q2 2025 deadline"],
         "assumptions": ["User growth"],
-        "risks": ["Migration downtime"]
+        "risks": ["Migration downtime"],
     }
-    
+
     return provider

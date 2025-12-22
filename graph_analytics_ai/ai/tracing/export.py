@@ -15,105 +15,105 @@ from . import WorkflowTrace
 class TraceExporter:
     """
     Exports workflow traces to various formats.
-    
+
     Supports JSON, HTML timeline, SVG diagrams, and markdown reports.
     """
-    
+
     def __init__(self, trace: WorkflowTrace):
         """
         Initialize exporter.
-        
+
         Args:
             trace: Workflow trace to export
         """
         self.trace = trace
-    
+
     def export_json(self, output_path: str, pretty: bool = True) -> None:
         """
         Export trace as JSON.
-        
+
         Args:
             output_path: Output file path
             pretty: Whether to pretty-print JSON
         """
         data = self.trace.to_dict()
-        
+
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_path, 'w') as f:
+
+        with open(output_path, "w") as f:
             if pretty:
                 json.dump(data, f, indent=2, default=str)
             else:
                 json.dump(data, f, default=str)
-        
+
         print(f"📊 Trace exported to JSON: {output_path}")
-    
+
     def export_timeline_html(self, output_path: str) -> None:
         """
         Export interactive HTML timeline.
-        
+
         Args:
             output_path: Output file path
         """
         html = self._generate_timeline_html()
-        
+
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_text(html)
-        
+
         print(f"📊 Timeline exported to HTML: {output_path}")
-    
+
     def export_agent_diagram_svg(self, output_path: str) -> None:
         """
         Export agent interaction diagram as SVG.
-        
+
         Args:
             output_path: Output file path
         """
         svg = self._generate_agent_diagram_svg()
-        
+
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_text(svg)
-        
+
         print(f"📊 Agent diagram exported to SVG: {output_path}")
-    
+
     def export_markdown_report(self, output_path: str) -> None:
         """
         Export trace as markdown report.
-        
+
         Args:
             output_path: Output file path
         """
         md = self._generate_markdown_report()
-        
+
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_text(md)
-        
+
         print(f"📊 Trace report exported to Markdown: {output_path}")
-    
+
     def export_all(self, output_dir: str) -> None:
         """
         Export trace in all formats.
-        
+
         Args:
             output_dir: Output directory
         """
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-        
+
         base_name = f"trace_{self.trace.trace_id}"
-        
+
         self.export_json(str(output_path / f"{base_name}.json"))
         self.export_timeline_html(str(output_path / f"{base_name}_timeline.html"))
         self.export_agent_diagram_svg(str(output_path / f"{base_name}_agents.svg"))
         self.export_markdown_report(str(output_path / f"{base_name}_report.md"))
-        
+
         print(f"\n✓ All trace formats exported to: {output_dir}")
-    
+
     def _generate_timeline_html(self) -> str:
         """Generate interactive HTML timeline."""
         timeline = self.trace.get_timeline()
         perf = self.trace.performance.to_dict() if self.trace.performance else {}
-        
+
         # Generate HTML with embedded CSS and JavaScript
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -391,30 +391,30 @@ class TraceExporter:
         <div class="timeline">
             <div class="timeline-header">Event Timeline</div>
 """
-        
+
         for event in timeline:
-            event_type = event['event'].replace('_', ' ').title()
-            agent = event.get('agent', 'System')
-            summary = event.get('summary', '')
-            duration = event.get('duration_ms', 0)
-            timestamp = event['timestamp']
-            
+            event_type = event["event"].replace("_", " ").title()
+            agent = event.get("agent", "System")
+            summary = event.get("summary", "")
+            duration = event.get("duration_ms", 0)
+            timestamp = event["timestamp"]
+
             # Determine dot class
-            dot_class = 'timeline-dot'
-            if 'error' in event['event'].lower():
-                dot_class += ' error'
-            elif 'agent' in event['event'].lower():
-                dot_class += ' agent'
-            
+            dot_class = "timeline-dot"
+            if "error" in event["event"].lower():
+                dot_class += " error"
+            elif "agent" in event["event"].lower():
+                dot_class += " agent"
+
             # Determine event class for filtering
             event_class = []
-            if 'agent' in event['event'].lower():
-                event_class.append('agent-event')
-            if 'step' in event['event'].lower():
-                event_class.append('step-event')
-            if 'error' in event['event'].lower():
-                event_class.append('error-event')
-            
+            if "agent" in event["event"].lower():
+                event_class.append("agent-event")
+            if "step" in event["event"].lower():
+                event_class.append("step-event")
+            if "error" in event["event"].lower():
+                event_class.append("error-event")
+
             html += f"""
             <div class="timeline-event {' '.join(event_class)}">
                 <div class="{dot_class}"></div>
@@ -428,7 +428,7 @@ class TraceExporter:
                 </div>
             </div>
 """
-        
+
         html += """
         </div>
     </div>
@@ -459,29 +459,29 @@ class TraceExporter:
 </body>
 </html>
 """
-        
+
         return html
-    
+
     def _generate_agent_diagram_svg(self) -> str:
         """Generate SVG diagram of agent interactions."""
         interactions = self.trace.get_agent_interactions()
-        
+
         # Get unique agents
         agents = set()
         for interaction in interactions:
-            agents.add(interaction['from_agent'])
-            agents.add(interaction['to_agent'])
-        
+            agents.add(interaction["from_agent"])
+            agents.add(interaction["to_agent"])
+
         agents = sorted(list(agents))
         agent_count = len(agents)
-        
+
         # SVG dimensions
         width = 800
         height = 400
         agent_y = 80
         agent_spacing = width / (agent_count + 1)
-        
-        svg = f'''<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
+
+        svg = f"""<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
     <style>
         .agent-box {{ fill: #2196F3; stroke: #1976D2; stroke-width: 2; }}
         .agent-text {{ fill: white; font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; }}
@@ -491,52 +491,54 @@ class TraceExporter:
     </style>
     
     <text x="{width/2}" y="30" class="title">Agent Interaction Diagram</text>
-'''
-        
+"""
+
         # Draw agents
         agent_positions = {}
         for i, agent in enumerate(agents):
             x = (i + 1) * agent_spacing
             agent_positions[agent] = x
-            
-            svg += f'''
+
+            svg += f"""
     <rect x="{x-50}" y="{agent_y}" width="100" height="40" rx="5" class="agent-box"/>
     <text x="{x}" y="{agent_y + 25}" class="agent-text">{agent[:15]}</text>
-'''
-        
+"""
+
         # Draw interactions
         message_y_start = agent_y + 60
         message_y_spacing = 15
-        
-        for i, interaction in enumerate(interactions[:20]):  # Limit to first 20 for readability
-            from_agent = interaction['from_agent']
-            to_agent = interaction['to_agent']
-            
+
+        for i, interaction in enumerate(
+            interactions[:20]
+        ):  # Limit to first 20 for readability
+            from_agent = interaction["from_agent"]
+            to_agent = interaction["to_agent"]
+
             if from_agent not in agent_positions or to_agent not in agent_positions:
                 continue
-            
+
             x1 = agent_positions[from_agent]
             x2 = agent_positions[to_agent]
             y = message_y_start + (i * message_y_spacing)
-            
+
             # Draw curved line
             control_y = y + 20
-            svg += f'''
+            svg += f"""
     <path d="M {x1} {y} Q {(x1+x2)/2} {control_y} {x2} {y + 5}" class="message-line"/>
     <polygon points="{x2-5},{y+5} {x2},{y+8} {x2-5},{y+11}" class="message-arrow"/>
-'''
-        
-        svg += '''
+"""
+
+        svg += """
 </svg>
-'''
-        
+"""
+
         return svg
-    
+
     def _generate_markdown_report(self) -> str:
         """Generate markdown trace report."""
         perf = self.trace.performance.to_dict() if self.trace.performance else {}
         timeline = self.trace.get_timeline()
-        
+
         md = f"""# Workflow Trace Report
 
 **Trace ID:** `{self.trace.trace_id}`  
@@ -564,39 +566,39 @@ class TraceExporter:
 ## Slowest Agents
 
 """
-        
-        for i, agent in enumerate(perf.get('slowest_agents', []), 1):
+
+        for i, agent in enumerate(perf.get("slowest_agents", []), 1):
             md += f"{i}. **{agent['agent']}**: {agent['total_time_ms']:.0f}ms ({agent['invocations']} invocations)\n"
-        
+
         md += "\n---\n\n## Top LLM Consumers\n\n"
-        
-        for i, agent in enumerate(perf.get('top_llm_consumers', []), 1):
+
+        for i, agent in enumerate(perf.get("top_llm_consumers", []), 1):
             md += f"{i}. **{agent['agent']}**: {agent['total_tokens']:,} tokens ({agent['llm_calls']} calls)\n"
-        
+
         md += "\n---\n\n## Event Timeline\n\n"
-        
+
         for event in timeline:
-            timestamp = event['timestamp'].split('T')[1][:12]  # Just time
-            summary = event.get('summary', '')
-            duration = event.get('duration_ms', 0)
-            
+            timestamp = event["timestamp"].split("T")[1][:12]  # Just time
+            summary = event.get("summary", "")
+            duration = event.get("duration_ms", 0)
+
             md += f"**{timestamp}** - {summary}"
             if duration:
                 md += f" `({duration:.0f}ms)`"
             md += "\n\n"
-        
+
         md += "\n---\n\n## Agent Interactions\n\n"
-        
+
         interactions = self.trace.get_agent_interactions()
         for interaction in interactions[:30]:  # Limit to first 30
             md += f"- `{interaction['from_agent']}` → `{interaction['to_agent']}` ({interaction['message_type']})\n"
-        
+
         if len(interactions) > 30:
             md += f"\n_... and {len(interactions) - 30} more interactions_\n"
-        
+
         md += "\n---\n\n## Detailed Metrics by Agent\n\n"
-        
-        agent_metrics = perf.get('agent_metrics', {})
+
+        agent_metrics = perf.get("agent_metrics", {})
         for agent_name, metrics in agent_metrics.items():
             md += f"### {agent_name}\n\n"
             md += f"- **Invocations:** {metrics['invocation_count']}\n"
@@ -609,44 +611,41 @@ class TraceExporter:
             md += f"- **Messages Sent:** {metrics['messages_sent']}\n"
             md += f"- **Messages Received:** {metrics['messages_received']}\n"
             md += f"- **Errors:** {metrics['errors']}\n\n"
-        
+
         return md
 
 
 def export_trace(
-    trace: WorkflowTrace,
-    output_dir: str,
-    formats: Optional[List[str]] = None
+    trace: WorkflowTrace, output_dir: str, formats: Optional[List[str]] = None
 ) -> None:
     """
     Export trace to specified formats.
-    
+
     Args:
         trace: Workflow trace
         output_dir: Output directory
         formats: List of formats ('json', 'html', 'svg', 'markdown', 'all')
                  If None, exports all formats
     """
-    if formats is None or 'all' in formats:
-        formats = ['json', 'html', 'svg', 'markdown']
-    
+    if formats is None or "all" in formats:
+        formats = ["json", "html", "svg", "markdown"]
+
     exporter = TraceExporter(trace)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    
-    base_name = f"trace_{trace.trace_id}"
-    
-    if 'json' in formats:
-        exporter.export_json(str(output_path / f"{base_name}.json"))
-    
-    if 'html' in formats:
-        exporter.export_timeline_html(str(output_path / f"{base_name}_timeline.html"))
-    
-    if 'svg' in formats:
-        exporter.export_agent_diagram_svg(str(output_path / f"{base_name}_agents.svg"))
-    
-    if 'markdown' in formats:
-        exporter.export_markdown_report(str(output_path / f"{base_name}_report.md"))
-    
-    print(f"\n✓ Trace exported to: {output_dir}")
 
+    base_name = f"trace_{trace.trace_id}"
+
+    if "json" in formats:
+        exporter.export_json(str(output_path / f"{base_name}.json"))
+
+    if "html" in formats:
+        exporter.export_timeline_html(str(output_path / f"{base_name}_timeline.html"))
+
+    if "svg" in formats:
+        exporter.export_agent_diagram_svg(str(output_path / f"{base_name}_agents.svg"))
+
+    if "markdown" in formats:
+        exporter.export_markdown_report(str(output_path / f"{base_name}_report.md"))
+
+    print(f"\n✓ Trace exported to: {output_dir}")

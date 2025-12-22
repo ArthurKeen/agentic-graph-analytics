@@ -13,14 +13,14 @@ from .models import (
     TemplateConfig,
     AlgorithmParameters,
     DEFAULT_ALGORITHM_PARAMS,
-    recommend_engine_size
+    recommend_engine_size,
 )
 from .validator import TemplateValidator, ValidationResult, validate_template
 from .collection_selector import (
     CollectionSelector,
     CollectionSelection,
     CollectionRole,
-    select_collections_for_algorithm
+    select_collections_for_algorithm,
 )
 
 __all__ = [
@@ -41,4 +41,3 @@ __all__ = [
     "CollectionRole",
     "select_collections_for_algorithm",
 ]
-

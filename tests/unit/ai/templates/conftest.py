@@ -5,14 +5,14 @@ from graph_analytics_ai.ai.templates.models import (
     AlgorithmType,
     AlgorithmParameters,
     TemplateConfig,
-    AnalysisTemplate
+    AnalysisTemplate,
 )
 from graph_analytics_ai.ai.generation.use_cases import UseCase, UseCaseType
 from graph_analytics_ai.ai.documents.models import Priority
 from graph_analytics_ai.ai.schema.models import (
     GraphSchema,
     CollectionSchema,
-    CollectionType
+    CollectionType,
 )
 
 
@@ -27,7 +27,7 @@ def simple_use_case():
         priority=Priority.HIGH,
         related_requirements=[],
         graph_algorithms=["pagerank"],
-        data_needs=["users"]
+        data_needs=["users"],
     )
 
 
@@ -35,20 +35,16 @@ def simple_use_case():
 def simple_schema():
     """Create a simple graph schema for testing."""
     users_col = CollectionSchema(
-        name="users",
-        type=CollectionType.DOCUMENT,
-        document_count=1000
+        name="users", type=CollectionType.DOCUMENT, document_count=1000
     )
     follows_col = CollectionSchema(
-        name="follows",
-        type=CollectionType.EDGE,
-        document_count=5000
+        name="follows", type=CollectionType.EDGE, document_count=5000
     )
-    
+
     return GraphSchema(
         database_name="test_graph",
         vertex_collections={"users": users_col},
-        edge_collections={"follows": follows_col}
+        edge_collections={"follows": follows_col},
     )
 
 
@@ -59,13 +55,11 @@ def valid_template():
         name="Valid Template",
         description="A valid template for testing",
         algorithm=AlgorithmParameters(
-            algorithm=AlgorithmType.PAGERANK,
-            parameters={"damping_factor": 0.85}
+            algorithm=AlgorithmType.PAGERANK, parameters={"damping_factor": 0.85}
         ),
         config=TemplateConfig(
             graph_name="test_graph",
             vertex_collections=["users"],
-            edge_collections=["follows"]
-        )
+            edge_collections=["follows"],
+        ),
     )
-

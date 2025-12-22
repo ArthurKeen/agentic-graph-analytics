@@ -17,31 +17,31 @@ Example:
     ...     RequirementsExtractor
     ... )
     >>> from graph_analytics_ai.ai.llm import create_llm_provider
-    >>> 
+    >>>
     >>> # Parse documents
     >>> docs = parse_documents([
     ...     "requirements.pdf",
     ...     "scope.docx",
     ...     "business_case.md"
     ... ])
-    >>> 
+    >>>
     >>> print(f"Parsed {len(docs)} documents")
     >>> for doc in docs:
     ...     print(f"- {doc.metadata.file_name}: {doc.word_count} words")
-    >>> 
+    >>>
     >>> # Extract requirements with LLM
     >>> provider = create_llm_provider()
     >>> extractor = RequirementsExtractor(provider)
     >>> extracted = extractor.extract(docs)
-    >>> 
+    >>>
     >>> print(f"\nDomain: {extracted.domain}")
     >>> print(f"Total requirements: {extracted.total_requirements}")
     >>> print(f"Critical requirements: {len(extracted.critical_requirements)}")
     >>> print(f"Stakeholders: {len(extracted.stakeholders)}")
     >>> print(f"Objectives: {len(extracted.objectives)}")
-    >>> 
+    >>>
     >>> print(f"\nSummary:\n{extracted.summary}")
-    >>> 
+    >>>
     >>> # Show critical requirements
     >>> print("\nCritical Requirements:")
     >>> for req in extracted.critical_requirements:
@@ -58,7 +58,7 @@ from .models import (
     Stakeholder,
     Objective,
     Priority,
-    ExtractedRequirements
+    ExtractedRequirements,
 )
 
 from .parser import (
@@ -66,7 +66,7 @@ from .parser import (
     ParserError,
     UnsupportedFormatError,
     parse_document,
-    parse_documents
+    parse_documents,
 )
 
 from .extractor import RequirementsExtractor
@@ -84,14 +84,12 @@ __all__ = [
     "Objective",
     "Priority",
     "ExtractedRequirements",
-    
     # Parser
     "DocumentParser",
     "ParserError",
     "UnsupportedFormatError",
     "parse_document",
     "parse_documents",
-    
     # Extractor
     "RequirementsExtractor",
 ]

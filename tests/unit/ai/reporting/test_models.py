@@ -5,13 +5,13 @@ from graph_analytics_ai.ai.reporting.models import (
     ReportFormat,
     InsightType,
     Insight,
-    AnalysisReport
+    AnalysisReport,
 )
 
 
 class TestReportFormat:
     """Tests for ReportFormat enum."""
-    
+
     def test_formats_exist(self):
         """Test that all expected formats exist."""
         assert ReportFormat.MARKDOWN.value == "markdown"
@@ -22,7 +22,7 @@ class TestReportFormat:
 
 class TestInsightType:
     """Tests for InsightType enum."""
-    
+
     def test_insight_types_exist(self):
         """Test that all expected insight types exist."""
         assert InsightType.PATTERN.value == "pattern"
@@ -32,7 +32,7 @@ class TestInsightType:
 
 class TestReportModels:
     """Basic tests for report models."""
-    
+
     def test_insight_import(self):
         """Test Insight model can be imported and used."""
         insight = Insight(
@@ -40,10 +40,10 @@ class TestReportModels:
             description="Test",
             insight_type=InsightType.PATTERN,
             confidence=0.9,
-            supporting_data={}
+            supporting_data={},
         )
         assert insight.title == "Test"
-    
+
     def test_report_import(self):
         """Test AnalysisReport model can be imported and used."""
         report = AnalysisReport(
@@ -52,6 +52,6 @@ class TestReportModels:
             algorithm="pagerank",
             generated_at=datetime.now(),
             insights=[],
-            recommendations=[]
+            recommendations=[],
         )
         assert report.title == "Test Report"

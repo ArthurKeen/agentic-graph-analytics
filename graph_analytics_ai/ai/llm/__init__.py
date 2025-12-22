@@ -6,15 +6,15 @@ This module provides a unified interface for working with different LLM provider
 
 Example:
     >>> from graph_analytics_ai.ai.llm import create_llm_provider
-    >>> 
+    >>>
     >>> # Create provider (reads from environment)
     >>> provider = create_llm_provider()
-    >>> 
+    >>>
     >>> # Generate text
     >>> response = provider.generate("What is graph analytics?")
     >>> print(response.content)
     >>> print(f"Cost: ${response.cost_usd:.4f}")
-    >>> 
+    >>>
     >>> # Generate structured output
     >>> schema = {
     ...     "type": "object",
@@ -33,13 +33,10 @@ from .base import (
     LLMResponse,
     LLMProviderError,
     LLMRateLimitError,
-    LLMAuthenticationError
+    LLMAuthenticationError,
 )
 
-from .factory import (
-    create_llm_provider,
-    get_default_provider
-)
+from .factory import create_llm_provider, get_default_provider
 
 from .openrouter import OpenRouterProvider
 
@@ -49,16 +46,13 @@ __all__ = [
     "LLMProvider",
     "LLMConfig",
     "LLMResponse",
-    
     # Exceptions
     "LLMProviderError",
     "LLMRateLimitError",
     "LLMAuthenticationError",
-    
     # Factory functions
     "create_llm_provider",
     "get_default_provider",
-    
     # Providers
     "OpenRouterProvider",
 ]

@@ -18,7 +18,7 @@ from .models import (
     RequirementType,
     Stakeholder,
     Objective,
-    Priority
+    Priority,
 )
 
 
@@ -226,164 +226,196 @@ Respond ONLY with the JSON, no additional text.
 class RequirementsExtractor:
     """
     Extract structured requirements from business documents using LLM.
-    
+
     Example:
         >>> from graph_analytics_ai.ai.documents import parse_documents, RequirementsExtractor
         >>> from graph_analytics_ai.ai.llm import create_llm_provider
-        >>> 
+        >>>
         >>> # Parse documents
         >>> docs = parse_documents(["requirements.pdf", "scope.docx"])
-        >>> 
+        >>>
         >>> # Extract requirements
         >>> provider = create_llm_provider()
         >>> extractor = RequirementsExtractor(provider)
         >>> extracted = extractor.extract(docs)
-        >>> 
+        >>>
         >>> print(f"Found {extracted.total_requirements} requirements")
         >>> print(f"Domain: {extracted.domain}")
-        >>> 
+        >>>
         >>> for req in extracted.critical_requirements:
         ...     print(f"- {req.id}: {req.text}")
     """
-    
+
     def __init__(
         self,
         llm_provider: Optional[LLMProvider] = None,
-        max_content_length: int = 50000
+        max_content_length: int = 50000,
     ):
         """
         Initialize requirements extractor.
-        
+
         Args:
             llm_provider: LLM provider to use. If None, uses default.
             max_content_length: Maximum content length to send to LLM.
         """
         self.llm_provider = llm_provider or get_default_provider()
         self.max_content_length = max_content_length
-    
+
     def extract(self, documents: List[Document]) -> ExtractedRequirements:
         """
         Extract requirements from documents.
-        
+
         Args:
             documents: List of parsed documents.
-        
+
         Returns:
             ExtractedRequirements with all extracted information.
-        
+
         Raises:
             LLMProviderError: If LLM extraction fails.
         """
         # Combine document content
         docs_text = self._format_documents(documents)
-        
+
         # Truncate if too long
         if len(docs_text) > self.max_content_length:
-            docs_text = docs_text[:self.max_content_length] + "\n\n[... content truncated ...]"
-        
+            docs_text = (
+                docs_text[: self.max_content_length] + "\n\n[... content truncated ...]"
+            )
+
         # Format prompt
-        prompt = REQUIREMENTS_EXTRACTION_PROMPT.format(
-            documents_text=docs_text
-        )
-        
+        prompt = REQUIREMENTS_EXTRACTION_PROMPT.format(documents_text=docs_text)
+
         # Extract with LLM
         try:
             result = self.llm_provider.generate_structured(
-                prompt,
-                schema=self._get_response_schema()
+                prompt, schema=self._get_response_schema()
             )
-            
+
             # Convert to domain models
             extracted = self._parse_result(result, documents)
-            
+
             # Validate and add warnings
             extracted = self._validate_extraction(extracted, documents)
-            
+
             return extracted
-        
+
         except Exception as e:
             # Return minimal extraction on failure
             return self._create_fallback_extraction(documents, error=str(e))
-    
-    def _validate_extraction(self, extracted: ExtractedRequirements, documents: List[Document]) -> ExtractedRequirements:
+
+    def _validate_extraction(
+        self, extracted: ExtractedRequirements, documents: List[Document]
+    ) -> ExtractedRequirements:
         """
         Validate extraction quality and log warnings.
-        
+
         Args:
             extracted: Initial extraction from LLM
             documents: Source documents
-            
+
         Returns:
             Validated extraction (may raise if critical validation fails)
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         warnings = []
         confidence = 1.0
-        
+
         # Critical: Must have at least some content
         if len(extracted.requirements) == 0 and len(extracted.objectives) == 0:
-            raise ValueError("No requirements or objectives extracted from documents - extraction failed")
-        
+            raise ValueError(
+                "No requirements or objectives extracted from documents - extraction failed"
+            )
+
         # Validate objectives
         if len(extracted.objectives) == 0:
             warnings.append("No objectives extracted - workflow may lack clear goals")
             confidence *= 0.7
         else:
             # Check for success criteria
-            objectives_without_criteria = [obj for obj in extracted.objectives if not obj.success_criteria]
+            objectives_without_criteria = [
+                obj for obj in extracted.objectives if not obj.success_criteria
+            ]
             if objectives_without_criteria:
-                warnings.append(f"{len(objectives_without_criteria)} objectives lack success criteria")
+                warnings.append(
+                    f"{len(objectives_without_criteria)} objectives lack success criteria"
+                )
                 confidence *= 0.8
-        
+
         # Validate requirements
         if len(extracted.requirements) < 3:
-            warnings.append(f"Only {len(extracted.requirements)} requirements extracted (expected >3 typically)")
+            warnings.append(
+                f"Only {len(extracted.requirements)} requirements extracted (expected >3 typically)"
+            )
             confidence *= 0.8
-        
+
         # Check priority distribution
-        critical_count = len([r for r in extracted.requirements if r.priority.value == 'critical'])
+        critical_count = len(
+            [r for r in extracted.requirements if r.priority.value == "critical"]
+        )
         if critical_count == 0:
-            warnings.append("No critical priority requirements - may indicate incomplete prioritization")
+            warnings.append(
+                "No critical priority requirements - may indicate incomplete prioritization"
+            )
             confidence *= 0.9
-        
+
         # Validate stakeholders
         if len(extracted.stakeholders) == 0:
-            warnings.append("No stakeholders identified - may miss important perspectives")
+            warnings.append(
+                "No stakeholders identified - may miss important perspectives"
+            )
             confidence *= 0.9
         else:
             # Check stakeholders have interests
-            stakeholders_without_interests = [s for s in extracted.stakeholders if not s.interests]
+            stakeholders_without_interests = [
+                s for s in extracted.stakeholders if not s.interests
+            ]
             if stakeholders_without_interests:
-                warnings.append(f"{len(stakeholders_without_interests)} stakeholders lack identified interests")
+                warnings.append(
+                    f"{len(stakeholders_without_interests)} stakeholders lack identified interests"
+                )
                 confidence *= 0.9
-        
+
         # Check domain
-        if not extracted.domain or extracted.domain.lower() in ['unknown', 'general', 'unspecified']:
-            warnings.append("Domain unclear - may reduce quality of downstream analysis")
+        if not extracted.domain or extracted.domain.lower() in [
+            "unknown",
+            "general",
+            "unspecified",
+        ]:
+            warnings.append(
+                "Domain unclear - may reduce quality of downstream analysis"
+            )
             confidence *= 0.7
-        
+
         # Check summary quality
         if not extracted.summary or len(extracted.summary) < 30:
             warnings.append("Summary too brief or missing")
             confidence *= 0.8
-        
+
         # Check if truncation occurred
         total_words = sum(doc.word_count for doc in documents)
-        if total_words > self.max_content_length / 5:  # Rough estimate (5 chars per word)
-            warnings.append(f"Documents were truncated ({total_words} words) - extraction may be incomplete")
+        if (
+            total_words > self.max_content_length / 5
+        ):  # Rough estimate (5 chars per word)
+            warnings.append(
+                f"Documents were truncated ({total_words} words) - extraction may be incomplete"
+            )
             confidence *= 0.85
-        
+
         if warnings:
-            logger.warning(f"Requirements extraction validation issues (confidence: {confidence:.2f}): {'; '.join(warnings)}")
-        
+            logger.warning(
+                f"Requirements extraction validation issues (confidence: {confidence:.2f}): {'; '.join(warnings)}"
+            )
+
         return extracted
-    
+
     def _format_documents(self, documents: List[Document]) -> str:
         """Format documents for LLM prompt."""
         formatted = []
-        
+
         for i, doc in enumerate(documents, 1):
             formatted.append(f"## Document {i}: {doc.metadata.file_name}")
             formatted.append(f"Type: {doc.metadata.document_type.value}")
@@ -393,7 +425,7 @@ class RequirementsExtractor:
             formatted.append("")
             formatted.append("---")
             formatted.append("")
-        
+
         formatted_text = "\n".join(formatted)
 
         # Truncate to respect max_content_length (used in tests and runtime)
@@ -404,7 +436,7 @@ class RequirementsExtractor:
             )
 
         return formatted_text
-    
+
     def _get_response_schema(self) -> Dict[str, Any]:
         """Get JSON schema for LLM response."""
         return {
@@ -423,10 +455,10 @@ class RequirementsExtractor:
                             "priority": {"type": "string"},
                             "stakeholders": {
                                 "type": "array",
-                                "items": {"type": "string"}
-                            }
-                        }
-                    }
+                                "items": {"type": "string"},
+                            },
+                        },
+                    },
                 },
                 "stakeholders": {
                     "type": "array",
@@ -436,12 +468,9 @@ class RequirementsExtractor:
                             "name": {"type": "string"},
                             "role": {"type": "string"},
                             "organization": {"type": "string"},
-                            "interests": {
-                                "type": "array",
-                                "items": {"type": "string"}
-                            }
-                        }
-                    }
+                            "interests": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
                 },
                 "objectives": {
                     "type": "array",
@@ -454,35 +483,24 @@ class RequirementsExtractor:
                             "priority": {"type": "string"},
                             "success_criteria": {
                                 "type": "array",
-                                "items": {"type": "string"}
+                                "items": {"type": "string"},
                             },
                             "related_requirements": {
                                 "type": "array",
-                                "items": {"type": "string"}
-                            }
-                        }
-                    }
+                                "items": {"type": "string"},
+                            },
+                        },
+                    },
                 },
-                "constraints": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                },
-                "assumptions": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                },
-                "risks": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                }
+                "constraints": {"type": "array", "items": {"type": "string"}},
+                "assumptions": {"type": "array", "items": {"type": "string"}},
+                "risks": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["summary", "domain", "requirements"]
+            "required": ["summary", "domain", "requirements"],
         }
-    
+
     def _parse_result(
-        self,
-        result: Dict[str, Any],
-        documents: List[Document]
+        self, result: Dict[str, Any], documents: List[Document]
     ) -> ExtractedRequirements:
         """Parse LLM result into domain models."""
         # Parse requirements
@@ -493,10 +511,10 @@ class RequirementsExtractor:
                 text=req_data.get("text", ""),
                 requirement_type=self._parse_requirement_type(req_data.get("type", "")),
                 priority=self._parse_priority(req_data.get("priority", "")),
-                stakeholders=req_data.get("stakeholders", [])
+                stakeholders=req_data.get("stakeholders", []),
             )
             requirements.append(req)
-        
+
         # Parse stakeholders
         stakeholders = []
         for sh_data in result.get("stakeholders", []):
@@ -504,15 +522,12 @@ class RequirementsExtractor:
                 name=sh_data.get("name", ""),
                 role=sh_data.get("role"),
                 organization=sh_data.get("organization"),
-                interests=sh_data.get("interests", [])
+                interests=sh_data.get("interests", []),
             )
             # Link to requirements
-            sh.requirements = [
-                r.id for r in requirements
-                if sh.name in r.stakeholders
-            ]
+            sh.requirements = [r.id for r in requirements if sh.name in r.stakeholders]
             stakeholders.append(sh)
-        
+
         # Parse objectives
         objectives = []
         for obj_data in result.get("objectives", []):
@@ -522,10 +537,10 @@ class RequirementsExtractor:
                 description=obj_data.get("description", ""),
                 priority=self._parse_priority(obj_data.get("priority", "")),
                 success_criteria=obj_data.get("success_criteria", []),
-                related_requirements=obj_data.get("related_requirements", [])
+                related_requirements=obj_data.get("related_requirements", []),
             )
             objectives.append(obj)
-        
+
         return ExtractedRequirements(
             documents=documents,
             requirements=requirements,
@@ -535,9 +550,9 @@ class RequirementsExtractor:
             domain=result.get("domain"),
             constraints=result.get("constraints", []),
             assumptions=result.get("assumptions", []),
-            risks=result.get("risks", [])
+            risks=result.get("risks", []),
         )
-    
+
     def _parse_requirement_type(self, type_str: str) -> RequirementType:
         """Parse requirement type from string."""
         type_map = {
@@ -546,24 +561,22 @@ class RequirementsExtractor:
             "business": RequirementType.BUSINESS,
             "technical": RequirementType.TECHNICAL,
             "constraint": RequirementType.CONSTRAINT,
-            "objective": RequirementType.OBJECTIVE
+            "objective": RequirementType.OBJECTIVE,
         }
         return type_map.get(type_str.lower(), RequirementType.BUSINESS)
-    
+
     def _parse_priority(self, priority_str: str) -> Priority:
         """Parse priority from string."""
         priority_map = {
             "critical": Priority.CRITICAL,
             "high": Priority.HIGH,
             "medium": Priority.MEDIUM,
-            "low": Priority.LOW
+            "low": Priority.LOW,
         }
         return priority_map.get(priority_str.lower(), Priority.UNKNOWN)
-    
+
     def _create_fallback_extraction(
-        self,
-        documents: List[Document],
-        error: Optional[str] = None
+        self, documents: List[Document], error: Optional[str] = None
     ) -> ExtractedRequirements:
         """Create minimal extraction if LLM fails."""
         # Create a basic summary
@@ -572,15 +585,15 @@ class RequirementsExtractor:
             f"Document analysis incomplete. "
             f"Processed {len(documents)} document(s) with {total_words:,} words total."
         )
-        
+
         if error:
             summary += f" (Error: {error[:100]})"
-        
+
         return ExtractedRequirements(
             documents=documents,
             summary=summary,
             domain="Unknown (extraction failed)",
             requirements=[],
             stakeholders=[],
-            objectives=[]
+            objectives=[],
         )

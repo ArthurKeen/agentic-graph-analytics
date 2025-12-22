@@ -2,7 +2,6 @@
 Unit tests for PRD generator.
 """
 
-
 from graph_analytics_ai.ai.generation.prd import (
     PRDGenerator,
     generate_prd_markdown,
@@ -14,7 +13,9 @@ class TestPRDGenerator:
 
     def test_generate_minimal(self, sample_extracted_requirements):
         gen = PRDGenerator(include_schema_summary=False)
-        md = gen.generate_prd(sample_extracted_requirements, product_name="Test Product")
+        md = gen.generate_prd(
+            sample_extracted_requirements, product_name="Test Product"
+        )
 
         assert "# Product Requirements Document" in md
         assert "Test Product" in md
@@ -23,7 +24,9 @@ class TestPRDGenerator:
         # Should list at least one requirement id
         assert "REQ-001" in md
 
-    def test_generate_with_schema(self, sample_extracted_requirements, sample_graph_schema):
+    def test_generate_with_schema(
+        self, sample_extracted_requirements, sample_graph_schema
+    ):
         gen = PRDGenerator(include_schema_summary=True)
         md = gen.generate_prd(
             sample_extracted_requirements,
@@ -35,7 +38,9 @@ class TestPRDGenerator:
         assert "Vertex collections" in md
         assert "users" in md  # from sample schema
 
-    def test_generate_with_analysis(self, sample_extracted_requirements, sample_graph_schema, mock_llm_provider):
+    def test_generate_with_analysis(
+        self, sample_extracted_requirements, sample_graph_schema, mock_llm_provider
+    ):
         # Use a fake analysis object
         from graph_analytics_ai.ai.schema.models import SchemaAnalysis
 
@@ -70,7 +75,9 @@ class TestOrderingAndContent:
 
     def test_requirements_sorted_by_priority(self, sample_extracted_requirements):
         # Shuffle requirements to ensure sorting happens
-        sample_extracted_requirements.requirements = list(reversed(sample_extracted_requirements.requirements))
+        sample_extracted_requirements.requirements = list(
+            reversed(sample_extracted_requirements.requirements)
+        )
 
         gen = PRDGenerator(include_schema_summary=False)
         md = gen.generate_prd(sample_extracted_requirements)
@@ -80,12 +87,16 @@ class TestOrderingAndContent:
         high_index = md.index("REQ-002")
         assert critical_index < high_index
 
-    def test_handles_empty_collections(self, sample_extracted_requirements, sample_graph_schema):
+    def test_handles_empty_collections(
+        self, sample_extracted_requirements, sample_graph_schema
+    ):
         # Remove constraints/risks to exercise empty paths
         sample_extracted_requirements.constraints = []
         sample_extracted_requirements.risks = []
 
-        gen = PRDGenerator(include_schema_summary=True, include_constraints=True, include_risks=True)
+        gen = PRDGenerator(
+            include_schema_summary=True, include_constraints=True, include_risks=True
+        )
         md = gen.generate_prd(sample_extracted_requirements, schema=sample_graph_schema)
 
         assert "_No constraints identified._" in md
