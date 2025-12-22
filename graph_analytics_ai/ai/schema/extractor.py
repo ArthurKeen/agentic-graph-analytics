@@ -172,7 +172,7 @@ class SchemaExtractor:
             
             return list(cursor)
         
-        except Exception as e:
+        except Exception:
             # If sampling fails, try to get any documents
             try:
                 return list(collection.all(limit=sample_size))

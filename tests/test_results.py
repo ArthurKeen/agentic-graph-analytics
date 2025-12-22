@@ -1,8 +1,6 @@
 """Tests for results module."""
 
-import pytest
-from unittest.mock import MagicMock, Mock, patch
-from pathlib import Path
+from unittest.mock import MagicMock
 
 from graph_analytics_ai.results import (
     ensure_result_collection_indexes,
@@ -91,7 +89,7 @@ class TestEnsureResultCollectionIndexes:
         mock_db.collection.return_value = mock_coll
         mock_coll.indexes.return_value = []
         
-        result = ensure_result_collection_indexes(mock_db, verbose=False)
+        ensure_result_collection_indexes(mock_db, verbose=False)
         
         # Should process default collections
         assert mock_db.has_collection.call_count == 3

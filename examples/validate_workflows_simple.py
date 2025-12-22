@@ -8,7 +8,6 @@ This validates that both workflows can:
 4. (Agentic only) Execute and generate reports
 """
 
-import os
 import json
 import time
 from datetime import datetime
@@ -98,7 +97,7 @@ def test_traditional_workflow():
         
         elapsed = time.time() - start_time
         
-        print(f"\n✅ TRADITIONAL WORKFLOW: SUCCESS")
+        print("\n✅ TRADITIONAL WORKFLOW: SUCCESS")
         print(f"   Completed in {elapsed:.2f}s")
         print(f"   Generated {len(use_cases)} use cases, {len(templates)} templates")
         
@@ -110,7 +109,7 @@ def test_traditional_workflow():
         }
         
     except Exception as e:
-        print(f"\n❌ TRADITIONAL WORKFLOW: FAILED")
+        print("\n❌ TRADITIONAL WORKFLOW: FAILED")
         print(f"   Error: {e}")
         import traceback
         traceback.print_exc()
@@ -141,7 +140,7 @@ def test_agentic_workflow():
         execution_count = len(state.execution_results)
         report_count = len(state.reports)
         
-        print(f"\n✅ AGENTIC WORKFLOW: SUCCESS")
+        print("\n✅ AGENTIC WORKFLOW: SUCCESS")
         print(f"   Completed in {elapsed:.2f}s")
         print(f"   Generated {use_case_count} use cases")
         print(f"   Generated {template_count} templates")
@@ -150,7 +149,7 @@ def test_agentic_workflow():
         
         # Show report summaries
         if report_count > 0:
-            print(f"\n   Reports Generated:")
+            print("\n   Reports Generated:")
             for i, report in enumerate(state.reports, 1):
                 print(f"   {i}. {report.title}")
                 print(f"      - {len(report.insights)} insights")
@@ -165,7 +164,7 @@ def test_agentic_workflow():
         }
         
     except Exception as e:
-        print(f"\n❌ AGENTIC WORKFLOW: FAILED")
+        print("\n❌ AGENTIC WORKFLOW: FAILED")
         print(f"   Error: {e}")
         import traceback
         traceback.print_exc()
@@ -184,23 +183,23 @@ def compare_results(trad_success, trad_data, agen_success, agen_data):
         print("\n⚠️  Cannot complete comparison - one or both workflows failed")
         return False
     
-    print(f"\nExecution Time:")
+    print("\nExecution Time:")
     print(f"  Traditional:  {trad_data['duration']:.2f}s")
     print(f"  Agentic:      {agen_data['duration']:.2f}s")
     
-    print(f"\nUse Cases Generated:")
+    print("\nUse Cases Generated:")
     print(f"  Traditional:  {trad_data['use_cases']}")
     print(f"  Agentic:      {agen_data['use_cases']}")
     
-    print(f"\nTemplates Generated:")
+    print("\nTemplates Generated:")
     print(f"  Traditional:  {trad_data['templates']}")
     print(f"  Agentic:      {agen_data['templates']}")
     
-    print(f"\nKey Differences:")
+    print("\nKey Differences:")
     print(f"  • Agentic workflow executed {agen_data['executions']} analyses")
     print(f"  • Agentic workflow generated {agen_data['reports']} intelligence reports")
-    print(f"  • Traditional workflow provides more granular control")
-    print(f"  • Agentic workflow is fully autonomous end-to-end")
+    print("  • Traditional workflow provides more granular control")
+    print("  • Agentic workflow is fully autonomous end-to-end")
     
     # Save results
     output_dir = Path(__file__).parent.parent / "workflow_output"
@@ -221,7 +220,7 @@ def compare_results(trad_success, trad_data, agen_success, agen_data):
     with open(output_dir / "validation_comparison.json", 'w') as f:
         json.dump(results, f, indent=2)
     
-    print(f"\n✓ Detailed results saved to workflow_output/validation_comparison.json")
+    print("\n✓ Detailed results saved to workflow_output/validation_comparison.json")
     
     return True
 
@@ -241,7 +240,7 @@ def main():
     agen_success, agen_data = test_agentic_workflow()
     
     # Compare
-    comparison_success = compare_results(trad_success, trad_data, agen_success, agen_data)
+    compare_results(trad_success, trad_data, agen_success, agen_data)
     
     # Final verdict
     print_header("VALIDATION RESULT")

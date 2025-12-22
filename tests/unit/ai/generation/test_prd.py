@@ -2,7 +2,6 @@
 Unit tests for PRD generator.
 """
 
-import pytest
 
 from graph_analytics_ai.ai.generation.prd import (
     PRDGenerator,

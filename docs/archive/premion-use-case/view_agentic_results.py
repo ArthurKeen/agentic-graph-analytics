@@ -24,17 +24,17 @@ def main():
     print("PREMION AGENTIC WORKFLOW - RESULTS")
     print("="*70)
     
-    print(f"\n📊 Workflow Summary:")
-    print(f"   Status: COMPLETED")
+    print("\n📊 Workflow Summary:")
+    print("   Status: COMPLETED")
     print(f"   Steps: {len(workflow['completed_steps'])}/6")
     print(f"   Started: {workflow['started_at']}")
     print(f"   Errors: {workflow['errors_count']}")
     
-    print(f"\n✅ Completed Steps:")
+    print("\n✅ Completed Steps:")
     for step in workflow['completed_steps']:
         print(f"   - {step}")
     
-    print(f"\n📈 Results Generated:")
+    print("\n📈 Results Generated:")
     print(f"   • Use Cases: {results['use_cases']}")
     print(f"   • Templates: {results['templates']}")
     print(f"   • Executions: {results['executions']}")
@@ -90,11 +90,11 @@ def main():
             # Parse algorithm (might be a string representation)
             algo_str = t['algorithm']
             if 'PAGERANK' in algo_str:
-                print(f"      Algorithm: PageRank")
+                print("      Algorithm: PageRank")
             elif 'LOUVAIN' in algo_str:
-                print(f"      Algorithm: Louvain (Community Detection)")
+                print("      Algorithm: Louvain (Community Detection)")
             elif 'SHORTEST_PATH' in algo_str:
-                print(f"      Algorithm: Shortest Path")
+                print("      Algorithm: Shortest Path")
             else:
                 print(f"      Algorithm: {algo_str[:50]}")
     
@@ -103,7 +103,7 @@ def main():
     print("AGENT COMMUNICATION FLOW")
     print("="*70)
     print(f"\nTotal messages exchanged: {len(messages)}")
-    print(f"\nFlow:")
+    print("\nFlow:")
     for i, msg in enumerate(messages, 1):
         arrow = "→" if msg['message_type'] == 'task' else "←"
         print(f"   {i}. {msg['from_agent']:20} {arrow} {msg['to_agent']:20} [{msg['message_type']}]")
@@ -112,20 +112,20 @@ def main():
     print("✅ AGENTIC WORKFLOW SUCCEEDED!")
     print("="*70)
     
-    print(f"\n🎯 What Was Accomplished:")
-    print(f"   ✓ Analyzed your Premion database (687K documents)")
-    print(f"   ✓ Generated 7 use cases from your requirements")
-    print(f"   ✓ Generated 7 GAE templates")
-    print(f"   ✓ EXECUTED 3 analyses on your live database")
-    print(f"   ✓ Generated 3 analysis reports")
-    print(f"\n💡 This is the library working as designed!")
-    print(f"   No custom scripts needed - pure agent collaboration")
+    print("\n🎯 What Was Accomplished:")
+    print("   ✓ Analyzed your Premion database (687K documents)")
+    print("   ✓ Generated 7 use cases from your requirements")
+    print("   ✓ Generated 7 GAE templates")
+    print("   ✓ EXECUTED 3 analyses on your live database")
+    print("   ✓ Generated 3 analysis reports")
+    print("\n💡 This is the library working as designed!")
+    print("   No custom scripts needed - pure agent collaboration")
     
-    print(f"\n📁 Next Steps:")
-    print(f"   1. Check workflow_output/ for intermediate files")
-    print(f"   2. Reports contain LLM-generated insights")
-    print(f"   3. Execution results are in your database")
-    print(f"   4. Re-run with max_executions=7 to run all templates")
+    print("\n📁 Next Steps:")
+    print("   1. Check workflow_output/ for intermediate files")
+    print("   2. Reports contain LLM-generated insights")
+    print("   3. Execution results are in your database")
+    print("   4. Re-run with max_executions=7 to run all templates")
     
     return 0
 

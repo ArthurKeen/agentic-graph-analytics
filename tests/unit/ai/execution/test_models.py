@@ -1,7 +1,5 @@
 """Tests for execution models."""
 
-import pytest
-from datetime import datetime
 from graph_analytics_ai.ai.execution.models import (
     ExecutionStatus,
     JobStatus

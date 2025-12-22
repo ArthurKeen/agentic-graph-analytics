@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 
 from ..llm.base import LLMProvider
 from .base import Agent, AgentType, AgentMessage, AgentState
-from .constants import AgentNames, WorkflowSteps, AgentDefaults
+from .constants import AgentNames, WorkflowSteps
 
 
 class OrchestratorAgent(Agent):

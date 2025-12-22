@@ -4,8 +4,7 @@ Utility functions for credential validation and error checking.
 Based on lessons learned from customer issues (Dima's credential problems).
 """
 
-import os
-from typing import Dict, List, Tuple, Optional
+from typing import List, Tuple, Optional
 
 
 def validate_endpoint_format(endpoint: str) -> Tuple[bool, Optional[str]]:

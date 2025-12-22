@@ -22,11 +22,9 @@ load_dotenv()
 # Traditional workflow imports
 from graph_analytics_ai.db_connection import get_db_connection
 from graph_analytics_ai.ai.schema import SchemaExtractor, SchemaAnalyzer
-from graph_analytics_ai.ai.documents import RequirementsExtractor
 from graph_analytics_ai.ai.documents.models import ExtractedRequirements, Objective, Priority
 from graph_analytics_ai.ai.generation import UseCaseGenerator
 from graph_analytics_ai.ai.templates import TemplateGenerator, TemplateValidator
-from graph_analytics_ai.ai.workflow import WorkflowOrchestrator
 
 # Agentic workflow imports
 from graph_analytics_ai.ai.agents import AgenticWorkflowRunner
@@ -74,7 +72,7 @@ def extract_schema():
         extractor = SchemaExtractor(db)
         schema = extractor.extract()
         
-        print(f"✓ Schema extracted:")
+        print("✓ Schema extracted:")
         print(f"  - Vertex collections: {len(schema.vertex_collections)}")
         print(f"  - Edge collections: {len(schema.edge_collections)}")
         print(f"  - Total documents: {schema.total_documents}")
@@ -225,7 +223,7 @@ def run_agentic_workflow():
         
         # Note: For now, agentic runner doesn't take input file
         # It will use the existing graph and generate requirements autonomously
-        print(f"  Note: Agentic workflow will analyze existing graph autonomously")
+        print("  Note: Agentic workflow will analyze existing graph autonomously")
         
         # Run autonomous workflow
         print("\nRunning autonomous workflow...")
@@ -304,7 +302,7 @@ def compare_results(traditional, agentic):
         return comparison
     
     # Duration comparison
-    print(f"\nExecution Time:")
+    print("\nExecution Time:")
     print(f"  Traditional: {traditional['duration_seconds']:.2f}s")
     print(f"  Agentic:     {agentic['duration_seconds']:.2f}s")
     diff = agentic['duration_seconds'] - traditional['duration_seconds']
@@ -312,7 +310,7 @@ def compare_results(traditional, agentic):
     comparison['comparison']['time_difference_seconds'] = diff
     
     # Use cases comparison
-    print(f"\nUse Cases Generated:")
+    print("\nUse Cases Generated:")
     trad_uc_count = len(traditional.get('use_cases', []))
     agen_uc_count = len(agentic.get('use_cases', []))
     print(f"  Traditional: {trad_uc_count}")
@@ -320,7 +318,7 @@ def compare_results(traditional, agentic):
     comparison['comparison']['use_case_count_diff'] = agen_uc_count - trad_uc_count
     
     # Templates comparison
-    print(f"\nTemplates Generated:")
+    print("\nTemplates Generated:")
     trad_tmpl_count = len(traditional.get('templates', []))
     agen_tmpl_count = len(agentic.get('templates', []))
     print(f"  Traditional: {trad_tmpl_count}")
@@ -332,7 +330,7 @@ def compare_results(traditional, agentic):
         trad_algos = {t['algorithm'] for t in traditional['templates']}
         agen_algos = {t['algorithm'] for t in agentic.get('templates', [])}
         
-        print(f"\nAlgorithms Used:")
+        print("\nAlgorithms Used:")
         print(f"  Traditional: {', '.join(sorted(trad_algos))}")
         print(f"  Agentic:     {', '.join(sorted(agen_algos))}")
         
@@ -352,7 +350,7 @@ def compare_results(traditional, agentic):
     
     # Reports (agentic workflow produces these)
     if 'reports' in agentic:
-        print(f"\nReports Generated (Agentic only):")
+        print("\nReports Generated (Agentic only):")
         for report in agentic['reports']:
             print(f"  - {report['title']}")
             print(f"    Insights: {report['insights_count']}, Recommendations: {report['recommendations_count']}")
@@ -386,24 +384,24 @@ def generate_report(comparison):
     print(f"\nBoth Workflows:        {'✓ SUCCESSFUL' if comp.get('both_successful') else '✗ FAILED'}")
     
     if comp.get('both_successful'):
-        print(f"\nKey Findings:")
+        print("\nKey Findings:")
         print(f"  • Traditional completed in {trad['duration_seconds']:.2f}s")
         print(f"  • Agentic completed in {agen['duration_seconds']:.2f}s")
         print(f"  • Both generated {trad.get('use_cases', 0)} use cases")
-        print(f"  • Both generated multiple analysis templates")
-        print(f"  • Agentic additionally generated intelligence reports")
+        print("  • Both generated multiple analysis templates")
+        print("  • Agentic additionally generated intelligence reports")
         
-        print(f"\nConclusion:")
-        print(f"  ✓ Platform is production-ready")
-        print(f"  ✓ Both workflows function correctly")
-        print(f"  ✓ Results are consistent and reliable")
-        print(f"  ✓ Ready to merge to main")
+        print("\nConclusion:")
+        print("  ✓ Platform is production-ready")
+        print("  ✓ Both workflows function correctly")
+        print("  ✓ Results are consistent and reliable")
+        print("  ✓ Ready to merge to main")
     else:
-        print(f"\n⚠️  VALIDATION INCOMPLETE")
-        print(f"  One or both workflows encountered errors")
-        print(f"  Review detailed results for troubleshooting")
+        print("\n⚠️  VALIDATION INCOMPLETE")
+        print("  One or both workflows encountered errors")
+        print("  Review detailed results for troubleshooting")
     
-    print(f"\n" + "="*70)
+    print("\n" + "="*70)
     
     return comp.get('both_successful', False)
 

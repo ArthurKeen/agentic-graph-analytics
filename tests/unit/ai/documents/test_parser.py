@@ -5,12 +5,11 @@ Tests document parsing from various formats.
 """
 
 import pytest
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 
 from graph_analytics_ai.ai.documents.parser import (
     DocumentParser,
     ParserError,
-    UnsupportedFormatError,
     parse_document,
     parse_documents
 )

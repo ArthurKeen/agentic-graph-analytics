@@ -13,7 +13,6 @@ Pure library usage - no custom code!
 """
 import sys
 import os
-import json
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
@@ -45,7 +44,7 @@ def main():
     with open(use_case_file) as f:
         doc_content = f.read()
     
-    print(f"\n📋 Configuration:")
+    print("\n📋 Configuration:")
     print(f"   Use Cases: {use_case_file} ({len(doc_content)} chars)")
     print(f"   Graph: {graph_name}")
     print(f"   Max Executions: {max_executions}")
@@ -73,10 +72,10 @@ def main():
             db_connection=db,
             graph_name=graph_name
         )
-        print(f"✓ Runner initialized")
+        print("✓ Runner initialized")
         print(f"   LLM Provider: {runner.llm_provider.__class__.__name__}")
         print(f"   Agents: {len(runner.agents)}")
-        print(f"\n🤖 Agent Team:")
+        print("\n🤖 Agent Team:")
         for name, agent in runner.agents.items():
             print(f"   - {name}: {agent.__class__.__name__}")
         
@@ -122,11 +121,11 @@ def main():
         )
         
         # Export state
-        print(f"\n💾 Exporting workflow state...")
+        print("\n💾 Exporting workflow state...")
         runner.export_state(final_state, output_file)
         
         # Save reports to files
-        print(f"\n📄 Saving reports...")
+        print("\n📄 Saving reports...")
         reports_dir = Path("premion_reports")
         reports_dir.mkdir(exist_ok=True)
         
@@ -215,13 +214,13 @@ def main():
         print(f"\n{'='*70}")
         print("✅ WORKFLOW COMPLETE!")
         print("="*70)
-        print(f"\n📁 Output Files:")
+        print("\n📁 Output Files:")
         print(f"   State: {output_file}")
         if saved_reports:
             print(f"   Reports: premion_reports/ ({len(saved_reports)} files)")
             for rpt in saved_reports:
                 print(f"      - {Path(rpt).name}")
-        print(f"\n💡 View reports: cat premion_reports/*.md")
+        print("\n💡 View reports: cat premion_reports/*.md")
         print(f"   View state: python -m json.tool {output_file} | less")
         
         return 0

@@ -4,7 +4,6 @@ Unit tests for requirements extractor.
 Tests LLM-based requirements extraction from documents.
 """
 
-import pytest
 from unittest.mock import Mock
 
 from graph_analytics_ai.ai.documents.extractor import RequirementsExtractor

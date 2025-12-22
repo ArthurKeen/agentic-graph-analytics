@@ -3,15 +3,12 @@
 import pytest
 from unittest.mock import patch, MagicMock, Mock
 from datetime import datetime, timedelta
-import time
 
 from graph_analytics_ai.gae_connection import (
     GAEManager,
     GenAIGAEConnection,
-    get_gae_connection,
-    GAEConnectionBase
+    get_gae_connection
 )
-from graph_analytics_ai.config import DeploymentMode
 
 
 class TestGAEManager:
@@ -304,7 +301,7 @@ class TestGetGAEConnection:
         mock_get_config.return_value = mock_config
         
         with patch('graph_analytics_ai.gae_connection.GAEManager') as mock_manager:
-            connection = get_gae_connection()
+            get_gae_connection()
             mock_manager.assert_called_once()
     
     @patch('graph_analytics_ai.gae_connection.get_gae_config')
@@ -320,5 +317,5 @@ class TestGetGAEConnection:
         }
         
         with patch('graph_analytics_ai.gae_connection.GenAIGAEConnection') as mock_connection:
-            connection = get_gae_connection()
+            get_gae_connection()
             mock_connection.assert_called_once()

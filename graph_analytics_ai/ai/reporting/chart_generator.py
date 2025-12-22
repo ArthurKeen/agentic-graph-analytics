@@ -4,7 +4,7 @@ Chart generator for analysis reports.
 Creates interactive visualizations using Plotly for different graph algorithms.
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any
 from collections import Counter
 import logging
 
@@ -145,7 +145,7 @@ class ChartGenerator:
         
         # Add reference lines
         if len(cumulative) >= 10:
-            top_10_influence = cumulative[9] if len(cumulative) > 9 else cumulative[-1]
+            cumulative[9] if len(cumulative) > 9 else cumulative[-1]
             fig3.add_hline(y=80, line_dash="dash", line_color="red", 
                           annotation_text="80% threshold", annotation_position="right")
         
@@ -248,8 +248,8 @@ class ChartGenerator:
         charts['size_distribution'] = fig2.to_html(include_plotlyjs=False, div_id='wcc-dist')
         
         # Chart 3: Connectivity Overview (pie/donut chart)
-        main_component_size = sorted_components[0][1] if sorted_components else 0
-        total_nodes = len(results)
+        sorted_components[0][1] if sorted_components else 0
+        len(results)
         
         # Group smaller components
         if len(sorted_components) > 5:

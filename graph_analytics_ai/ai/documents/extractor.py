@@ -8,7 +8,6 @@ This module processes parsed documents and uses LLM to extract:
 - Constraints and risks
 """
 
-import json
 from typing import List, Optional, Dict, Any
 
 from ..llm import LLMProvider, get_default_provider

@@ -496,7 +496,7 @@ class ReportGenerator:
             top_nodes = sorted(results, key=lambda x: x.get('betweenness', 0), reverse=True)[:5]
             
             insights.append(Insight(
-                title=f"Top Bridge Nodes Identified",
+                title="Top Bridge Nodes Identified",
                 description=f"Found {len(top_nodes)} nodes with highest betweenness centrality acting as bridges.",
                 insight_type=InsightType.KEY_FINDING,
                 confidence=0.9,
@@ -849,7 +849,7 @@ Focus on:
         critical = [r for r in recommendations if r.priority == 'critical']
         high = [r for r in recommendations if r.priority == 'high']
         medium = [r for r in recommendations if r.priority == 'medium']
-        low = [r for r in recommendations if r.priority == 'low']
+        [r for r in recommendations if r.priority == 'low']
         
         if critical:
             lines.append("### Critical Priority")

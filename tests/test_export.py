@@ -1,8 +1,6 @@
 """Tests for export module."""
 
 import pytest
-import json
-import csv
 from unittest.mock import MagicMock, mock_open, patch
 from pathlib import Path
 
@@ -161,7 +159,7 @@ class TestExportResultsToJSON:
         
         output_path = Path('/tmp/test_output.json')
         
-        with patch('builtins.open', mock_open()) as mock_file:
+        with patch('builtins.open', mock_open()):
             with patch('json.dump') as mock_json_dump:
                 export_results_to_json(
                     mock_db,

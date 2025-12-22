@@ -1,6 +1,5 @@
 """Tests for utility functions."""
 
-import pytest
 
 from graph_analytics_ai.utils import (
     validate_endpoint_format,

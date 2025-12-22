@@ -1,6 +1,5 @@
 """Tests for agent base classes."""
 
-import pytest
 
 
 class TestAgentBase:

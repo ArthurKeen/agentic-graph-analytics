@@ -46,7 +46,7 @@ def main():
         print("   Required: ARANGO_ENDPOINT, ARANGO_PASSWORD")
         return 1
     
-    print(f"\n📋 Configuration:")
+    print("\n📋 Configuration:")
     print(f"   Use Cases: {use_case_file}")
     print(f"   Database: {database_name}")
     print(f"   Endpoint: {db_endpoint}")
@@ -115,7 +115,7 @@ def main():
             print(f"\n⏱️  Total Duration: {result.total_duration_seconds:.1f} seconds")
         
         # Show generated artifacts
-        print(f"\n📁 Generated Artifacts:")
+        print("\n📁 Generated Artifacts:")
         artifacts = []
         if result.requirements_path:
             artifacts.append(("Requirements", result.requirements_path))
@@ -131,7 +131,7 @@ def main():
         
         # Check for errors
         if result.error_message:
-            print(f"\n⚠️  Errors Encountered:")
+            print("\n⚠️  Errors Encountered:")
             print(f"   {result.error_message}")
         
         # Success determination
@@ -139,10 +139,10 @@ def main():
             print(f"\n{'='*70}")
             print("✅ WORKFLOW COMPLETED SUCCESSFULLY!")
             print("="*70)
-            print(f"\nNext Steps:")
+            print("\nNext Steps:")
             print(f"  1. Review generated artifacts in: {output_dir}/")
-            print(f"  2. Templates will be in use cases output")
-            print(f"  3. Use AnalysisExecutor to run the templates on GAE")
+            print("  2. Templates will be in use cases output")
+            print("  3. Use AnalysisExecutor to run the templates on GAE")
             return 0
         else:
             print(f"\n{'='*70}")

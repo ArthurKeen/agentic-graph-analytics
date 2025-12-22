@@ -6,9 +6,8 @@ Generates complete HTML reports with interactive Plotly charts.
 
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from pathlib import Path
 
-from .models import AnalysisReport, Insight, Recommendation, ReportSection
+from .models import AnalysisReport, Insight, Recommendation
 from .chart_generator import ChartGenerator, is_plotly_available
 
 
@@ -113,22 +112,22 @@ class HTMLReportFormatter:
         execution_time = report.dataset_info.get('execution_time', 0)
         
         html.append('            <div class="key-stats">')
-        html.append(f'                <div class="stat-card">')
+        html.append('                <div class="stat-card">')
         html.append(f'                    <div class="stat-value">{report.algorithm.upper()}</div>')
-        html.append(f'                    <div class="stat-label">Algorithm</div>')
-        html.append(f'                </div>')
-        html.append(f'                <div class="stat-card">')
+        html.append('                    <div class="stat-label">Algorithm</div>')
+        html.append('                </div>')
+        html.append('                <div class="stat-card">')
         html.append(f'                    <div class="stat-value">{result_count:,}</div>')
-        html.append(f'                    <div class="stat-label">Results</div>')
-        html.append(f'                </div>')
-        html.append(f'                <div class="stat-card">')
+        html.append('                    <div class="stat-label">Results</div>')
+        html.append('                </div>')
+        html.append('                <div class="stat-card">')
         html.append(f'                    <div class="stat-value">{execution_time:.1f}s</div>')
-        html.append(f'                    <div class="stat-label">Execution Time</div>')
-        html.append(f'                </div>')
-        html.append(f'                <div class="stat-card">')
+        html.append('                    <div class="stat-label">Execution Time</div>')
+        html.append('                </div>')
+        html.append('                <div class="stat-card">')
         html.append(f'                    <div class="stat-value">{len(report.insights)}</div>')
-        html.append(f'                    <div class="stat-label">Key Insights</div>')
-        html.append(f'                </div>')
+        html.append('                    <div class="stat-label">Key Insights</div>')
+        html.append('                </div>')
         html.append('            </div>')
         html.append('        </section>')
         
@@ -143,9 +142,9 @@ class HTMLReportFormatter:
         html.append('            <h2>Visualizations</h2>')
         
         for chart_name, chart_html in charts.items():
-            html.append(f'            <div class="chart-container">')
+            html.append('            <div class="chart-container">')
             html.append(chart_html)
-            html.append(f'            </div>')
+            html.append('            </div>')
         
         html.append('        </section>')
         return "\n".join(html)
@@ -161,21 +160,21 @@ class HTMLReportFormatter:
         for i, insight in enumerate(insights, 1):
             confidence_class = self._get_confidence_class(insight.confidence)
             
-            html.append(f'            <div class="insight-card">')
-            html.append(f'                <div class="insight-header">')
+            html.append('            <div class="insight-card">')
+            html.append('                <div class="insight-header">')
             html.append(f'                    <h3>{i}. {insight.title}</h3>')
             html.append(f'                    <span class="confidence-badge {confidence_class}">')
             html.append(f'                        Confidence: {insight.confidence:.0%}')
-            html.append(f'                    </span>')
-            html.append(f'                </div>')
+            html.append('                    </span>')
+            html.append('                </div>')
             html.append(f'                <p class="insight-description">{insight.description}</p>')
             
             if insight.business_impact:
-                html.append(f'                <div class="business-impact">')
+                html.append('                <div class="business-impact">')
                 html.append(f'                    <strong>Business Impact:</strong> {insight.business_impact}')
-                html.append(f'                </div>')
+                html.append('                </div>')
             
-            html.append(f'            </div>')
+            html.append('            </div>')
         
         html.append('        </section>')
         return "\n".join(html)
@@ -214,21 +213,21 @@ class HTMLReportFormatter:
     def _format_recommendation(self, rec: Recommendation, priority_class: str) -> str:
         """Format a single recommendation."""
         html = [f'            <div class="recommendation-card {priority_class}">']
-        html.append(f'                <div class="rec-header">')
+        html.append('                <div class="rec-header">')
         html.append(f'                    <h4>{rec.title}</h4>')
         html.append(f'                    <span class="priority-badge {priority_class}">{rec.priority.upper()}</span>')
-        html.append(f'                </div>')
+        html.append('                </div>')
         html.append(f'                <p>{rec.description}</p>')
         
         if rec.expected_impact:
-            html.append(f'                <div class="rec-impact">')
+            html.append('                <div class="rec-impact">')
             html.append(f'                    <strong>Expected Impact:</strong> {rec.expected_impact}')
-            html.append(f'                </div>')
+            html.append('                </div>')
         
-        html.append(f'                <div class="rec-meta">')
+        html.append('                <div class="rec-meta">')
         html.append(f'                    <span>Effort: {rec.effort}</span>')
-        html.append(f'                </div>')
-        html.append(f'            </div>')
+        html.append('                </div>')
+        html.append('            </div>')
         
         return "\n".join(html)
     
@@ -250,10 +249,10 @@ class HTMLReportFormatter:
             html.append('                    <table class="metrics-table">')
             for key, value in dataset_info.items():
                 if value is not None:
-                    html.append(f'                        <tr>')
+                    html.append('                        <tr>')
                     html.append(f'                            <td>{self._format_label(key)}</td>')
                     html.append(f'                            <td>{self._format_value(value)}</td>')
-                    html.append(f'                        </tr>')
+                    html.append('                        </tr>')
             html.append('                    </table>')
             html.append('                </div>')
         
@@ -264,10 +263,10 @@ class HTMLReportFormatter:
             html.append('                    <table class="metrics-table">')
             for key, value in metrics.items():
                 if value is not None and not isinstance(value, dict):
-                    html.append(f'                        <tr>')
+                    html.append('                        <tr>')
                     html.append(f'                            <td>{self._format_label(key)}</td>')
                     html.append(f'                            <td>{self._format_value(value)}</td>')
-                    html.append(f'                        </tr>')
+                    html.append('                        </tr>')
             html.append('                    </table>')
             html.append('                </div>')
         

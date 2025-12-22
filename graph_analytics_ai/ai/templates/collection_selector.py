@@ -6,11 +6,11 @@ for each graph algorithm based on the algorithm's characteristics and
 graph structure.
 """
 
-from typing import List, Dict, Set, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
 
-from ..schema.models import GraphSchema, CollectionSchema
+from ..schema.models import GraphSchema
 from .models import AlgorithmType
 
 
@@ -330,7 +330,7 @@ class CollectionSelector:
         selected_edges = []
         excluded_edges = []
         
-        vertex_set = set(selected_vertices)
+        set(selected_vertices)
         
         for edge_name, edge_info in schema.edge_collections.items():
             # In a real implementation, you'd parse edge definitions

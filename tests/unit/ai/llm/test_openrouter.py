@@ -6,12 +6,10 @@ Tests the OpenRouter provider implementation with mocked HTTP responses.
 
 import pytest
 import responses
-from unittest.mock import Mock
 
 from graph_analytics_ai.ai.llm import (
     OpenRouterProvider,
     LLMConfig,
-    LLMProviderError,
     LLMRateLimitError,
     LLMAuthenticationError
 )

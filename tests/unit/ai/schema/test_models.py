@@ -4,14 +4,12 @@ Unit tests for schema models.
 Tests the data models used to represent graph schema information.
 """
 
-import pytest
 
 from graph_analytics_ai.ai.schema.models import (
     AttributeInfo,
     CollectionSchema,
     CollectionType,
     Relationship,
-    GraphSchema,
     SchemaAnalysis
 )
 

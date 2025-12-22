@@ -178,13 +178,13 @@ class UseCaseGenerator:
         # Even if suggestion type maps to CENTRALITY, household resolution is COMMUNITY!
         title_lower = title.lower()
         if any(k in title_lower for k in ["household", "identity resolution", "clustering", "grouping"]):
-            print(f"[USE CASE DEBUG] OVERRIDE: Detected household/clustering keywords in title")
+            print("[USE CASE DEBUG] OVERRIDE: Detected household/clustering keywords in title")
             print(f"  Original mapping: {use_case_type}")
             use_case_type = UseCaseType.COMMUNITY
             print(f"  Overridden to: {use_case_type}")
         
         # DEBUG LOGGING - Show classification decision
-        print(f"\n[USE CASE DEBUG] Creating use case from suggestion:")
+        print("\n[USE CASE DEBUG] Creating use case from suggestion:")
         print(f"  Title: {title}")
         print(f"  Suggestion type: {sug_type}")
         print(f"  Final use case type: {use_case_type}")

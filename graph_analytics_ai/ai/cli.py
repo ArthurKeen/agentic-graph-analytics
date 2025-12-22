@@ -6,7 +6,7 @@ Provides easy access to all workflow functionality through CLI commands.
 
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import click
 
@@ -355,7 +355,7 @@ def status(output_dir: str):
         latest_checkpoint = max(checkpoint_files, key=lambda p: p.stat().st_mtime)
         state = WorkflowState.load_checkpoint(latest_checkpoint)
         
-        click.echo(f"📊 Workflow Status")
+        click.echo("📊 Workflow Status")
         click.echo(f"   ID: {state.workflow_id}")
         click.echo(f"   Status: {state.status.value}")
         click.echo(f"   Created: {state.created_at}")

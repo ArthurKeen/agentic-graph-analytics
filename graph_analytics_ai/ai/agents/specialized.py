@@ -4,7 +4,7 @@ Specialized domain agents.
 Each agent has specific expertise and responsibilities.
 """
 
-from typing import Dict, Any, Optional, Callable, List
+from typing import Any, Optional, List
 
 from ..llm.base import LLMProvider
 from ..schema.extractor import SchemaExtractor

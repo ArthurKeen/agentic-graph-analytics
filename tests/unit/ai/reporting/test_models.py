@@ -1,6 +1,5 @@
 """Tests for reporting models."""
 
-import pytest
 from datetime import datetime
 from graph_analytics_ai.ai.reporting.models import (
     ReportFormat,

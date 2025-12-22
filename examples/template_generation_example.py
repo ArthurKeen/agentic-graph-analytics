@@ -34,7 +34,7 @@ def example_template_generation():
     # ========================================================================
     print("1️⃣  Extracting schema from cluster...")
     
-    db = get_db_connection()
+    get_db_connection()
     extractor = create_extractor(
         endpoint=os.getenv('ARANGO_ENDPOINT'),
         database=os.getenv('ARANGO_DATABASE'),
@@ -174,7 +174,7 @@ def example_template_generation():
         print(f"   Estimated Runtime: {template.estimated_runtime_seconds:.1f}s")
         print()
         
-        print(f"   Parameters:")
+        print("   Parameters:")
         for key, value in template.algorithm.parameters.items():
             print(f"      • {key}: {value}")
         print()

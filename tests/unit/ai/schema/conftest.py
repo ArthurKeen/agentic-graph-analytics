@@ -5,7 +5,6 @@ Provides mock data and objects for testing schema extraction and analysis.
 """
 
 import pytest
-from typing import Dict, Any, List
 from unittest.mock import Mock
 
 from graph_analytics_ai.ai.schema.models import (

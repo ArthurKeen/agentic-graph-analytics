@@ -30,7 +30,8 @@ except ImportError:
     _charts_available = False
     ChartGenerator = None
     HTMLReportFormatter = None
-    is_plotly_available = lambda: False
+    def is_plotly_available():
+        return False
 
 __all__ = [
     "ReportGenerator",

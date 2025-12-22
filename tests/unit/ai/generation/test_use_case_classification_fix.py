@@ -5,9 +5,8 @@ Verifies that "Household Identity Resolution" use cases are correctly
 classified as COMMUNITY (clustering) instead of CENTRALITY (ranking).
 """
 
-import pytest
 from graph_analytics_ai.ai.generation.use_cases import UseCaseGenerator, UseCaseType
-from graph_analytics_ai.ai.documents.models import ExtractedRequirements, Objective, Priority, Document, DocumentType
+from graph_analytics_ai.ai.documents.models import ExtractedRequirements, Objective, Priority
 
 
 def test_household_clustering_classification():

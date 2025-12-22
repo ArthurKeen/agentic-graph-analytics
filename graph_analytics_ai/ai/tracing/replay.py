@@ -110,7 +110,7 @@ class TraceReplayer:
         
         if self.trace.performance:
             perf = self.trace.performance
-            print(f"\nPerformance:")
+            print("\nPerformance:")
             print(f"  Total Time: {perf.total_time_ms/1000:.2f}s")
             print(f"  Steps: {perf.steps_completed}")
             print(f"  LLM Calls: {perf.total_llm_calls}")

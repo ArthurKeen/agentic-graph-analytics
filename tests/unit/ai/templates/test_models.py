@@ -1,6 +1,5 @@
 """Tests for template models."""
 
-import pytest
 from graph_analytics_ai.ai.templates.models import (
     AlgorithmType,
     EngineSize,

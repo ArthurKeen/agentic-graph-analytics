@@ -5,15 +5,14 @@ Generates markdown reports from execution metrics with configurable sections.
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 from pathlib import Path
 
 from .config import ReportConfig, ReportSection
 from ..execution.metrics import (
     ExecutionSummary,
     TimingBreakdown,
-    CostBreakdown,
-    AlgorithmExecutionStats
+    CostBreakdown
 )
 
 
@@ -185,11 +184,11 @@ class ExecutionReportFormatter:
                 "",
                 "### Time Distribution",
                 "",
-                f"```",
+                "```",
                 f"Load:      {'█' * int(timing.load_percentage / 2)} {timing.load_percentage:.1f}%",
                 f"Execute:   {'█' * int(timing.execution_percentage / 2)} {timing.execution_percentage:.1f}%",
                 f"Store:     {'█' * int(timing.storage_percentage / 2)} {timing.storage_percentage:.1f}%",
-                f"```"
+                "```"
             ])
         
         return "\n".join(lines)

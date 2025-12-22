@@ -8,7 +8,7 @@ https://openrouter.ai/
 import json
 import time
 import requests
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from .base import (
     LLMProvider,

@@ -14,7 +14,6 @@ Works with both Arango Managed Platform (AMP) and self-managed deployments.
 
 import time
 import json
-from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, List, Any
 from datetime import datetime
@@ -355,7 +354,7 @@ class GAEOrchestrator:
                 if hourly_cost > 0:  # Only calculate if we have cost data
                     result.estimated_cost_usd = (result.engine_runtime_minutes / 60) * hourly_cost
                 
-                self._log(f"✓ Analysis completed successfully!")
+                self._log("✓ Analysis completed successfully!")
                 self._log(f"  Duration: {result.duration_seconds:.1f}s ({result.engine_runtime_minutes:.1f} min)")
                 if result.estimated_cost_usd:
                     self._log(f"  Estimated cost: ${result.estimated_cost_usd:.4f}")
@@ -375,14 +374,14 @@ class GAEOrchestrator:
                 is_retryable = self._is_retryable_error(str(e))
                 
                 if not is_retryable:
-                    self._log(f"Error is not retryable (configuration/setup issue)", "ERROR")
-                    self._log(f"Fix the issue and try again", "ERROR")
+                    self._log("Error is not retryable (configuration/setup issue)", "ERROR")
+                    self._log("Fix the issue and try again", "ERROR")
                     break  # Don't retry configuration errors
                 
                 # Check if we should retry
                 if config.retry_on_failure and attempt < config.max_retries:
                     attempt += 1
-                    self._log(f"Error appears transient, will retry...")
+                    self._log("Error appears transient, will retry...")
                     # Clean up failed engine before retry
                     if result.engine_id:
                         try:
@@ -427,7 +426,7 @@ class GAEOrchestrator:
             result.engine_id = engine_info['id']
             result.deploy_time_seconds = (datetime.now() - deploy_start).total_seconds()
             self._log(f"✓ Engine deployed: {result.engine_id} ({result.deploy_time_seconds:.1f}s)")
-        except Exception as e:
+        except Exception:
             # If deployment fails, try to capture engine_id for cleanup
             if hasattr(self.gae, 'current_engine_id') and self.gae.current_engine_id and not result.engine_id:
                 result.engine_id = self.gae.current_engine_id
@@ -439,7 +438,7 @@ class GAEOrchestrator:
         result.status = AnalysisStatus.GRAPH_LOADING
         
         # DEBUG LOGGING - Track what we're about to load
-        self._log(f"\n[ORCHESTRATOR DEBUG] About to load graph:")
+        self._log("\n[ORCHESTRATOR DEBUG] About to load graph:")
         self._log(f"  Config name: {result.config.name}")
         self._log(f"  Config algorithm: {result.config.algorithm}")
         self._log(f"  Vertex collections ({len(result.config.vertex_collections)}): {result.config.vertex_collections}")
@@ -494,7 +493,7 @@ class GAEOrchestrator:
         result.status = AnalysisStatus.ALGORITHM_RUNNING
         
         # DEBUG LOGGING - Track which algorithm is about to run
-        self._log(f"\n[ORCHESTRATOR DEBUG] About to run algorithm:")
+        self._log("\n[ORCHESTRATOR DEBUG] About to run algorithm:")
         self._log(f"  Config algorithm: '{result.config.algorithm}'")
         self._log(f"  Graph ID: {result.graph_id}")
         self._log(f"  Algorithm params: {result.config.algorithm_params}")
@@ -512,19 +511,19 @@ class GAEOrchestrator:
         # Call the appropriate algorithm
         # Only algorithms supported by GAEConnectionBase are available
         if result.config.algorithm == "pagerank":
-            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_pagerank()")
+            self._log("[ORCHESTRATOR DEBUG] Calling gae.run_pagerank()")
             job_info = self.gae.run_pagerank(**params)
         elif result.config.algorithm == "label_propagation":
-            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_label_propagation()")
+            self._log("[ORCHESTRATOR DEBUG] Calling gae.run_label_propagation()")
             job_info = self.gae.run_label_propagation(**params)
         elif result.config.algorithm == "betweenness":
-            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_betweenness()")
+            self._log("[ORCHESTRATOR DEBUG] Calling gae.run_betweenness()")
             job_info = self.gae.run_betweenness(**params)
         elif result.config.algorithm == "scc":
-            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_scc()")
+            self._log("[ORCHESTRATOR DEBUG] Calling gae.run_scc()")
             job_info = self.gae.run_scc(**params)
         elif result.config.algorithm == "wcc":
-            self._log(f"[ORCHESTRATOR DEBUG] Calling gae.run_wcc()")
+            self._log("[ORCHESTRATOR DEBUG] Calling gae.run_wcc()")
             job_info = self.gae.run_wcc(**params)
         else:
             # Provide helpful error message with supported algorithms
@@ -575,11 +574,11 @@ class GAEOrchestrator:
                         replication_factor=3,  # Match cluster replication
                         shard_keys=['_key']  # Use _key as shard key
                     )
-                    self._log(f"✓ Created sharded collection with 3 shards")
+                    self._log("✓ Created sharded collection with 3 shards")
                 else:
                     # Regular collection for non-sharded DBs
                     self.db.create_collection(result.config.target_collection)
-                    self._log(f"✓ Created collection")
+                    self._log("✓ Created collection")
         except Exception as e:
             self._log(f"Note: Collection pre-creation: {e}", "WARN")
             # Continue anyway - maybe it exists already
@@ -727,7 +726,7 @@ class GAEOrchestrator:
                         f"This suggests load_graph included collections beyond those specified."
                     )
                 
-                self._log(f"  ✓ Collection restriction respected: Results only contain specified collections")
+                self._log("  ✓ Collection restriction respected: Results only contain specified collections")
             
             self._log("✓ All validations passed")
             
@@ -743,7 +742,7 @@ class GAEOrchestrator:
         
         self.gae.delete_engine(result.engine_id)
         
-        self._log(f"✓ Engine deleted (billing stopped)")
+        self._log("✓ Engine deleted (billing stopped)")
     
     def _wait_for_job(self, job_id: str, description: str, 
                       poll_interval: int = DEFAULT_POLL_INTERVAL) -> Dict[str, Any]:
@@ -831,7 +830,7 @@ class GAEOrchestrator:
             else:
                 # Unknown format - log and continue
                 if last_status != 'unknown':
-                    self._log(f"    Status: unknown format")
+                    self._log("    Status: unknown format")
                     last_status = 'unknown'
             
             # Check timeout
@@ -862,7 +861,7 @@ class GAEOrchestrator:
                 self._log(f"✗ Failed {i}/{len(configs)}: {result.error_message}")
         
         # Final summary
-        self._log(f"\n=== Batch Complete ===")
+        self._log("\n=== Batch Complete ===")
         completed = sum(1 for r in results if r.status == AnalysisStatus.COMPLETED)
         failed = len(results) - completed
         total_cost = sum(r.estimated_cost_usd or 0 for r in results)

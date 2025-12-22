@@ -1,6 +1,5 @@
 """Tests for template generator."""
 
-import pytest
 from graph_analytics_ai.ai.templates.generator import (
     TemplateGenerator,
     USE_CASE_TO_ALGORITHM

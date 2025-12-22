@@ -2,7 +2,6 @@
 Unit tests for use case generator.
 """
 
-import pytest
 
 from graph_analytics_ai.ai.generation.use_cases import (
     UseCaseGenerator,

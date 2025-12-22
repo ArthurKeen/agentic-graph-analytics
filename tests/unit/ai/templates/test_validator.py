@@ -1,6 +1,5 @@
 """Tests for template validator."""
 
-import pytest
 from graph_analytics_ai.ai.templates.validator import (
     TemplateValidator,
     ValidationResult

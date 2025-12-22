@@ -13,7 +13,6 @@ Run with: pytest tests/integration/test_gae_execution_e2e.py --run-integration -
 
 import pytest
 import time
-from pathlib import Path
 
 from graph_analytics_ai import GAEOrchestrator, AnalysisConfig, AnalysisStatus
 from graph_analytics_ai.ai.execution.metrics import ExecutionSummary, TimingBreakdown, CostBreakdown, AlgorithmExecutionStats
@@ -97,7 +96,7 @@ class TestGAEExecutionE2E:
             assert result.estimated_cost_usd > 0
             assert result.engine_runtime_minutes > 0
         
-        print(f"\n✅ GAE analysis test passed!")
+        print("\n✅ GAE analysis test passed!")
         print(f"   Duration: {result.duration_seconds:.1f}s")
         print(f"   Deploy: {result.deploy_time_seconds:.1f}s")
         print(f"   Load: {result.load_time_seconds:.1f}s")
@@ -117,7 +116,6 @@ class TestGAEExecutionE2E:
         """
         Test execution summary and report generation from GAE results.
         """
-        from datetime import datetime
         
         # Run a simple analysis
         orchestrator = GAEOrchestrator(verbose=True)
@@ -208,7 +206,7 @@ class TestGAEExecutionE2E:
         
         assert report_path.exists()
         
-        print(f"\n✅ Execution summary test passed!")
+        print("\n✅ Execution summary test passed!")
         print(f"   Report generated: {report_path}")
         print(f"   Report size: {len(report_md)} characters")
     
@@ -220,7 +218,6 @@ class TestGAEExecutionE2E:
         """
         Test running multiple algorithms and aggregating metrics.
         """
-        from datetime import datetime
         
         orchestrator = GAEOrchestrator(verbose=True)
         
@@ -278,7 +275,7 @@ class TestGAEExecutionE2E:
         assert summary.total_execution_time_seconds > 0
         assert len(summary.algorithm_stats) == len(algorithms)
         
-        print(f"\n✅ Multiple algorithms test passed!")
+        print("\n✅ Multiple algorithms test passed!")
         print(f"   Algorithms run: {len(algorithms)}")
         print(f"   Total execution time: {summary.total_execution_time_seconds:.1f}s")
         print(f"   Success rate: {summary.success_rate}%")

@@ -5,7 +5,7 @@ Each method corresponds to a step in the AI-assisted graph analytics workflow.
 """
 
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
 from ..llm.base import LLMProvider
 from ..documents.parser import parse_documents
@@ -240,31 +240,31 @@ class WorkflowSteps:
             lines.append(f"\n### Description\n{uc.description}\n")
             
             if uc.related_requirements:
-                lines.append(f"\n### Related Requirements\n")
+                lines.append("\n### Related Requirements\n")
                 for req_id in uc.related_requirements:
                     lines.append(f"- {req_id}")
                 lines.append("")
             
             if uc.graph_algorithms:
-                lines.append(f"\n### Suggested Algorithms\n")
+                lines.append("\n### Suggested Algorithms\n")
                 for algo in uc.graph_algorithms:
                     lines.append(f"- {algo}")
                 lines.append("")
             
             if uc.data_needs:
-                lines.append(f"\n### Data Requirements\n")
+                lines.append("\n### Data Requirements\n")
                 for need in uc.data_needs:
                     lines.append(f"- {need}")
                 lines.append("")
             
             if uc.expected_outputs:
-                lines.append(f"\n### Expected Outputs\n")
+                lines.append("\n### Expected Outputs\n")
                 for output in uc.expected_outputs:
                     lines.append(f"- {output}")
                 lines.append("")
             
             if uc.success_metrics:
-                lines.append(f"\n### Success Metrics\n")
+                lines.append("\n### Success Metrics\n")
                 for metric in uc.success_metrics:
                     lines.append(f"- {metric}")
                 lines.append("")
@@ -296,8 +296,8 @@ class WorkflowSteps:
         # Group requirements by priority
         critical = extracted.critical_requirements
         high = [r for r in extracted.all_requirements if r.priority.value == 'high']
-        medium = [r for r in extracted.all_requirements if r.priority.value == 'medium']
-        low = [r for r in extracted.all_requirements if r.priority.value == 'low']
+        [r for r in extracted.all_requirements if r.priority.value == 'medium']
+        [r for r in extracted.all_requirements if r.priority.value == 'low']
         
         if critical:
             lines.append(f"## Critical Requirements ({len(critical)})\n")

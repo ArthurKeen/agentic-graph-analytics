@@ -179,7 +179,7 @@ def create_test_database(
         db.create_graph(**graph_def)
         print("Created named graph: ecommerce_graph")
     
-    print(f"\nTest database setup complete!")
+    print("\nTest database setup complete!")
     print(f"Statistics: {stats}")
     
     return {

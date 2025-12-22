@@ -4,8 +4,7 @@ Unit tests for schema extractor.
 Tests schema extraction from ArangoDB databases.
 """
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 from graph_analytics_ai.ai.schema.extractor import SchemaExtractor, create_extractor
 from graph_analytics_ai.ai.schema.models import CollectionType

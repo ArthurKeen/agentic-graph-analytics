@@ -194,7 +194,7 @@ def create_test_data():
         })
     
     print(f"   ✓ Created {len(product_keys)} products")
-    print(f"   ✓ Linked products to categories")
+    print("   ✓ Linked products to categories")
     print()
     
     # ========================================================================
@@ -325,12 +325,12 @@ def create_test_data():
     
     # Get final counts
     print("📊 Final Statistics:")
-    print(f"   Vertices:")
+    print("   Vertices:")
     print(f"      • Users: {db.collection('users').count()}")
     print(f"      • Products: {db.collection('products').count()}")
     print(f"      • Categories: {db.collection('categories').count()}")
     print()
-    print(f"   Edges:")
+    print("   Edges:")
     print(f"      • Purchased: {db.collection('purchased').count()}")
     print(f"      • Viewed: {db.collection('viewed').count()}")
     print(f"      • Rated: {db.collection('rated').count()}")

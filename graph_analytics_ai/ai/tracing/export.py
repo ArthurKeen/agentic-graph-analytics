@@ -6,10 +6,10 @@ Exports workflow traces to various formats including JSON, HTML, and SVG.
 
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import List, Optional
 from datetime import datetime
 
-from . import WorkflowTrace, TraceEvent, TraceEventType
+from . import WorkflowTrace
 
 
 class TraceExporter:

@@ -5,7 +5,6 @@ Provides a unified interface to connect to ArangoDB clusters.
 """
 
 from arango import ArangoClient
-from typing import Optional
 
 from .config import get_arango_config, parse_ssl_verify
 
@@ -85,7 +84,7 @@ def get_db_connection():
         error_str = str(e).lower()
         # If it's an authorization error, user might be limited - that's okay
         if '401' in error_str or 'not authorized' in error_str or 'err 11' in error_str:
-            print(f"Warning: Cannot list databases (user may have limited permissions)")
+            print("Warning: Cannot list databases (user may have limited permissions)")
             print(f"   Attempting direct connection to '{database}' database...")
             # Continue - will try direct connection
         else:

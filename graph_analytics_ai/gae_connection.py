@@ -30,7 +30,6 @@ from .constants import (
     FAILED_STATES,
     ICON_SUCCESS,
     ICON_ERROR,
-    ICON_WARNING,
     API_VERSION_PREFIX,
     TOKEN_LIFETIME_HOURS,
     TOKEN_REFRESH_THRESHOLD_HOURS
@@ -678,37 +677,37 @@ class GenAIGAEConnection(GAEConnectionBase):
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
-                print(f"Authentication failed (401 Unauthorized)")
+                print("Authentication failed (401 Unauthorized)")
                 print(f"   URL: {auth_url}")
-                print(f"   This usually means:")
-                print(f"   1. Wrong username or password")
-                print(f"   2. Endpoint URL is incorrect (missing port :8529?)")
-                print(f"   3. Network/VPN access issue")
-                print(f"   4. Password may have extra spaces (check .env file)")
+                print("   This usually means:")
+                print("   1. Wrong username or password")
+                print("   2. Endpoint URL is incorrect (missing port :8529?)")
+                print("   3. Network/VPN access issue")
+                print("   4. Password may have extra spaces (check .env file)")
                 
                 # Check for missing port
                 if ':8529' not in self.db_endpoint:
                     print(f"\n   WARNING: Your endpoint '{self.db_endpoint}' is missing port :8529")
                     print(f"   It should be: {self.db_endpoint}:8529")
-                    print(f"   This is the #1 cause of 401 errors!")
+                    print("   This is the #1 cause of 401 errors!")
                 
                 # Check for password formatting issues
                 if self.db_password:
                     if self.db_password.startswith(' ') or self.db_password.endswith(' '):
-                        print(f"\n   WARNING: Password appears to have leading/trailing spaces")
-                        print(f"   Remove spaces from ARANGO_PASSWORD in .env file")
+                        print("\n   WARNING: Password appears to have leading/trailing spaces")
+                        print("   Remove spaces from ARANGO_PASSWORD in .env file")
                 
-                print(f"\n   Troubleshooting steps:")
-                print(f"   1. Verify endpoint includes :8529 port")
-                print(f"   2. Check credentials match exactly (no extra spaces)")
-                print(f"   3. Verify credentials work in ArangoDB web UI")
-                print(f"   4. Check network/VPN connectivity")
+                print("\n   Troubleshooting steps:")
+                print("   1. Verify endpoint includes :8529 port")
+                print("   2. Check credentials match exactly (no extra spaces)")
+                print("   3. Verify credentials work in ArangoDB web UI")
+                print("   4. Check network/VPN connectivity")
             raise
         except Exception as e:
             print(f"Failed to get JWT token: {e}")
             # Check for missing port in any error
             if ':8529' not in self.db_endpoint:
-                print(f"\n   TIP: Check if your endpoint includes port :8529")
+                print("\n   TIP: Check if your endpoint includes port :8529")
                 print(f"   Current: {self.db_endpoint}")
                 print(f"   Should be: {self.db_endpoint}:8529")
             raise
@@ -748,7 +747,7 @@ class GenAIGAEConnection(GAEConnectionBase):
                 raise RuntimeError("Failed to start engine")
             
             self.engine_id = service_id
-            print(f"Engine started successfully")
+            print("Engine started successfully")
             print(f"   Service ID: {service_id}")
             
             return service_id
@@ -789,7 +788,7 @@ class GenAIGAEConnection(GAEConnectionBase):
             )
             response.raise_for_status()
             
-            print(f"Engine stopped successfully")
+            print("Engine stopped successfully")
             if service_id == self.engine_id:
                 self.engine_id = None
             return True
@@ -963,13 +962,13 @@ class GenAIGAEConnection(GAEConnectionBase):
             return result
             
         except requests.exceptions.HTTPError as e:
-            error_msg = error_message or f"Request failed"
+            error_msg = error_message or "Request failed"
             print(f"{ICON_ERROR} {error_msg}: {e}")
             if e.response is not None and e.response.text:
                 print(f"   Response: {e.response.text[:200]}")
             raise
         except Exception as e:
-            error_msg = error_message or f"Request failed"
+            error_msg = error_message or "Request failed"
             print(f"{ICON_ERROR} {error_msg}: {e}")
             raise
     
@@ -1019,9 +1018,8 @@ class GenAIGAEConnection(GAEConnectionBase):
             else:
                 self.start_engine()
         
-        engine_url = self._get_engine_url()
-        url = f"{engine_url}/v1/loaddata"
-        headers = self._get_headers()
+        self._get_engine_url()
+        self._get_headers()
         
         # Use provided database or self.db_name
         db = database or self.db_name
@@ -1175,9 +1173,8 @@ class GenAIGAEConnection(GAEConnectionBase):
         # Use provided database or self.db_name
         db = database or self.db_name
         
-        engine_url = self._get_engine_url()
-        url = f"{engine_url}/v1/storeresults"
-        headers = self._get_headers()
+        self._get_engine_url()
+        self._get_headers()
         
         payload = {
             "database": db,
@@ -1250,7 +1247,7 @@ class GenAIGAEConnection(GAEConnectionBase):
             self._get_jwt_token()
             
             # Try to list services (lightweight operation)
-            services = self.list_services()
+            self.list_services()
             print("Connection test successful")
             return True
         except Exception as e:

@@ -1,6 +1,5 @@
 """Tests for queries module."""
 
-import pytest
 from unittest.mock import MagicMock
 
 from graph_analytics_ai.queries import (

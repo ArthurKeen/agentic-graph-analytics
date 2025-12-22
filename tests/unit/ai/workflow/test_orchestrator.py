@@ -2,14 +2,13 @@
 Tests for workflow orchestrator.
 """
 
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import pytest
 
 from graph_analytics_ai.ai.workflow.orchestrator import WorkflowOrchestrator, WorkflowResult
 from graph_analytics_ai.ai.workflow.state import WorkflowStatus, WorkflowStep
-from graph_analytics_ai.ai.workflow.exceptions import WorkflowStepError, WorkflowCheckpointError
+from graph_analytics_ai.ai.workflow.exceptions import WorkflowCheckpointError
 
 
 @pytest.fixture
@@ -105,7 +104,7 @@ class TestWorkflowOrchestrator:
         """Test that output directory is created."""
         output_dir = tmp_path / "test_output"
         
-        orchestrator = WorkflowOrchestrator(
+        WorkflowOrchestrator(
             output_dir=str(output_dir),
             llm_provider=mock_llm_provider
         )

@@ -9,7 +9,6 @@ from graph_analytics_ai.ai.reporting import (
     HTMLReportFormatter,
     is_plotly_available
 )
-from graph_analytics_ai.ai.reporting.models import AnalysisReport, Insight, Recommendation, InsightType, RecommendationType
 from datetime import datetime
 
 
@@ -157,7 +156,7 @@ def generate_sample_html_report():
         f.write(html_content)
     
     print("=" * 70)
-    print(f"✅ REPORT GENERATED SUCCESSFULLY!")
+    print("✅ REPORT GENERATED SUCCESSFULLY!")
     print("=" * 70)
     print()
     print(f"📄 File: {output_file}")

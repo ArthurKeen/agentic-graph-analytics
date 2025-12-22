@@ -45,7 +45,7 @@ def complete_pipeline_example():
     extractor = SchemaExtractor(db)
     schema = extractor.extract()
     
-    print(f"✓ Schema extracted:")
+    print("✓ Schema extracted:")
     print(f"  • Vertex collections: {len(schema.vertex_collections)}")
     print(f"  • Edge collections: {len(schema.edge_collections)}")
     print(f"  • Total: {schema.total_documents:,} documents, {schema.total_edges:,} edges")
@@ -58,7 +58,7 @@ def complete_pipeline_example():
         print(f"✓ Schema analyzed: {analysis.domain}, complexity {analysis.complexity_score:.1f}/10")
     except:
         analysis = analyzer._create_fallback_analysis(schema)
-        print(f"✓ Schema analyzed (fallback mode)")
+        print("✓ Schema analyzed (fallback mode)")
     
     print()
     
@@ -162,7 +162,7 @@ def complete_pipeline_example():
     result = executor.execute_template(template, wait=True)
     
     if result.success:
-        print(f"✅ Execution successful!")
+        print("✅ Execution successful!")
         print(f"   Job ID: {result.job.job_id}")
         print(f"   Status: {result.job.status.value}")
         print(f"   Runtime: {result.job.execution_time_seconds:.1f}s")
@@ -170,7 +170,7 @@ def complete_pipeline_example():
         print()
         
         if result.results:
-            print(f"Top Results:")
+            print("Top Results:")
             top_results = result.get_top_results(5)
             for i, r in enumerate(top_results, 1):
                 print(f"   {i}. {r}")

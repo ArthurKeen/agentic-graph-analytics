@@ -5,10 +5,8 @@ Executes GAE analysis templates using the existing GAEOrchestrator.
 Provides high-level interface with monitoring and result collection.
 """
 
-import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pathlib import Path
 
 from ...gae_orchestrator import GAEOrchestrator, AnalysisConfig
 from ..templates.models import AnalysisTemplate
@@ -219,7 +217,7 @@ class AnalysisExecutor:
         algorithm = config_dict.get('algorithm')
         
         # DEBUG LOGGING - Track collection and algorithm values
-        print(f"\n[EXECUTOR DEBUG] Template to Config Conversion:")
+        print("\n[EXECUTOR DEBUG] Template to Config Conversion:")
         print(f"  Template name: {template.name}")
         print(f"  Template algorithm: {template.algorithm.algorithm.value if hasattr(template.algorithm, 'algorithm') else template.algorithm}")
         print(f"  Config dict algorithm: {algorithm}")
@@ -229,10 +227,10 @@ class AnalysisExecutor:
         # Fallback: try template.vertex_collections if config_dict doesn't have them
         if not vertex_collections and hasattr(template, 'vertex_collections'):
             vertex_collections = template.vertex_collections
-            print(f"  [EXECUTOR DEBUG] Using fallback vertex_collections from template")
+            print("  [EXECUTOR DEBUG] Using fallback vertex_collections from template")
         if not edge_collections and hasattr(template, 'edge_collections'):
             edge_collections = template.edge_collections
-            print(f"  [EXECUTOR DEBUG] Using fallback edge_collections from template")
+            print("  [EXECUTOR DEBUG] Using fallback edge_collections from template")
         
         # Validate algorithm is present
         if not algorithm:
@@ -255,13 +253,13 @@ class AnalysisExecutor:
         )
         
         # DEBUG LOGGING - Verify AnalysisConfig was created correctly
-        print(f"[EXECUTOR DEBUG] Created AnalysisConfig:")
+        print("[EXECUTOR DEBUG] Created AnalysisConfig:")
         print(f"  Name: {config.name}")
         print(f"  Algorithm: {config.algorithm}")
         print(f"  Vertex collections ({len(config.vertex_collections)}): {config.vertex_collections}")
         print(f"  Edge collections ({len(config.edge_collections)}): {config.edge_collections}")
         print(f"  Result field: {config.result_field}")
-        print(f"[EXECUTOR DEBUG] End of conversion\n")
+        print("[EXECUTOR DEBUG] End of conversion\n")
         
         return config
     

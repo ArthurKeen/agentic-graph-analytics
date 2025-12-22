@@ -4,8 +4,6 @@ Unit tests for document processing models.
 Tests the data models used to represent documents and requirements.
 """
 
-import pytest
-from datetime import datetime
 
 from graph_analytics_ai.ai.documents.models import (
     DocumentMetadata,
@@ -53,7 +51,7 @@ class TestDocumentMetadata:
         ]
         
         for filename, expected_type in test_cases:
-            metadata = DocumentMetadata(
+            DocumentMetadata(
                 file_path=filename,
                 file_name=filename,
                 document_type=DocumentType.UNKNOWN

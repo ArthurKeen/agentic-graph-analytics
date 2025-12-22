@@ -5,14 +5,12 @@ from graph_analytics_ai.ai.templates.models import (
     AlgorithmType,
     AlgorithmParameters,
     TemplateConfig,
-    AnalysisTemplate,
-    EngineSize
+    AnalysisTemplate
 )
 from graph_analytics_ai.ai.generation.use_cases import UseCase, UseCaseType
 from graph_analytics_ai.ai.documents.models import Priority
 from graph_analytics_ai.ai.schema.models import (
     GraphSchema,
-    SchemaAnalysis,
     CollectionSchema,
     CollectionType
 )

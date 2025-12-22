@@ -8,7 +8,7 @@ import csv
 import json
 import logging
 from pathlib import Path
-from typing import List, Optional, Union, Any
+from typing import List, Optional, Union
 from arango.database import StandardDatabase
 
 logger = logging.getLogger(__name__)

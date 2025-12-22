@@ -1,10 +1,9 @@
 """Tests for database connection module."""
 
 import pytest
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, MagicMock
 
 from graph_analytics_ai.db_connection import get_db_connection, get_connection_info
-from graph_analytics_ai.config import ArangoConfig
 
 
 class TestGetDBConnection:

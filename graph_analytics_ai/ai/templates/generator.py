@@ -105,7 +105,7 @@ class TemplateGenerator:
         try:
             from .collection_selector import CollectionSelector
             self.collection_selector = CollectionSelector()
-        except (ImportError, AttributeError) as e:
+        except (ImportError, AttributeError):
             # CollectionSelector not available, will use fallback
             self.collection_selector = None
     
@@ -128,13 +128,13 @@ class TemplateGenerator:
         """
         templates = []
         
-        print(f"\n[TEMPLATE DEBUG] ******************************************")
+        print("\n[TEMPLATE DEBUG] ******************************************")
         print(f"[TEMPLATE DEBUG] Starting template generation for {len(use_cases)} use cases")
         print(f"[TEMPLATE DEBUG] Graph name: {self.graph_name}")
         print(f"[TEMPLATE DEBUG] Core collections: {self.core_collections}")
         print(f"[TEMPLATE DEBUG] Satellite collections: {self.satellite_collections}")
         print(f"[TEMPLATE DEBUG] CollectionSelector available: {self.collection_selector is not None}")
-        print(f"[TEMPLATE DEBUG] ******************************************\n")
+        print("[TEMPLATE DEBUG] ******************************************\n")
         
         for use_case in use_cases:
             print(f"\n[TEMPLATE DEBUG] Processing use case: {use_case.title}")
@@ -162,7 +162,7 @@ class TemplateGenerator:
             )
             templates.append(template)
             
-            print(f"[TEMPLATE DEBUG] Template created:")
+            print("[TEMPLATE DEBUG] Template created:")
             print(f"  Name: {template.name}")
             print(f"  Algorithm: {template.algorithm.algorithm.value}")
             print(f"  Vertex collections: {template.config.vertex_collections}")
@@ -182,7 +182,7 @@ class TemplateGenerator:
         """Create a single analysis template."""
         
         # DEBUG LOGGING - Start of template creation
-        print(f"\n[TEMPLATE DEBUG] ==========================================")
+        print("\n[TEMPLATE DEBUG] ==========================================")
         print(f"[TEMPLATE DEBUG] Creating template for: {use_case.title}")
         print(f"[TEMPLATE DEBUG] Use case ID: {use_case.id}")
         print(f"[TEMPLATE DEBUG] Use case type: {use_case.use_case_type}")
@@ -216,14 +216,14 @@ class TemplateGenerator:
         # Extract collections from use case data needs
         vertex_collections, edge_collections = self._extract_collections(use_case, schema)
         
-        print(f"[TEMPLATE DEBUG] Extracted from use case data needs:")
+        print("[TEMPLATE DEBUG] Extracted from use case data needs:")
         print(f"  Vertex collections ({len(vertex_collections)}): {vertex_collections}")
         print(f"  Edge collections ({len(edge_collections)}): {edge_collections}")
         
         # Use CollectionSelector to choose algorithm-appropriate collections
         selection_metadata = {}
         if self.collection_selector and schema and schema.vertex_collections:
-            print(f"[TEMPLATE DEBUG] CollectionSelector is available, attempting to use it...")
+            print("[TEMPLATE DEBUG] CollectionSelector is available, attempting to use it...")
             try:
                 collection_selection = self.collection_selector.select_collections(
                     algorithm=algorithm_type,
@@ -232,7 +232,7 @@ class TemplateGenerator:
                     use_case_context=use_case.description
                 )
                 
-                print(f"[TEMPLATE DEBUG] CollectionSelector returned:")
+                print("[TEMPLATE DEBUG] CollectionSelector returned:")
                 print(f"  Vertex collections ({len(collection_selection.vertex_collections)}): {collection_selection.vertex_collections}")
                 print(f"  Edge collections ({len(collection_selection.edge_collections)}): {collection_selection.edge_collections}")
                 print(f"  Reasoning: {collection_selection.reasoning}")
@@ -241,7 +241,7 @@ class TemplateGenerator:
                 vertex_collections = collection_selection.vertex_collections
                 edge_collections = collection_selection.edge_collections
                 
-                print(f"[TEMPLATE DEBUG] OVERRIDE: Using CollectionSelector results")
+                print("[TEMPLATE DEBUG] OVERRIDE: Using CollectionSelector results")
                 
                 # Store selection reasoning in template metadata
                 selection_metadata = {
@@ -255,10 +255,10 @@ class TemplateGenerator:
             except Exception as e:
                 # Fall back to manual extraction if collection selector fails
                 print(f"[TEMPLATE DEBUG] CollectionSelector FAILED: {e}")
-                print(f"[TEMPLATE DEBUG] Falling back to extracted collections")
+                print("[TEMPLATE DEBUG] Falling back to extracted collections")
                 selection_metadata = {"collection_selection_error": str(e)}
         elif (not vertex_collections or not edge_collections) and schema:
-            print(f"[TEMPLATE DEBUG] CollectionSelector not available or schema missing, using fallback...")
+            print("[TEMPLATE DEBUG] CollectionSelector not available or schema missing, using fallback...")
             # Fallback if selector can't be used
             if not vertex_collections and schema.vertex_collections:
                 available = [
@@ -272,7 +272,7 @@ class TemplateGenerator:
                 edge_collections = list(schema.edge_collections.keys())[:5]
                 print(f"[TEMPLATE DEBUG] Fallback edge collections: {edge_collections}")
         
-        print(f"[TEMPLATE DEBUG] FINAL collections for template:")
+        print("[TEMPLATE DEBUG] FINAL collections for template:")
         print(f"  Vertex collections ({len(vertex_collections)}): {vertex_collections}")
         print(f"  Edge collections ({len(edge_collections)}): {edge_collections}")
         

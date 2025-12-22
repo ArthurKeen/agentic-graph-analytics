@@ -5,15 +5,11 @@ Provides mock data and objects for testing document parsing and extraction.
 """
 
 import pytest
-import tempfile
-from pathlib import Path
-from typing import Dict, Any
 from unittest.mock import Mock
 
 from graph_analytics_ai.ai.documents.models import (
     Document,
     DocumentMetadata,
-    DocumentType,
     TextChunk,
     ExtractedRequirements,
     Requirement,

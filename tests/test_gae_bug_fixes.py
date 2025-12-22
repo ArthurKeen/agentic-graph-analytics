@@ -8,7 +8,7 @@ These tests verify the fixes for three critical bugs:
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 from datetime import datetime
 
 from graph_analytics_ai.gae_orchestrator import (

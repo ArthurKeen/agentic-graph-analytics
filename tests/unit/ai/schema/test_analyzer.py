@@ -4,7 +4,6 @@ Unit tests for schema analyzer.
 Tests LLM-based schema analysis and report generation.
 """
 
-import pytest
 from unittest.mock import Mock
 
 from graph_analytics_ai.ai.schema.analyzer import SchemaAnalyzer
@@ -57,7 +56,7 @@ class TestSchemaAnalyzer:
         
         # Get the actual prompt argument
         call_args = mock_llm_provider.generate_structured.call_args
-        prompt = call_args[0][0]
+        call_args[0][0]
         
         # Verify samples were removed from prompt
         # (This is a simplified check - in reality we'd parse the JSON)

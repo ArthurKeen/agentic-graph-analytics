@@ -4,7 +4,7 @@ Template validation utilities.
 Validates GAE analysis templates before execution.
 """
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from dataclasses import dataclass
 
 from .models import AnalysisTemplate, AlgorithmType, EngineSize

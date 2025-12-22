@@ -2,15 +2,8 @@
 
 import pytest
 from unittest.mock import patch, MagicMock, Mock
-import time
 
 from graph_analytics_ai.gae_connection import GenAIGAEConnection
-from graph_analytics_ai.constants import (
-    DEFAULT_POLL_INTERVAL,
-    DEFAULT_JOB_TIMEOUT,
-    COMPLETED_STATES,
-    FAILED_STATES
-)
 
 
 class TestGenAIGAEConnectionNewMethods:
@@ -396,7 +389,7 @@ class TestGenAIGAEConnectionNewMethods:
             assert call_args[1]['payload']['database'] == 'testdb'
             
             # Test with explicit database
-            result2 = gae.store_results(
+            gae.store_results(
                 target_collection='persons',
                 job_ids=['job1'],
                 attribute_names=['pagerank_score'],

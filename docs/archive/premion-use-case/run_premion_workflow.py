@@ -32,7 +32,7 @@ def main():
     # Verify use case file exists
     if not Path(use_case_file).exists():
         print(f"\n✗ Error: Use case file '{use_case_file}' not found")
-        print(f"  Please ensure the file exists in the current directory")
+        print("  Please ensure the file exists in the current directory")
         return 1
     
     print(f"\n📋 Use Cases: {use_case_file}")
@@ -93,10 +93,10 @@ def main():
         print("="*70)
         
         if result.status == 'completed':
-            print(f"\n✓ Workflow completed successfully!")
+            print("\n✓ Workflow completed successfully!")
             print(f"\n📊 Workflow ID: {result.workflow_id}")
             print(f"📁 Output Directory: {result.output_dir}")
-            print(f"\nGenerated Artifacts:")
+            print("\nGenerated Artifacts:")
             
             if result.requirements_path:
                 print(f"  ✓ Requirements: {result.requirements_path}")
@@ -112,12 +112,12 @@ def main():
             if result.total_duration_seconds:
                 print(f"Total Duration: {result.total_duration_seconds:.2f} seconds")
             
-            print(f"\n📄 Review generated artifacts in:")
+            print("\n📄 Review generated artifacts in:")
             print(f"   {result.output_dir}/")
             
             return 0
         else:
-            print(f"\n✗ Workflow failed or incomplete")
+            print("\n✗ Workflow failed or incomplete")
             print(f"  Status: {result.status}")
             if result.error_message:
                 print(f"  Error: {result.error_message}")

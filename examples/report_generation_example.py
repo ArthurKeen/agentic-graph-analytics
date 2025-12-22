@@ -143,7 +143,7 @@ def complete_pipeline_with_reports():
     print("Generating intelligence report...")
     report = report_gen.generate_report(results[0])
     
-    print(f"✓ Report generated:")
+    print("✓ Report generated:")
     print(f"  • Title: {report.title}")
     print(f"  • Insights: {len(report.insights)}")
     print(f"  • Recommendations: {len(report.recommendations)}")

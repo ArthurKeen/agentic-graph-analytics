@@ -192,7 +192,6 @@ def example_individual_steps():
     print()
     
     from graph_analytics_ai.ai.workflow import WorkflowSteps
-    from graph_analytics_ai.ai.llm import create_llm_provider
     
     provider = create_llm_provider()
     steps = WorkflowSteps(provider)
@@ -218,7 +217,7 @@ def example_individual_steps():
         database_name="my_graph",
         password=""
     )
-    print(f"✓ Extracted schema")
+    print("✓ Extracted schema")
     print(f"  Vertices: {len(schema.vertex_collections)}")
     print(f"  Edges: {len(schema.edge_collections)}")
     print()
@@ -226,7 +225,7 @@ def example_individual_steps():
     # Step 4: Analyze schema
     print("Step 4: Analyzing schema...")
     analysis = steps.analyze_schema(schema)
-    print(f"✓ Schema analyzed")
+    print("✓ Schema analyzed")
     print(f"  Domain: {analysis.domain}")
     print(f"  Complexity: {analysis.complexity_score}/10")
     print()

@@ -104,7 +104,7 @@ class TestWorkflowE2E:
         assert len(schema_content) > 200, "Schema content too short"
         assert "customers" in schema_content.lower() or "products" in schema_content.lower()
         
-        print(f"\n✅ E2E workflow test passed!")
+        print("\n✅ E2E workflow test passed!")
         print(f"   Workflow ID: {result.workflow_id}")
         print(f"   Duration: {result.total_duration_seconds:.1f}s")
         print(f"   Output directory: {result.output_dir}")
@@ -162,7 +162,7 @@ class TestWorkflowE2E:
         assert result1.status == WorkflowStatus.COMPLETED
         assert result2.status == WorkflowStatus.COMPLETED
         
-        print(f"\n✅ Checkpoint recovery test passed!")
+        print("\n✅ Checkpoint recovery test passed!")
     
     def test_workflow_error_handling(
         self,
@@ -192,6 +192,6 @@ class TestWorkflowE2E:
         assert result.error_message is not None
         assert len(result.error_message) > 0
         
-        print(f"\n✅ Error handling test passed!")
+        print("\n✅ Error handling test passed!")
         print(f"   Error captured: {result.error_message[:100]}...")
 
