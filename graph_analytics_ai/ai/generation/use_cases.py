@@ -139,7 +139,13 @@ class UseCaseGenerator:
         title_lower = obj.title.lower()
         desc_lower = obj.description.lower()
         
-        use_case_type = self._infer_use_case_type(title_lower + " " + desc_lower)
+        combined_text = title_lower + " " + desc_lower
+        use_case_type = self._infer_use_case_type(combined_text)
+        
+        # DEBUG LOGGING - Show classification decision
+        print(f"\n[USE CASE DEBUG] Classifying objective: {obj.title}")
+        print(f"  Combined text: {combined_text[:100]}...")
+        print(f"  Inferred type: {use_case_type}")
         
         return UseCase(
             id=obj.id.replace("OBJ-", "UC-"),
@@ -165,7 +171,23 @@ class UseCaseGenerator:
         title = suggestion.get("title", f"Graph Analysis {index + 1}")
         reason = suggestion.get("reason", "")
         
+        # Map algorithm/suggestion type to use case type
         use_case_type = self._map_algorithm_to_type(sug_type)
+        
+        # CRITICAL FIX: Check title for household/clustering keywords
+        # Even if suggestion type maps to CENTRALITY, household resolution is COMMUNITY!
+        title_lower = title.lower()
+        if any(k in title_lower for k in ["household", "identity resolution", "clustering", "grouping"]):
+            print(f"[USE CASE DEBUG] OVERRIDE: Detected household/clustering keywords in title")
+            print(f"  Original mapping: {use_case_type}")
+            use_case_type = UseCaseType.COMMUNITY
+            print(f"  Overridden to: {use_case_type}")
+        
+        # DEBUG LOGGING - Show classification decision
+        print(f"\n[USE CASE DEBUG] Creating use case from suggestion:")
+        print(f"  Title: {title}")
+        print(f"  Suggestion type: {sug_type}")
+        print(f"  Final use case type: {use_case_type}")
         
         # Infer data needs from schema
         data_needs = []
@@ -213,21 +235,32 @@ class UseCaseGenerator:
         # Anomaly/fraud detection (check before pattern)
         if any(k in text_lower for k in ["anomaly", "fraud", "outlier", "unusual", "risk"]):
             return UseCaseType.ANOMALY
+        
         # Community detection (check before centrality to catch "group")
-        elif any(k in text_lower for k in ["community", "communit", "cluster", "segment"]):
+        # CRITICAL: Includes "household", "identity resolution", "grouping"
+        # These are clustering/community detection problems, NOT centrality!
+        if any(k in text_lower for k in [
+            "community", "communit", "cluster", "segment",
+            "household", "identity resolution", "grouping", "group devices"
+        ]):
             return UseCaseType.COMMUNITY
+        
         # Path finding
         elif any(k in text_lower for k in ["path", "route", "shortest", "connection"]):
             return UseCaseType.PATHFINDING
+        
         # Pattern detection
         elif any(k in text_lower for k in ["pattern", "motif", "structure"]):
             return UseCaseType.PATTERN
+        
         # Recommendation
         elif any(k in text_lower for k in ["recommend", "suggest"]):
             return UseCaseType.RECOMMENDATION
+        
         # Similarity
         elif any(k in text_lower for k in ["similar", "resembl", "match"]):
             return UseCaseType.SIMILARITY
+        
         # Centrality (last, as it's more general)
         elif any(k in text_lower for k in ["influential", "important", "central", "rank", "authority"]):
             return UseCaseType.CENTRALITY
