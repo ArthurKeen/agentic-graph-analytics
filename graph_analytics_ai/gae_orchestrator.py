@@ -86,10 +86,23 @@ class AnalysisConfig:
     estimated_cost_usd: Optional[float] = None
 
     def __post_init__(self):
-        """Validate and set defaults."""
+        """Validate and set defaults.
+
+        Avoid raising when environment configuration is missing so unit tests that
+        create AnalysisConfig without a real environment can run. The database
+        will be resolved later when a connection is established.
+        """
         if not self.database:
-            config = get_arango_config()
-            self.database = config["database"]
+            try:
+                config = get_arango_config()
+                # Guard against get_arango_config returning unexpected shapes
+                self.database = (
+                    config.get("database") if isinstance(config, dict) else None
+                )
+            except Exception:
+                # Don't raise here; leave database as None and let connection logic
+                # (get_db_connection / _initialize_connections) handle errors later.
+                self.database = None
 
         if not self.result_field:
             # Use standard algorithm-specific field name

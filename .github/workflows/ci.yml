@@ -12,6 +12,7 @@ jobs:
     env:
       # Dummy values for unit tests that mock DB connections
       ARANGO_ENDPOINT: "http://127.0.0.1:8529"
+      ARANGO_DATABASE: "test_db"
       ARANGO_USERNAME: "root"
       ARANGO_PASSWORD: "test_password"
       ARANGO_DB_NAME: "test_db"
