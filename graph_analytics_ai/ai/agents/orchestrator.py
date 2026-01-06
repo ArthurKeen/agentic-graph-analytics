@@ -344,7 +344,9 @@ Your goal: Maximize successful completion while maintaining quality, minimizing 
         # Process agent response
         return self.process(response, state)
 
-    def _decide_recovery_strategy(self, agent_name: str, error: str, state: AgentState) -> str:
+    def _decide_recovery_strategy(
+        self, agent_name: str, error: str, state: AgentState
+    ) -> str:
         """
         Decide error recovery strategy.
 
@@ -474,7 +476,9 @@ Your goal: Maximize successful completion while maintaining quality, minimizing 
         # Phase 1: Run schema analysis and requirements extraction in parallel
         self.log("Phase 1: Parallel schema + requirements analysis")
         schema_task = self._execute_step_async(WorkflowSteps.SCHEMA_ANALYSIS, state)
-        requirements_task = self._execute_step_async(WorkflowSteps.REQUIREMENTS_EXTRACTION, state)
+        requirements_task = self._execute_step_async(
+            WorkflowSteps.REQUIREMENTS_EXTRACTION, state
+        )
 
         await asyncio.gather(schema_task, requirements_task)
         await state.mark_step_complete_async(WorkflowSteps.SCHEMA_ANALYSIS)
@@ -541,7 +545,9 @@ Your goal: Maximize successful completion while maintaining quality, minimizing 
         else:
             # Fallback to sync method in executor
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, agent.process, task_message, state)
+            response = await loop.run_in_executor(
+                None, agent.process, task_message, state
+            )
 
         await state.add_message_async(response)
 

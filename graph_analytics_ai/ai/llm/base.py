@@ -154,7 +154,9 @@ class LLMProvider(ABC):
         return await loop.run_in_executor(None, lambda: self.generate(prompt, **kwargs))
 
     @abstractmethod
-    def generate_structured(self, prompt: str, schema: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    def generate_structured(
+        self, prompt: str, schema: Dict[str, Any], **kwargs
+    ) -> Dict[str, Any]:
         """
         Generate structured output matching a schema.
 

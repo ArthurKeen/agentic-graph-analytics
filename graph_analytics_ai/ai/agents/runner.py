@@ -91,7 +91,9 @@ class AgenticWorkflowRunner:
         self.agents = self._create_agents()
 
         # Initialize orchestrator
-        self.orchestrator = OrchestratorAgent(llm_provider=self.llm_provider, agents=self.agents)
+        self.orchestrator = OrchestratorAgent(
+            llm_provider=self.llm_provider, agents=self.agents
+        )
         if self.trace_collector:
             self.orchestrator.trace_collector = self.trace_collector
 
@@ -338,7 +340,9 @@ class AgenticWorkflowRunner:
                         f.write(f"- **Type:** {insight.insight_type}\n")
                         f.write(f"- **Confidence:** {insight.confidence:.0%}\n")
                         if insight.business_impact:
-                            f.write(f"- **Business Impact:** {insight.business_impact}\n")
+                            f.write(
+                                f"- **Business Impact:** {insight.business_impact}\n"
+                            )
                         f.write("\n")
 
                 if report.recommendations:
@@ -357,7 +361,9 @@ class AgenticWorkflowRunner:
 
         print(f"\n✓ Exported {len(state.reports)} reports to {output_path}")
 
-    def export_trace(self, output_dir: str, formats: Optional[List[str]] = None) -> None:
+    def export_trace(
+        self, output_dir: str, formats: Optional[List[str]] = None
+    ) -> None:
         """
         Export workflow trace.
 
@@ -439,14 +445,18 @@ class AgenticWorkflowRunner:
             if slowest:
                 print("Slowest Agents:")
                 for i, agent_info in enumerate(slowest, 1):
-                    print(f"  {i}. {agent_info['agent']}: {agent_info['total_time_ms']:.0f}ms")
+                    print(
+                        f"  {i}. {agent_info['agent']}: {agent_info['total_time_ms']:.0f}ms"
+                    )
                 print()
 
             top_llm = perf.get_top_llm_consumers(3)
             if top_llm:
                 print("Top LLM Consumers:")
                 for i, agent_info in enumerate(top_llm, 1):
-                    print(f"  {i}. {agent_info['agent']}: {agent_info['total_tokens']:,} tokens")
+                    print(
+                        f"  {i}. {agent_info['agent']}: {agent_info['total_tokens']:,} tokens"
+                    )
                 print()
 
 

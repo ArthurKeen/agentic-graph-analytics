@@ -66,7 +66,7 @@ async def test_agent_process_async():
         name="TestAgent",
         llm_provider=llm,
     )
-    
+
     state = AgentState()
     message = AgentMessage(
         from_agent="user",
@@ -74,10 +74,10 @@ async def test_agent_process_async():
         message_type="task",
         content={},
     )
-    
+
     # Test async processing
     response = await agent.process_async(message, state)
-    
+
     assert response is not None
     assert response.message_type == "result"
     assert response.content["status"] == "success"
@@ -92,10 +92,10 @@ async def test_agent_reason_async():
         name="TestAgent",
         llm_provider=llm,
     )
-    
+
     # Test async reasoning
     result = await agent.reason_async("Test prompt")
-    
+
     assert result is not None
     assert "Mock response" in result
     assert llm.call_count == 1
@@ -105,7 +105,7 @@ async def test_agent_reason_async():
 async def test_agent_state_async_methods():
     """Test AgentState async methods for thread safety."""
     state = AgentState()
-    
+
     # Test async message adding
     message = AgentMessage(
         from_agent="agent1",
@@ -113,15 +113,15 @@ async def test_agent_state_async_methods():
         message_type="task",
         content={},
     )
-    
+
     await state.add_message_async(message)
     assert len(state.messages) == 1
-    
+
     # Test async error adding
     await state.add_error_async("agent1", "test error")
     assert len(state.errors) == 1
     assert state.errors[0]["agent"] == "agent1"
-    
+
     # Test async step completion
     await state.mark_step_complete_async("test_step")
     assert "test_step" in state.completed_steps
@@ -131,7 +131,7 @@ async def test_agent_state_async_methods():
 async def test_parallel_execution():
     """Test that multiple async operations can run in parallel."""
     llm = MockLLMProvider()
-    
+
     # Create multiple agents
     agents = [
         SimpleAgent(
@@ -141,7 +141,7 @@ async def test_parallel_execution():
         )
         for i in range(3)
     ]
-    
+
     state = AgentState()
     message = AgentMessage(
         from_agent="user",
@@ -149,21 +149,21 @@ async def test_parallel_execution():
         message_type="task",
         content={},
     )
-    
+
     # Execute all agents in parallel
     start_time = asyncio.get_event_loop().time()
-    
+
     tasks = [agent.process_async(message, state) for agent in agents]
     responses = await asyncio.gather(*tasks)
-    
+
     end_time = asyncio.get_event_loop().time()
     duration = end_time - start_time
-    
+
     # Verify all completed
     assert len(responses) == 3
     for response in responses:
         assert response.message_type == "result"
-    
+
     # Parallel execution should be fast (< 1 second for 3 simple operations)
     assert duration < 1.0
 
@@ -176,7 +176,7 @@ def test_sync_execution_still_works():
         name="TestAgent",
         llm_provider=llm,
     )
-    
+
     state = AgentState()
     message = AgentMessage(
         from_agent="user",
@@ -184,10 +184,10 @@ def test_sync_execution_still_works():
         message_type="task",
         content={},
     )
-    
+
     # Test sync processing
     response = agent.process(message, state)
-    
+
     assert response is not None
     assert response.message_type == "result"
     assert response.content["status"] == "success"
@@ -197,10 +197,10 @@ def test_sync_execution_still_works():
 async def test_llm_async_generate():
     """Test async LLM generation."""
     llm = MockLLMProvider()
-    
+
     # Test async generate
     response = await llm.generate_async("test prompt")
-    
+
     assert response is not None
     assert response.content is not None
     assert response.total_tokens > 0
@@ -213,9 +213,8 @@ if __name__ == "__main__":
     asyncio.run(test_agent_state_async_methods())
     asyncio.run(test_parallel_execution())
     asyncio.run(test_llm_async_generate())
-    
+
     # Run sync test
     test_sync_execution_still_works()
-    
-    print("✓ All async agent tests passed!")
 
+    print("✓ All async agent tests passed!")

@@ -38,7 +38,9 @@ def handle_agent_errors(func):
     """
 
     @wraps(func)
-    def wrapper(self: "Agent", message: "AgentMessage", state: "AgentState") -> "AgentMessage":
+    def wrapper(
+        self: "Agent", message: "AgentMessage", state: "AgentState"
+    ) -> "AgentMessage":
         try:
             return func(self, message, state)
         except Exception as e:
@@ -211,7 +213,11 @@ class AgentState:
 
     async def add_error_async(self, agent: str, error: str) -> None:
         """Add error to history (async, thread-safe)."""
-        error_entry = {"agent": agent, "error": error, "timestamp": datetime.now().isoformat()}
+        error_entry = {
+            "agent": agent,
+            "error": error,
+            "timestamp": datetime.now().isoformat(),
+        }
         lock = self._get_lock()
         if lock:
             async with lock:
@@ -251,10 +257,13 @@ class AgentState:
             "reports_count": len(self.reports),
             # Serialize use cases
             "use_cases": [
-                uc.to_dict() if hasattr(uc, "to_dict") else str(uc) for uc in self.use_cases
+                uc.to_dict() if hasattr(uc, "to_dict") else str(uc)
+                for uc in self.use_cases
             ],
             # Serialize templates
-            "templates": [t.to_dict() if hasattr(t, "to_dict") else str(t) for t in self.templates],
+            "templates": [
+                t.to_dict() if hasattr(t, "to_dict") else str(t) for t in self.templates
+            ],
             # Serialize execution results
             "execution_results": [
                 {
@@ -263,17 +272,25 @@ class AgentState:
                     "algorithm": r.job.algorithm if hasattr(r, "job") else None,
                     "success": r.success,
                     "status": str(r.job.status) if hasattr(r, "job") else None,
-                    "execution_time": (r.job.execution_time_seconds if hasattr(r, "job") else None),
+                    "execution_time": (
+                        r.job.execution_time_seconds if hasattr(r, "job") else None
+                    ),
                     "result_count": r.job.result_count if hasattr(r, "job") else None,
-                    "result_collection": (r.job.result_collection if hasattr(r, "job") else None),
+                    "result_collection": (
+                        r.job.result_collection if hasattr(r, "job") else None
+                    ),
                     "error": r.error if hasattr(r, "error") else None,
                 }
                 for r in self.execution_results
             ],
             # Serialize reports
-            "reports": [r.to_dict() if hasattr(r, "to_dict") else str(r) for r in self.reports],
+            "reports": [
+                r.to_dict() if hasattr(r, "to_dict") else str(r) for r in self.reports
+            ],
             # Serialize messages
-            "messages": [m.to_dict() if hasattr(m, "to_dict") else str(m) for m in self.messages],
+            "messages": [
+                m.to_dict() if hasattr(m, "to_dict") else str(m) for m in self.messages
+            ],
             # Serialize errors
             "errors": self.errors,
         }
@@ -330,7 +347,9 @@ class Agent(ABC):
         """
         pass
 
-    async def process_async(self, message: AgentMessage, state: AgentState) -> AgentMessage:
+    async def process_async(
+        self, message: AgentMessage, state: AgentState
+    ) -> AgentMessage:
         """
         Async version of process. Override this in agents that need async.
 
@@ -413,7 +432,9 @@ class Agent(ABC):
             response = await self.llm_provider.generate_async(prompt)
         else:
             loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, self.llm_provider.generate, prompt)
+            response = await loop.run_in_executor(
+                None, self.llm_provider.generate, prompt
+            )
 
         # Record LLM call end
         if self.trace_collector:
