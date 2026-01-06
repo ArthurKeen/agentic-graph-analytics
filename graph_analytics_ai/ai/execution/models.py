@@ -199,7 +199,7 @@ class ExecutionResult:
                     self.results, key=lambda x: x.get(sort_by, 0), reverse=True
                 )
                 return sorted_results[:n]
-            except:
+            except Exception:
                 # If sorting fails, just return first n
                 return self.results[:n]
 

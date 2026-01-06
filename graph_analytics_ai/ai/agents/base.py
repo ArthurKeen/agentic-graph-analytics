@@ -4,6 +4,7 @@ Base agent models and framework.
 Defines the core agent architecture and communication protocol.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -37,9 +38,7 @@ def handle_agent_errors(func):
     """
 
     @wraps(func)
-    def wrapper(
-        self: "Agent", message: "AgentMessage", state: "AgentState"
-    ) -> "AgentMessage":
+    def wrapper(self: "Agent", message: "AgentMessage", state: "AgentState") -> "AgentMessage":
         try:
             return func(self, message, state)
         except Exception as e:
@@ -48,6 +47,40 @@ def handle_agent_errors(func):
 
             # Update state
             state.add_error(self.name, str(e))
+
+            # Return error message to orchestrator
+            return self.create_error_message(
+                to_agent="orchestrator", error=str(e), reply_to=message.message_id
+            )
+
+    return wrapper
+
+
+def handle_agent_errors_async(func):
+    """
+    Async version of handle_agent_errors decorator.
+
+    Handles errors in async agent process methods.
+
+    Usage:
+        @handle_agent_errors_async
+        async def process_async(self, message: AgentMessage, state: AgentState) -> AgentMessage:
+            result = await do_async_work()
+            return self.create_success_message(...)
+    """
+
+    @wraps(func)
+    async def wrapper(
+        self: "Agent", message: "AgentMessage", state: "AgentState"
+    ) -> "AgentMessage":
+        try:
+            return await func(self, message, state)
+        except Exception as e:
+            # Log the error
+            self.log(f"Error: {e}", "error")
+
+            # Update state (thread-safe)
+            await state.add_error_async(self.name, str(e))
 
             # Return error message to orchestrator
             return self.create_error_message(
@@ -144,9 +177,31 @@ class AgentState:
     started_at: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    # Async support
+    _lock: Optional[asyncio.Lock] = field(default=None, init=False, repr=False)
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create async lock."""
+        if self._lock is None:
+            try:
+                self._lock = asyncio.Lock()
+            except RuntimeError:
+                # No event loop, operations will be sync
+                pass
+        return self._lock
+
     def add_message(self, message: AgentMessage) -> None:
         """Add message to history."""
         self.messages.append(message)
+
+    async def add_message_async(self, message: AgentMessage) -> None:
+        """Add message to history (async, thread-safe)."""
+        lock = self._get_lock()
+        if lock:
+            async with lock:
+                self.messages.append(message)
+        else:
+            self.messages.append(message)
 
     def add_error(self, agent: str, error: str) -> None:
         """Add error to history."""
@@ -154,10 +209,31 @@ class AgentState:
             {"agent": agent, "error": error, "timestamp": datetime.now().isoformat()}
         )
 
+    async def add_error_async(self, agent: str, error: str) -> None:
+        """Add error to history (async, thread-safe)."""
+        error_entry = {"agent": agent, "error": error, "timestamp": datetime.now().isoformat()}
+        lock = self._get_lock()
+        if lock:
+            async with lock:
+                self.errors.append(error_entry)
+        else:
+            self.errors.append(error_entry)
+
     def mark_step_complete(self, step: str) -> None:
         """Mark a step as completed."""
         if step not in self.completed_steps:
             self.completed_steps.append(step)
+
+    async def mark_step_complete_async(self, step: str) -> None:
+        """Mark a step as completed (async, thread-safe)."""
+        lock = self._get_lock()
+        if lock:
+            async with lock:
+                if step not in self.completed_steps:
+                    self.completed_steps.append(step)
+        else:
+            if step not in self.completed_steps:
+                self.completed_steps.append(step)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with all data."""
@@ -175,13 +251,10 @@ class AgentState:
             "reports_count": len(self.reports),
             # Serialize use cases
             "use_cases": [
-                uc.to_dict() if hasattr(uc, "to_dict") else str(uc)
-                for uc in self.use_cases
+                uc.to_dict() if hasattr(uc, "to_dict") else str(uc) for uc in self.use_cases
             ],
             # Serialize templates
-            "templates": [
-                t.to_dict() if hasattr(t, "to_dict") else str(t) for t in self.templates
-            ],
+            "templates": [t.to_dict() if hasattr(t, "to_dict") else str(t) for t in self.templates],
             # Serialize execution results
             "execution_results": [
                 {
@@ -190,25 +263,17 @@ class AgentState:
                     "algorithm": r.job.algorithm if hasattr(r, "job") else None,
                     "success": r.success,
                     "status": str(r.job.status) if hasattr(r, "job") else None,
-                    "execution_time": (
-                        r.job.execution_time_seconds if hasattr(r, "job") else None
-                    ),
+                    "execution_time": (r.job.execution_time_seconds if hasattr(r, "job") else None),
                     "result_count": r.job.result_count if hasattr(r, "job") else None,
-                    "result_collection": (
-                        r.job.result_collection if hasattr(r, "job") else None
-                    ),
+                    "result_collection": (r.job.result_collection if hasattr(r, "job") else None),
                     "error": r.error if hasattr(r, "error") else None,
                 }
                 for r in self.execution_results
             ],
             # Serialize reports
-            "reports": [
-                r.to_dict() if hasattr(r, "to_dict") else str(r) for r in self.reports
-            ],
+            "reports": [r.to_dict() if hasattr(r, "to_dict") else str(r) for r in self.reports],
             # Serialize messages
-            "messages": [
-                m.to_dict() if hasattr(m, "to_dict") else str(m) for m in self.messages
-            ],
+            "messages": [m.to_dict() if hasattr(m, "to_dict") else str(m) for m in self.messages],
             # Serialize errors
             "errors": self.errors,
         }
@@ -265,6 +330,22 @@ class Agent(ABC):
         """
         pass
 
+    async def process_async(self, message: AgentMessage, state: AgentState) -> AgentMessage:
+        """
+        Async version of process. Override this in agents that need async.
+
+        Default implementation calls synchronous process() in executor.
+
+        Args:
+            message: Incoming message
+            state: Shared state
+
+        Returns:
+            Response message
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.process, message, state)
+
     def reason(self, prompt: str) -> str:
         """
         Use LLM to reason about a problem.
@@ -288,6 +369,51 @@ class Agent(ABC):
             )
 
         response = self.llm_provider.generate(prompt)
+
+        # Record LLM call end
+        if self.trace_collector:
+            duration_ms = self.trace_collector.stop_timer(timer_id)
+            self.trace_collector.record_event(
+                TraceEventType.LLM_CALL_END,
+                agent_name=self.name,
+                duration_ms=duration_ms,
+                data={
+                    "tokens_input": getattr(response, "input_tokens", 0),
+                    "tokens_output": getattr(response, "output_tokens", 0),
+                    "response_length": len(response.content),
+                },
+            )
+
+        return response.content
+
+    async def reason_async(self, prompt: str) -> str:
+        """
+        Use LLM to reason about a problem (async version).
+
+        Args:
+            prompt: Reasoning prompt
+
+        Returns:
+            LLM response
+        """
+        # Record LLM call start
+        if self.trace_collector:
+            from ..tracing import TraceEventType
+
+            timer_id = f"llm_{self.name}_{id(prompt)}"
+            self.trace_collector.start_timer(timer_id)
+            self.trace_collector.record_event(
+                TraceEventType.LLM_CALL_START,
+                agent_name=self.name,
+                data={"prompt_length": len(prompt)},
+            )
+
+        # Call async LLM method if available, otherwise run sync in executor
+        if hasattr(self.llm_provider, "generate_async"):
+            response = await self.llm_provider.generate_async(prompt)
+        else:
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, self.llm_provider.generate, prompt)
 
         # Record LLM call end
         if self.trace_collector:

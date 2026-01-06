@@ -6,6 +6,7 @@ ensuring a consistent interface regardless of the underlying provider
 (OpenRouter, OpenAI, Anthropic, etc.).
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
@@ -130,10 +131,30 @@ class LLMProvider(ABC):
         """
         pass
 
+    async def generate_async(self, prompt: str, **kwargs) -> LLMResponse:
+        """
+        Generate text from a prompt (async version).
+
+        Default implementation runs synchronous generate() in executor.
+        Providers should override this for native async support.
+
+        Args:
+            prompt: The prompt to generate from.
+            **kwargs: Additional generation parameters.
+
+        Returns:
+            LLMResponse containing generated text and metadata.
+
+        Raises:
+            LLMProviderError: If generation fails.
+            LLMRateLimitError: If rate limit is exceeded.
+            LLMAuthenticationError: If authentication fails.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.generate(prompt, **kwargs))
+
     @abstractmethod
-    def generate_structured(
-        self, prompt: str, schema: Dict[str, Any], **kwargs
-    ) -> Dict[str, Any]:
+    def generate_structured(self, prompt: str, schema: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         """
         Generate structured output matching a schema.
 
@@ -150,6 +171,32 @@ class LLMProvider(ABC):
             ValueError: If response doesn't match schema.
         """
         pass
+
+    async def generate_structured_async(
+        self, prompt: str, schema: Dict[str, Any], **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate structured output matching a schema (async version).
+
+        Default implementation runs synchronous generate_structured() in executor.
+        Providers should override this for native async support.
+
+        Args:
+            prompt: The prompt to generate from.
+            schema: JSON schema for the expected output structure.
+            **kwargs: Additional generation parameters.
+
+        Returns:
+            Dictionary matching the provided schema.
+
+        Raises:
+            LLMProviderError: If generation fails.
+            ValueError: If response doesn't match schema.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.generate_structured(prompt, schema, **kwargs)
+        )
 
     @abstractmethod
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
@@ -168,6 +215,27 @@ class LLMProvider(ABC):
             LLMProviderError: If generation fails.
         """
         pass
+
+    async def chat_async(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """
+        Generate response from a conversation history (async version).
+
+        Default implementation runs synchronous chat() in executor.
+        Providers should override this for native async support.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'.
+                      Example: [{"role": "user", "content": "Hello!"}]
+            **kwargs: Additional generation parameters.
+
+        Returns:
+            LLMResponse containing generated response and metadata.
+
+        Raises:
+            LLMProviderError: If generation fails.
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.chat(messages, **kwargs))
 
     def estimate_cost(self, prompt_tokens: int, completion_tokens: int) -> float:
         """

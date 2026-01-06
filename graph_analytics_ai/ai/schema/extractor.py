@@ -98,7 +98,7 @@ class SchemaExtractor:
             schema.graph_names = [
                 g["name"] for g in graphs if not g["name"].startswith("_")
             ]
-        except:
+        except Exception:
             # Ignore if graphs() fails
             schema.graph_names = []
 
@@ -170,7 +170,7 @@ class SchemaExtractor:
             # If sampling fails, try to get any documents
             try:
                 return list(collection.all(limit=sample_size))
-            except:
+            except Exception:
                 return []
 
     def _analyze_attributes(

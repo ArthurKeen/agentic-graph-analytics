@@ -4,6 +4,7 @@ Orchestrator agent (Supervisor pattern).
 Coordinates all specialized agents and manages workflow execution.
 """
 
+import asyncio
 from typing import Dict, List, Optional, Any
 
 from ..llm.base import LLMProvider
@@ -343,9 +344,7 @@ Your goal: Maximize successful completion while maintaining quality, minimizing 
         # Process agent response
         return self.process(response, state)
 
-    def _decide_recovery_strategy(
-        self, agent_name: str, error: str, state: AgentState
-    ) -> str:
+    def _decide_recovery_strategy(self, agent_name: str, error: str, state: AgentState) -> str:
         """
         Decide error recovery strategy.
 
@@ -414,3 +413,142 @@ Your goal: Maximize successful completion while maintaining quality, minimizing 
         self.process(start_message, state)
 
         return state
+
+    async def run_workflow_async(
+        self,
+        input_documents: Optional[List[Dict[str, Any]]] = None,
+        database_config: Optional[Dict[str, Any]] = None,
+        enable_parallelism: bool = True,
+    ) -> AgentState:
+        """
+        Run complete workflow with parallel execution (async version).
+
+        This method enables parallel execution of independent workflow steps:
+        - Schema analysis and requirements extraction run in parallel
+        - Template generation can process multiple templates concurrently
+        - Execution runs multiple analyses in parallel
+        - Report generation processes all reports concurrently
+
+        Args:
+            input_documents: Input requirement documents
+            database_config: Database configuration
+            enable_parallelism: Enable parallel execution of independent steps
+
+        Returns:
+            Final workflow state with performance metrics
+        """
+        # Initialize state
+        state = AgentState(
+            input_documents=input_documents or [], database_config=database_config or {}
+        )
+
+        self.log("🚀 Starting parallel agentic workflow orchestration")
+
+        if enable_parallelism:
+            await self._run_parallel_workflow(state)
+        else:
+            await self._run_sequential_workflow(state)
+
+        self.log("✅ Workflow complete!")
+        return state
+
+    async def _run_sequential_workflow(self, state: AgentState):
+        """Run workflow sequentially using async agents."""
+        for step in self.workflow_steps:
+            self.log(f"Executing step: {step}")
+            await self._execute_step_async(step, state)
+            state.mark_step_complete(step)
+
+    async def _run_parallel_workflow(self, state: AgentState):
+        """
+        Run workflow with parallelism where possible.
+
+        Parallelization strategy:
+        1. Phase 1 (Parallel): Schema analysis + Requirements extraction
+        2. Phase 2 (Sequential): Use case generation (depends on both phase 1 outputs)
+        3. Phase 3 (Sequential): Template generation
+        4. Phase 4 (Parallel): Execute all templates concurrently
+        5. Phase 5 (Parallel): Generate all reports concurrently
+        """
+
+        # Phase 1: Run schema analysis and requirements extraction in parallel
+        self.log("Phase 1: Parallel schema + requirements analysis")
+        schema_task = self._execute_step_async(WorkflowSteps.SCHEMA_ANALYSIS, state)
+        requirements_task = self._execute_step_async(WorkflowSteps.REQUIREMENTS_EXTRACTION, state)
+
+        await asyncio.gather(schema_task, requirements_task)
+        await state.mark_step_complete_async(WorkflowSteps.SCHEMA_ANALYSIS)
+        await state.mark_step_complete_async(WorkflowSteps.REQUIREMENTS_EXTRACTION)
+
+        # Phase 2: Generate use cases (sequential - depends on both schema and requirements)
+        self.log("Phase 2: Use case generation")
+        await self._execute_step_async(WorkflowSteps.USE_CASE_GENERATION, state)
+        await state.mark_step_complete_async(WorkflowSteps.USE_CASE_GENERATION)
+
+        # Phase 3: Generate templates (sequential for now, could be parallelized later)
+        self.log("Phase 3: Template generation")
+        await self._execute_step_async(WorkflowSteps.TEMPLATE_GENERATION, state)
+        await state.mark_step_complete_async(WorkflowSteps.TEMPLATE_GENERATION)
+
+        # Phase 4: Execute all templates in parallel (handled by ExecutionAgent's async method)
+        self.log("Phase 4: Parallel execution of all templates")
+        await self._execute_step_async(WorkflowSteps.EXECUTION, state)
+        await state.mark_step_complete_async(WorkflowSteps.EXECUTION)
+
+        # Phase 5: Generate all reports in parallel (handled by ReportingAgent's async method)
+        self.log("Phase 5: Parallel report generation")
+        await self._execute_step_async(WorkflowSteps.REPORTING, state)
+        await state.mark_step_complete_async(WorkflowSteps.REPORTING)
+
+    async def _execute_step_async(self, step: str, state: AgentState):
+        """Execute a single workflow step asynchronously."""
+        # Map steps to agents
+        step_to_agent = {
+            WorkflowSteps.SCHEMA_ANALYSIS: AgentNames.SCHEMA_ANALYST,
+            WorkflowSteps.REQUIREMENTS_EXTRACTION: AgentNames.REQUIREMENTS_ANALYST,
+            WorkflowSteps.USE_CASE_GENERATION: AgentNames.USE_CASE_EXPERT,
+            WorkflowSteps.TEMPLATE_GENERATION: AgentNames.TEMPLATE_ENGINEER,
+            WorkflowSteps.EXECUTION: AgentNames.EXECUTION_SPECIALIST,
+            WorkflowSteps.REPORTING: AgentNames.REPORTING_SPECIALIST,
+        }
+
+        agent_name = step_to_agent.get(step)
+        if not agent_name or agent_name not in self.agents:
+            self.log(f"Unknown step or agent: {step}", "error")
+            raise ValueError(f"Unknown step: {step}")
+
+        state.current_step = step
+
+        # Create task message for agent
+        task_message = self.create_message(
+            to_agent=agent_name,
+            message_type="task",
+            content={
+                "step": step,
+                "instructions": f"Execute {step}",
+                "documents": state.input_documents,  # Pass documents for requirements agent
+            },
+        )
+
+        await state.add_message_async(task_message)
+
+        # Execute agent asynchronously
+        agent = self.agents[agent_name]
+
+        # Use async method if available
+        if hasattr(agent, "process_async"):
+            response = await agent.process_async(task_message, state)
+        else:
+            # Fallback to sync method in executor
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, agent.process, task_message, state)
+
+        await state.add_message_async(response)
+
+        # Check for errors
+        if response.message_type == "error":
+            error_msg = response.content.get("error", "Unknown error")
+            self.log(f"Error in {step}: {error_msg}", "error")
+            raise RuntimeError(f"Step {step} failed: {error_msg}")
+
+        self.log(f"✓ Completed: {step}")

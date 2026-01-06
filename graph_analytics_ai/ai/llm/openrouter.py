@@ -5,10 +5,18 @@ OpenRouter provides access to 100+ LLM models through a unified API.
 https://openrouter.ai/
 """
 
+import asyncio
 import json
 import time
 import requests
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+
+try:
+    import aiohttp
+
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
 
 from .base import (
     LLMProvider,
@@ -71,6 +79,27 @@ class OpenRouterProvider(LLMProvider):
                 "X-Title": "Graph Analytics AI",
             }
         )
+        self._async_session: Optional[aiohttp.ClientSession] = None
+
+    def __del__(self):
+        """
+        Cleanup on garbage collection.
+
+        Ensures async session is properly closed even if context manager wasn't used.
+        """
+        if self._async_session and not self._async_session.closed:
+            try:
+                # Try to close the session
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If loop is running, create a task to close
+                    loop.create_task(self.close_async())
+                else:
+                    # If loop is not running, run it to completion
+                    loop.run_until_complete(self.close_async())
+            except Exception:
+                # Best-effort cleanup, don't raise during garbage collection
+                pass
 
     def generate(self, prompt: str, **kwargs) -> LLMResponse:
         """Generate text from a prompt using OpenRouter."""
@@ -149,6 +178,150 @@ Return only the JSON, no additional text."""
 
         raise LLMProviderError(f"Failed after {self.config.max_retries} attempts")
 
+    async def generate_async(self, prompt: str, **kwargs) -> LLMResponse:
+        """Generate text from a prompt using OpenRouter (async version)."""
+        messages = [{"role": "user", "content": prompt}]
+        return await self.chat_async(messages, **kwargs)
+
+    async def generate_structured_async(
+        self, prompt: str, schema: Dict[str, Any], **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate structured output matching a schema (async version).
+
+        Instructs the LLM to return JSON matching the provided schema.
+        """
+        # Enhance prompt with schema instructions
+        schema_str = json.dumps(schema, indent=2)
+        enhanced_prompt = f"""{prompt}
+
+Please respond with valid JSON matching this schema:
+{schema_str}
+
+Return only the JSON, no additional text."""
+
+        response = await self.generate_async(enhanced_prompt, **kwargs)
+
+        # Parse JSON from response
+        try:
+            # Try to extract JSON if wrapped in markdown
+            content = response.content.strip()
+            if content.startswith("```json"):
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif content.startswith("```"):
+                content = content.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(content)
+            return result
+        except json.JSONDecodeError as e:
+            raise LLMProviderError(
+                f"Failed to parse JSON from LLM response: {e}\n"
+                f"Response: {response.content[:500]}"
+            )
+
+    async def chat_async(self, messages: List[Dict[str, str]], **kwargs) -> LLMResponse:
+        """Generate response from conversation history (async version)."""
+        if not AIOHTTP_AVAILABLE:
+            # Fall back to sync version in executor
+            return await super().chat_async(messages, **kwargs)
+
+        # Merge kwargs with config
+        params = {
+            "model": self.config.model,
+            "messages": messages,
+            "max_tokens": kwargs.get("max_tokens", self.config.max_tokens),
+            "temperature": kwargs.get("temperature", self.config.temperature),
+        }
+
+        # Make request with retry logic
+        for attempt in range(self.config.max_retries):
+            try:
+                response = await self._make_request_async(params)
+                return self._parse_response(response)
+
+            except LLMRateLimitError:
+                if attempt < self.config.max_retries - 1:
+                    # Exponential backoff
+                    wait_time = 2**attempt
+                    await asyncio.sleep(wait_time)
+                    continue
+                raise
+
+            except LLMAuthenticationError:
+                # Don't retry auth errors
+                raise
+
+            except LLMProviderError:
+                if attempt < self.config.max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+                raise
+
+        raise LLMProviderError(f"Failed after {self.config.max_retries} attempts")
+
+    async def _make_request_async(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Make async HTTP request to OpenRouter API."""
+        if not AIOHTTP_AVAILABLE:
+            raise LLMProviderError(
+                "aiohttp is required for async requests. Install with: pip install aiohttp"
+            )
+
+        url = f"{self.BASE_URL}/chat/completions"
+
+        # Get or create async session
+        if self._async_session is None or self._async_session.closed:
+            self._async_session = aiohttp.ClientSession(
+                headers={
+                    "Authorization": f"Bearer {self.config.api_key}",
+                    "HTTP-Referer": "https://github.com/ArthurKeen/graph-analytics-ai",
+                    "X-Title": "Graph Analytics AI",
+                    "Content-Type": "application/json",
+                }
+            )
+
+        try:
+            async with self._async_session.post(
+                url,
+                json=params,
+                timeout=aiohttp.ClientTimeout(total=self.config.timeout),
+            ) as response:
+                response_data = await response.json()
+
+                # Handle different error codes
+                if response.status == 401:
+                    raise LLMAuthenticationError(
+                        "Invalid API key. Please check your OPENROUTER_API_KEY."
+                    )
+
+                elif response.status == 429:
+                    raise LLMRateLimitError(
+                        "Rate limit exceeded. Please try again later."
+                    )
+
+                elif response.status >= 400:
+                    error_msg = f"API error {response.status}"
+                    if "error" in response_data:
+                        error_msg += f": {response_data['error']}"
+                    else:
+                        error_msg += f": {str(response_data)[:200]}"
+
+                    raise LLMProviderError(error_msg)
+
+                return response_data
+
+        except asyncio.TimeoutError:
+            raise LLMProviderError(
+                f"Request timed out after {self.config.timeout} seconds"
+            )
+
+        except aiohttp.ClientError as e:
+            raise LLMProviderError(f"Request failed: {e}")
+
+    async def close_async(self):
+        """Close async session."""
+        if self._async_session and not self._async_session.closed:
+            await self._async_session.close()
+
     def _make_request(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Make HTTP request to OpenRouter API."""
         url = f"{self.BASE_URL}/chat/completions"
@@ -171,7 +344,7 @@ Return only the JSON, no additional text."""
                     error_data = response.json()
                     if "error" in error_data:
                         error_msg += f": {error_data['error']}"
-                except:
+                except Exception:
                     error_msg += f": {response.text[:200]}"
 
                 raise LLMProviderError(error_msg)

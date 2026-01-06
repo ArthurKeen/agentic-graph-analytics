@@ -159,52 +159,56 @@ Agents communicate through:
 
 ### Example Agentic Workflow
 
+```mermaid
+sequenceDiagram
+    participant User
+    participant Orch as Orchestrator Agent
+    participant Schema as Schema Analysis Agent
+    participant Req as Requirements Agent
+    participant UseCase as Use Case Agent
+    participant Template as Template Agent
+    participant Exec as Execution Agent
+    participant Report as Reporting Agent
+    
+    User->>Orch: "Analyze customer database for fraud detection"
+    
+    par Parallel Analysis
+        Orch->>Schema: Analyze schema
+        Orch->>Req: Extract requirements
+    end
+    
+    Schema-->>Orch: "Transaction network, 1M+ edges"
+    Req-->>Orch: "Detect fraudulent patterns"
+    
+    Orch->>UseCase: Generate use cases for fraud detection
+    UseCase-->>Orch: "PageRank for influencers, WCC for communities"
+    
+    Orch->>Template: Create optimized templates
+    Template-->>Orch: "2 templates (e32 engine)"
+    
+    Orch->>Exec: Execute analyses
+    Exec-->>Orch: "Completed successfully"
+    
+    Orch->>Report: Generate actionable report
+    Report-->>Orch: "3 high-risk communities identified"
+    
+    Orch-->>User: Complete fraud detection report
+    
+    Note over Schema,Req: Phase 1: Run in parallel
+    Note over Exec: Phase 4: Templates execute in parallel
+    Note over Report: Phase 5: Reports generate in parallel
 ```
-1. Orchestrator Agent receives: "Analyze customer database for fraud detection"
-   
-2. Orchestrator breaks down into tasks:
-   - Task 1: Analyze schema (→ Schema Analysis Agent)
-   - Task 2: Extract requirements (→ Business Requirements Agent)
-   
-3. Schema Analysis Agent:
-   - Analyzes database
-   - Identifies: "Transaction network with 1M+ edges"
-   - Reports: "Suitable for PageRank and community detection"
-   
-4. Business Requirements Agent:
-   - Extracts: "Detect fraudulent transaction patterns"
-   - Reports: "Focus on anomaly detection and network analysis"
-   
-5. Orchestrator reasons:
-   - Combines insights from both agents
-   - Decides: "Generate use cases for anomaly detection"
-   - Assigns: Use Case Generation Agent
-   
-6. Use Case Generation Agent:
-   - Reasons about fraud detection patterns
-   - Generates: "PageRank for influential nodes, WCC for communities"
-   - Validates with Quality Assurance Agent
-   
-7. Template Generation Agent:
-   - Optimizes parameters based on graph size
-   - Configures: "e32 engine for 1M+ edges"
-   - Validates template
-   
-8. Analysis Execution Agent:
-   - Executes analyses
-   - Monitors progress
-   - Handles any errors autonomously
-   
-9. Result Interpretation Agent:
-   - Analyzes results
-   - Identifies: "3 high-risk communities detected"
-   - Generates insights
-   
-10. Report Generation Agent:
-    - Synthesizes all information
-    - Creates actionable report
-    - Quality Assurance Agent reviews
-```
+
+**Key Steps:**
+
+1. **Orchestrator** receives goal: "Analyze customer database for fraud detection"
+2. **Parallel Analysis**: Schema Analysis + Requirements Extraction run concurrently
+3. **Schema Agent** identifies: "Transaction network with 1M+ edges"
+4. **Requirements Agent** extracts: "Detect fraudulent transaction patterns"
+5. **Use Case Agent** generates: "PageRank for influential nodes, WCC for communities"
+6. **Template Agent** configures: "e32 engine for 1M+ edges"
+7. **Execution Agent** runs analyses and monitors progress
+8. **Reporting Agent** creates actionable report with insights
 
 ## Benefits of Agentic Approach
 
@@ -265,20 +269,51 @@ Agents communicate through:
 
 ### Architecture Pattern
 
-**Recommended: Supervisor Pattern with LangGraph**
+**Recommended: Supervisor Pattern with Specialized Agents**
 
+```mermaid
+graph TB
+    subgraph "Agentic Workflow Architecture"
+        Orch[Orchestrator Agent<br/>Supervisor]
+        
+        Schema[Schema Analysis Agent<br/>Graph DB Expert]
+        Req[Requirements Agent<br/>Business Analyst]
+        UseCase[Use Case Agent<br/>Analytics Consultant]
+        Template[Template Agent<br/>Analytics Engineer]
+        Exec[Execution Agent<br/>Operations Specialist]
+        Report[Reporting Agent<br/>BI Expert]
+        
+        Orch --> Schema
+        Orch --> Req
+        Orch --> UseCase
+        Orch --> Template
+        Orch --> Exec
+        Orch --> Report
+        
+        Schema -.-> Orch
+        Req -.-> Orch
+        UseCase -.-> Orch
+        Template -.-> Orch
+        Exec -.-> Orch
+        Report -.-> Orch
+    end
+    
+    style Orch fill:#e1f5ff,stroke:#01579b,stroke-width:3px
+    style Schema fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style Req fill:#fff9c4,stroke:#f57f17,stroke-width:2px
+    style UseCase fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    style Template fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    style Exec fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style Report fill:#c5e1a5,stroke:#33691e,stroke-width:2px
 ```
-Orchestrator Agent (Supervisor)
-├── Schema Analysis Agent
-├── Business Requirements Agent
-├── PRD Generation Agent
-├── Use Case Generation Agent
-├── Template Generation Agent
-├── Analysis Execution Agent
-├── Result Interpretation Agent
-├── Report Generation Agent
-└── Quality Assurance Agent
-```
+
+**Agent Roles:**
+- 🔵 **Orchestrator**: Coordinates all agents, makes strategic decisions
+- 🟡 **Schema/Requirements**: Parallel analysis of data and business needs
+- 🟣 **Use Case**: Maps requirements to graph algorithms
+- 🟢 **Template**: Configures and optimizes analysis templates
+- 🟠 **Execution**: Runs analyses, monitors progress, handles errors
+- 🟢 **Reporting**: Generates actionable insights and recommendations
 
 ### State Management
 

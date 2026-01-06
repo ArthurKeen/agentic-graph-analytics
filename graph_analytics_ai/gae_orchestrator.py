@@ -523,7 +523,7 @@ class GAEOrchestrator:
             self._log(
                 f"[ORCHESTRATOR DEBUG] Graph details from GAE: {result.vertex_count:,} vertices, {result.edge_count:,} edges"
             )
-        except:
+        except Exception:
             # Graph details may not be available immediately
             pass
 

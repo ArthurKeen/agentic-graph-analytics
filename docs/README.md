@@ -36,6 +36,7 @@ Complete guides for using the platform:
 - **[Workflow Orchestration](api-reference/WORKFLOW_ORCHESTRATION.md)** - Traditional step-by-step workflow
 
 ### Features
+- **[Domain Description Guide](DOMAIN_DESCRIPTION_GUIDE.md)** - ⭐ Writing effective requirements for better AI recommendations
 - **[Interactive Report Generation](INTERACTIVE_REPORT_GENERATION.md)** - Create HTML reports with Plotly charts
 - **[Collection Selection Guide](COLLECTION_SELECTION_GUIDE.md)** - Intelligent graph collection filtering
 - **[Workflow Tracing Guide](WORKFLOW_TRACING_GUIDE.md)** - Comprehensive workflow observability

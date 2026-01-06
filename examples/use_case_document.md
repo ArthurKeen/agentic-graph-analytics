@@ -7,6 +7,59 @@
 
 ---
 
+## Domain Description
+
+### Industry & Business Context
+Fashion e-commerce marketplace connecting 1,000+ independent clothing brands with millions of style-conscious consumers. Our platform operates a marketplace business model where we facilitate transactions between sellers (fashion brands) and buyers (end customers), earning commission on each sale.
+
+### Graph Structure Overview
+Our graph represents the social and transactional dynamics of our fashion marketplace:
+
+**Vertex Collections (Nodes):**
+- **Users** (500 active customers): Fashion shoppers with varying levels of influence
+- **Products** (200 SKUs): Clothing items across categories (tops, bottoms, accessories, shoes)
+- **Categories** (20): Product groupings for navigation and recommendations
+
+**Edge Collections (Relationships):**
+- **Purchased** (2,500+ edges): User → Product (completed transactions)
+- **Viewed** (5,000+ edges): User → Product (browsing behavior)
+- **Rated** (1,500+ edges): User → Product (customer reviews with 1-5 star ratings)
+- **Follows** (1,000+ edges): User → User (social following for style inspiration)
+- **Belongs_to** (200+ edges): Product → Category (product categorization)
+
+**Scale & Activity:**
+- ~$2M annual GMV (Gross Merchandise Value)
+- Average order value: $80
+- 2,500+ completed purchases over 12 months
+- 5,000+ product views daily
+- 30% repeat purchase rate
+
+### Domain-Specific Terminology
+- **Influencer**: Customer with 10+ followers who drives purchases through style inspiration
+- **Fashion Trendset**: Influential customer whose purchases are frequently viewed/copied
+- **Social Shopper**: Customer who follows others and purchases based on their style
+- **Community**: Group of customers with similar fashion preferences (e.g., streetwear, bohemian)
+- **Conversion**: Product view → Purchase completion
+- **Style Affinity**: Measure of how similar two customers' fashion tastes are
+- **Co-purchase Strength**: Likelihood that two products are bought together
+
+### Business Context & Goals
+We're experiencing 100% YoY growth but struggling with customer retention and cross-sell effectiveness. Marketing spend is high but inefficiently distributed. We need data-driven insights to:
+1. Focus marketing dollars on customers who actually drive sales (influencers)
+2. Create personalized shopping experiences based on natural customer segments
+3. Improve product recommendations to increase basket size
+
+Our hypothesis: A small group of fashion-forward customers ("influencers") drive the majority of purchasing decisions through social proof and style inspiration. By identifying these customers and optimizing for them, we can dramatically improve marketing ROI.
+
+### Data Characteristics
+- **Complete purchase history**: 12 months of transactional data
+- **Social graph**: Users explicitly follow other users for style inspiration
+- **Engagement metrics**: Views, likes, and saves tracked per user-product interaction
+- **Product metadata**: Category, price, brand, color, size availability
+- **Customer segments**: Self-reported style preferences (modern, classic, streetwear, bohemian, etc.)
+
+---
+
 ## Executive Summary
 
 Our e-commerce platform needs to identify influential customers and understand community structures to improve marketing ROI and personalization. We need graph analytics to uncover hidden patterns in customer behavior and product relationships.
