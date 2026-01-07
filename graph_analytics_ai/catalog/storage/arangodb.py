@@ -49,12 +49,12 @@ class ArangoDBStorage(StorageBackend):
         _analysis_templates: Template records
     """
 
-    # Collection names
-    EXECUTIONS_COLLECTION = "_analysis_executions"
-    EPOCHS_COLLECTION = "_analysis_epochs"
-    REQUIREMENTS_COLLECTION = "_analysis_requirements"
-    USE_CASES_COLLECTION = "_analysis_use_cases"
-    TEMPLATES_COLLECTION = "_analysis_templates"
+    # Collection names (without leading underscore to avoid system collection conflict)
+    EXECUTIONS_COLLECTION = "analysis_executions"
+    EPOCHS_COLLECTION = "analysis_epochs"
+    REQUIREMENTS_COLLECTION = "analysis_requirements"
+    USE_CASES_COLLECTION = "analysis_use_cases"
+    TEMPLATES_COLLECTION = "analysis_templates"
 
     def __init__(
         self,
