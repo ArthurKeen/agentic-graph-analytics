@@ -4,7 +4,7 @@
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-3.1.0-green.svg)](https://github.com/ArthurKeen/graph-analytics-ai)
+[![Version](https://img.shields.io/badge/version-3.2.0-green.svg)](https://github.com/ArthurKeen/graph-analytics-ai)
 
 Transform business requirements into actionable graph analytics insights with AI-powered automation. Choose between a traditional workflow orchestrator for full control or an autonomous agentic system for hands-off execution. From requirements documents to intelligence reports in minutes, not weeks.
 
@@ -51,6 +51,15 @@ graph LR
 - Insights with confidence scores and supporting evidence
 - Prioritized recommendations with effort/impact estimates
 - Multiple formats (Markdown, JSON, HTML, Text)
+
+**Analysis Catalog** (NEW v3.2.0)
+- Track every analysis execution with complete metadata
+- Complete lineage tracking: Requirements → Use Cases → Templates → Executions
+- Time-series analysis: Track graph evolution over time with epochs
+- Impact analysis: Understand what changes when requirements change
+- Performance tracking: Compare algorithm performance across runs
+- Optional feature - works with all three workflow modes
+- Learn more: [Analysis Catalog Guide](docs/ANALYSIS_CATALOG_SUMMARY.md)
 
 ---
 
