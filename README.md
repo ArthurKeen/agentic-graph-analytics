@@ -53,13 +53,34 @@ graph LR
 - Multiple formats (Markdown, JSON, HTML, Text)
 
 **Analysis Catalog** (NEW v3.2.0)
-- Track every analysis execution with complete metadata
-- Complete lineage tracking: Requirements → Use Cases → Templates → Executions
-- Time-series analysis: Track graph evolution over time with epochs
-- Impact analysis: Understand what changes when requirements change
-- Performance tracking: Compare algorithm performance across runs
-- Optional feature - works with all three workflow modes
-- Learn more: [Analysis Catalog Guide](docs/ANALYSIS_CATALOG_SUMMARY.md)
+
+Comprehensive tracking system for all analysis executions with complete lineage and time-series capabilities.
+
+**Core Features:**
+- **Execution Tracking**: Every analysis run with algorithm, parameters, results, and performance metrics
+- **Complete Lineage**: Full chain tracking from Requirements → Use Cases → Templates → Executions
+- **Time-Series Analysis**: Track graph evolution over time with epochs (e.g., weekly/monthly snapshots)
+- **Impact Analysis**: Understand what changes when requirements change
+- **Performance Comparison**: Compare algorithm performance across runs and configurations
+- **Universal Support**: Works seamlessly with all three workflow modes (Traditional, Agentic, Parallel)
+
+**Data Model:**
+- 5 ArangoDB collections with optimized indexes
+- Star schema design for fast queries
+- Complete foreign key relationships for lineage
+- Flexible metadata storage
+
+**Use Cases:**
+- Track PageRank changes as your graph evolves
+- Compare algorithm performance across different configurations
+- Audit which analyses have been run and when
+- Understand the impact of requirement changes
+- Generate time-series reports on graph metrics
+
+**Documentation:**
+- [Quick Start Guide](docs/ANALYSIS_CATALOG_SUMMARY.md)
+- [Complete Graph Schema](docs/ANALYSIS_CATALOG_GRAPH_SCHEMA.md)
+- [API Reference](docs/ANALYSIS_CATALOG_PROJECT_COMPLETE.md)
 
 ---
 
