@@ -56,6 +56,13 @@ class ArangoDBStorage(StorageBackend):
     USE_CASES_COLLECTION = "analysis_use_cases"
     TEMPLATES_COLLECTION = "analysis_templates"
 
+    # Edge collections for graph relationships
+    LINEAGE_EDGES_COLLECTION = "analysis_lineage_edges"
+    EPOCH_EDGES_COLLECTION = "analysis_epoch_edges"
+
+    # Named graph
+    CATALOG_GRAPH_NAME = "analysis_catalog_graph"
+
     def __init__(
         self,
         db: StandardDatabase,
@@ -77,14 +84,14 @@ class ArangoDBStorage(StorageBackend):
 
     def initialize_collections(self) -> None:
         """
-        Create all required collections and indexes.
+        Create all required collections, indexes, and graph.
 
         This is safe to call multiple times (idempotent).
         """
         try:
             logger.info("Initializing catalog collections...")
 
-            # Create collections if they don't exist
+            # Create document collections if they don't exist
             collections = [
                 self.EXECUTIONS_COLLECTION,
                 self.EPOCHS_COLLECTION,
@@ -100,10 +107,26 @@ class ArangoDBStorage(StorageBackend):
                 else:
                     logger.debug(f"Collection exists: {collection_name}")
 
+            # Create edge collections for graph relationships
+            edge_collections = [
+                self.LINEAGE_EDGES_COLLECTION,
+                self.EPOCH_EDGES_COLLECTION,
+            ]
+
+            for edge_collection_name in edge_collections:
+                if not self.db.has_collection(edge_collection_name):
+                    self.db.create_collection(edge_collection_name, edge=True)
+                    logger.info(f"Created edge collection: {edge_collection_name}")
+                else:
+                    logger.debug(f"Edge collection exists: {edge_collection_name}")
+
             # Create indexes for efficient queries
             self._create_indexes()
 
-            logger.info("Catalog collections initialized successfully")
+            # Create named graph
+            self._create_graph()
+
+            logger.info("Catalog collections and graph initialized successfully")
 
         except Exception as e:
             raise StorageError(f"Failed to initialize collections: {e}") from e
@@ -156,6 +179,60 @@ class ArangoDBStorage(StorageBackend):
 
         except Exception as e:
             logger.warning(f"Failed to create some indexes: {e}")
+
+    def _create_graph(self) -> None:
+        """
+        Create Analysis Catalog named graph.
+
+        Defines the graph structure for lineage and epoch relationships.
+        """
+        try:
+            # Check if graph already exists
+            if self.db.has_graph(self.CATALOG_GRAPH_NAME):
+                logger.debug(f"Graph {self.CATALOG_GRAPH_NAME} already exists")
+                return
+
+            # Define edge definitions
+            edge_definitions = [
+                {
+                    # Lineage edges: Requirements -> UseCases -> Templates -> Executions
+                    "edge_collection": self.LINEAGE_EDGES_COLLECTION,
+                    "from_vertex_collections": [
+                        self.REQUIREMENTS_COLLECTION,
+                        self.USE_CASES_COLLECTION,
+                        self.TEMPLATES_COLLECTION,
+                    ],
+                    "to_vertex_collections": [
+                        self.USE_CASES_COLLECTION,
+                        self.TEMPLATES_COLLECTION,
+                        self.EXECUTIONS_COLLECTION,
+                    ],
+                },
+                {
+                    # Epoch containment edges: Epochs -> All entities
+                    "edge_collection": self.EPOCH_EDGES_COLLECTION,
+                    "from_vertex_collections": [
+                        self.EPOCHS_COLLECTION,
+                    ],
+                    "to_vertex_collections": [
+                        self.REQUIREMENTS_COLLECTION,
+                        self.USE_CASES_COLLECTION,
+                        self.TEMPLATES_COLLECTION,
+                        self.EXECUTIONS_COLLECTION,
+                    ],
+                },
+            ]
+
+            # Create graph
+            self.db.create_graph(
+                name=self.CATALOG_GRAPH_NAME,
+                edge_definitions=edge_definitions,
+            )
+
+            logger.info(f"Created named graph: {self.CATALOG_GRAPH_NAME}")
+
+        except Exception as e:
+            logger.warning(f"Failed to create graph (may already exist): {e}")
             # Don't fail initialization if index creation fails
 
     # --- Execution Operations ---
