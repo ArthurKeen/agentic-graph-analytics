@@ -54,10 +54,12 @@ These settings control LLM-based insight generation for reports.
 # Set to "false" to use only heuristic insights (faster, cheaper)
 GAE_PLATFORM_USE_LLM_REPORTING=true
 
-# Minimum confidence threshold for insights (default: 0.5)
+# Minimum confidence threshold for insights (default: 0.3)
 # Insights below this threshold will be filtered out
 # Range: 0.0 to 1.0
-GAE_PLATFORM_REPORTING_MIN_CONFIDENCE=0.5
+# Lower values = more insights but potentially lower quality
+# Higher values = fewer insights but higher quality
+GAE_PLATFORM_REPORTING_MIN_CONFIDENCE=0.3
 
 # Enable chain-of-thought reasoning for insight generation (default: false)
 # This improves quality but increases LLM costs and latency

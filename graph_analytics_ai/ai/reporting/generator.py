@@ -316,11 +316,11 @@ class ReportGenerator:
         Validate insight quality and filter low-quality insights.
         
         Quality criteria:
-        - Confidence >= 0.5 (increased from 0.2)
-        - Title length >= 15 characters (more than "Top Node Found")
-        - Description length >= 100 characters (substantive analysis)
-        - Business impact is specific (not generic templates)
-        - Contains numbers/metrics (data-driven)
+        - Confidence >= 0.3 (minimum threshold, lowered from 0.4)
+        - Title length >= 10 characters (reasonable minimum)
+        - Description length >= 50 characters (reduced from 100)
+        - Business impact is specific (not purely generic)
+        - Contains numbers/metrics (encouraged but not required)
         
         Args:
             insights: List of insights to validate
@@ -339,73 +339,69 @@ class ReportGenerator:
             quality_score = 1.0
             issues = []
 
-            # Check 1: Confidence threshold
-            if insight.confidence < 0.5:
-                issues.append(f"Low confidence ({insight.confidence:.2f})")
+            # Check 1: Confidence threshold (more lenient)
+            if insight.confidence < 0.3:
+                issues.append(f"Very low confidence ({insight.confidence:.2f})")
                 quality_score *= 0.5
 
-            # Check 2: Title quality
-            if len(insight.title) < 15:
+            # Check 2: Title quality (reduced from 15 to 10)
+            if len(insight.title) < 10:
                 issues.append("Title too brief")
+                quality_score *= 0.8
+
+            # Check 3: Description quality (reduced from 100 to 50)
+            if len(insight.description) < 50:
+                issues.append(f"Description too brief ({len(insight.description)} chars)")
                 quality_score *= 0.7
 
-            # Check 3: Description quality
-            if len(insight.description) < 100:
-                issues.append(f"Description too brief ({len(insight.description)} chars)")
-                quality_score *= 0.6
-
-            # Check 4: Contains specific numbers/metrics
+            # Check 4: Contains specific numbers/metrics (softer penalty)
             has_numbers = bool(re.search(r'\d+\.?\d*%|\d+\.\d+|\d{2,}', insight.description))
             if not has_numbers:
                 issues.append("No specific metrics/numbers")
-                quality_score *= 0.7
+                quality_score *= 0.85  # Reduced from 0.7
 
-            # Check 5: Business impact specificity
+            # Check 5: Business impact specificity (softer penalty, fewer generic phrases)
             generic_impacts = [
-                'further analysis',
-                'requires investigation',
-                'derived from',
-                'focus on',
-                'improve'
+                'further analysis recommended',
+                'requires further analysis',
+                'derived from ai analysis'
             ]
             if any(phrase in insight.business_impact.lower() for phrase in generic_impacts):
                 issues.append("Generic business impact")
-                quality_score *= 0.8
+                quality_score *= 0.85  # Reduced from 0.8
 
-            # Check 6: Title is not generic
+            # Check 6: Title is not purely generic (more lenient)
             generic_titles = [
                 'llm analysis',
                 'analysis results',
-                'insight',
-                'finding',
-                'most influential node identified'  # Too generic
             ]
             if insight.title.lower() in generic_titles:
                 issues.append("Generic title")
-                quality_score *= 0.5
+                quality_score *= 0.7  # Reduced from 0.5
 
             # Adjust confidence based on quality score
-            insight.confidence *= quality_score
+            adjusted_confidence = insight.confidence * quality_score
 
-            # Minimum threshold for inclusion (raised from 0.2 to 0.4)
-            if insight.confidence >= 0.4:
+            # Minimum threshold for inclusion (lowered from 0.4 to 0.3)
+            if adjusted_confidence >= 0.3:
+                insight.confidence = adjusted_confidence
                 validated_insights.append(insight)
                 if issues:
                     logger.info(
-                        f"Insight quality concerns: '{insight.title[:50]}' - {', '.join(issues)} (adjusted confidence: {insight.confidence:.2f})"
+                        f"Insight kept with concerns: '{insight.title[:50]}' - {', '.join(issues)} (adjusted confidence: {insight.confidence:.2f})"
                     )
             else:
                 logger.warning(
-                    f"Filtered low-quality insight: '{insight.title[:50]}' (confidence: {insight.confidence:.2f}, issues: {', '.join(issues)})"
+                    f"Filtered low-quality insight: '{insight.title[:50]}' (confidence: {adjusted_confidence:.2f}, issues: {', '.join(issues)})"
                 )
 
         # If all insights filtered, log error but keep best ones
         if len(validated_insights) == 0 and len(insights) > 0:
             logger.error(
-                "All insights filtered! Keeping top 2 by original confidence"
+                "All insights filtered! Keeping top 3 by original confidence"
             )
             sorted_insights = sorted(insights, key=lambda x: x.confidence, reverse=True)
-            validated_insights = sorted_insights[:2]
+            validated_insights = sorted_insights[:3]  # Keep top 3 instead of 2
 
         return validated_insights
 

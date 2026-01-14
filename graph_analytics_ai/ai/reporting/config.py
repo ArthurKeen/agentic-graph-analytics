@@ -63,9 +63,9 @@ class LLMReportingConfig:
     """Enable LLM-based insight generation (default: True, can set via GAE_PLATFORM_USE_LLM_REPORTING env var)."""
     
     min_confidence: float = field(
-        default_factory=lambda: float(os.getenv("GAE_PLATFORM_REPORTING_MIN_CONFIDENCE", "0.5"))
+        default_factory=lambda: float(os.getenv("GAE_PLATFORM_REPORTING_MIN_CONFIDENCE", "0.3"))
     )
-    """Minimum confidence threshold for insights (default: 0.5, can set via GAE_PLATFORM_REPORTING_MIN_CONFIDENCE)."""
+    """Minimum confidence threshold for insights (default: 0.3, can set via GAE_PLATFORM_REPORTING_MIN_CONFIDENCE)."""
     
     use_reasoning_chain: bool = field(
         default_factory=lambda: os.getenv("GAE_PLATFORM_REPORTING_USE_REASONING", "false").lower() == "true"
