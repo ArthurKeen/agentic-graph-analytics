@@ -25,6 +25,26 @@ LLM_TEMPERATURE=0.7
 LLM_MAX_TOKENS=4000
 ```
 
+## GAE Engine Management
+
+These settings control how Graph Analytics Engines are managed and cleaned up.
+
+```bash
+# Automatically cleanup engines after workflow completion (default: true)
+# Set to "false" to leave engines running for inspection/debugging
+GAE_AUTO_CLEANUP=true
+
+# Automatically cleanup existing engines before starting new ones (default: true)
+# Set to "false" to fail fast if engines are already running (prevents accidental double billing)
+GAE_AUTO_CLEANUP_EXISTING=true
+```
+
+**Important Notes**:
+- **`GAE_AUTO_CLEANUP=true`** (Recommended): Engines are deleted after each workflow, preventing ongoing charges
+- **`GAE_AUTO_CLEANUP_EXISTING=true`** (Recommended): If previous runs failed and left engines running, they'll be cleaned up automatically
+- **Cost Impact**: Leaving engines running (`GAE_AUTO_CLEANUP=false`) will continue to incur hourly charges
+- **Debugging**: Set both to `false` only when you need to inspect engine state after execution
+
 ## Reporting Agent Configuration
 
 These settings control LLM-based insight generation for reports.

@@ -12,6 +12,7 @@ Automates complete GAE analysis workflows including:
 Works with both Arango Managed Platform (AMP) and self-managed deployments.
 """
 
+import os
 import time
 import json
 from dataclasses import dataclass, field, asdict
@@ -77,7 +78,12 @@ class AnalysisConfig:
     target_collection: str = "graph_analysis_results"  # Where to store results
 
     # Workflow options
-    auto_cleanup: bool = True  # Automatically delete engine after completion
+    auto_cleanup: bool = field(
+        default_factory=lambda: os.getenv("GAE_AUTO_CLEANUP", "true").lower() == "true"
+    )  # Automatically delete engine after completion
+    auto_cleanup_existing: bool = field(
+        default_factory=lambda: os.getenv("GAE_AUTO_CLEANUP_EXISTING", "true").lower() == "true"
+    )  # Automatically cleanup existing engines before starting
     retry_on_failure: bool = True
     max_retries: int = 3
     timeout_seconds: int = DEFAULT_JOB_TIMEOUT  # 1 hour max
@@ -281,7 +287,7 @@ class GAEOrchestrator:
 
     def _check_existing_engines(self):
         """
-        Check for existing running engines and warn/fail.
+        Check for existing running engines and warn/fail or cleanup.
 
         Only works for AMP deployments.
         """
@@ -293,10 +299,36 @@ class GAEOrchestrator:
                     engine_info = [
                         f"{e['id']} ({e.get('size_id', 'unknown')})" for e in existing
                     ]
-                    raise RuntimeError(
-                        f"Engines already running: {', '.join(engine_info)}. "
-                        f"Delete them first or risk multiple billing charges."
-                    )
+                    
+                    # Check if auto_cleanup_existing is enabled
+                    config = self.current_analysis.config if self.current_analysis else None
+                    if config and config.auto_cleanup_existing:
+                        self._log(f"Found {len(existing)} existing engine(s): {', '.join(engine_info)}", "WARN")
+                        self._log("auto_cleanup_existing=True, cleaning up...", "INFO")
+                        
+                        # Cleanup each existing engine
+                        for engine in existing:
+                            try:
+                                engine_id = engine['id']
+                                self._log(f"Deleting engine {engine_id}...")
+                                self.gae.delete_engine(engine_id)
+                                self._log(f"✓ Deleted engine {engine_id}")
+                            except Exception as e:
+                                self._log(f"Failed to delete engine {engine_id}: {e}", "WARN")
+                        
+                        # Wait a moment for deletions to complete
+                        time.sleep(2)
+                        return
+                    else:
+                        # auto_cleanup_existing is False, raise error with helpful message
+                        raise RuntimeError(
+                            f"Engines already running: {', '.join(engine_info)}.\n\n"
+                            f"Options to fix:\n"
+                            f"  1. Set auto_cleanup_existing=True in AnalysisConfig (recommended)\n"
+                            f"  2. Delete manually with: scripts/cleanup_gae_engines.py\n"
+                            f"  3. Delete in ArangoDB Cloud console\n\n"
+                            f"Leaving engines running causes multiple billing charges!"
+                        )
         except AttributeError:
             # Self-managed doesn't have list_engines, skip check
             pass
