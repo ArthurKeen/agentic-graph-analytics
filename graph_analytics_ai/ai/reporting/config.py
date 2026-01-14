@@ -4,6 +4,7 @@ Report configuration for customizing workflow outputs.
 Allows users to control what sections and metrics are included in generated reports.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import List
 from enum import Enum
@@ -29,6 +30,83 @@ class ReportSection(Enum):
     ERROR_LOG = "error_log"
     RECOMMENDATIONS = "recommendations"
     RAW_METRICS = "raw_metrics"
+
+
+@dataclass
+class LLMReportingConfig:
+    """
+    Configuration for LLM-based insight generation.
+    
+    Controls how LLM is used for report generation and quality standards.
+    
+    Example:
+        >>> from graph_analytics_ai.ai.reporting.config import LLMReportingConfig
+        >>>
+        >>> # Enable LLM with strict quality standards
+        >>> config = LLMReportingConfig(
+        ...     use_llm_interpretation=True,
+        ...     min_confidence=0.7,
+        ...     use_reasoning_chain=True
+        ... )
+        >>>
+        >>> # Cost-optimized configuration
+        >>> config = LLMReportingConfig(
+        ...     use_llm_interpretation=True,
+        ...     max_insights_per_report=3,
+        ...     llm_timeout_seconds=20
+        ... )
+    """
+    
+    use_llm_interpretation: bool = field(
+        default_factory=lambda: os.getenv("GAE_PLATFORM_USE_LLM_REPORTING", "true").lower() == "true"
+    )
+    """Enable LLM-based insight generation (default: True, can set via GAE_PLATFORM_USE_LLM_REPORTING env var)."""
+    
+    min_confidence: float = field(
+        default_factory=lambda: float(os.getenv("GAE_PLATFORM_REPORTING_MIN_CONFIDENCE", "0.5"))
+    )
+    """Minimum confidence threshold for insights (default: 0.5, can set via GAE_PLATFORM_REPORTING_MIN_CONFIDENCE)."""
+    
+    use_reasoning_chain: bool = field(
+        default_factory=lambda: os.getenv("GAE_PLATFORM_REPORTING_USE_REASONING", "false").lower() == "true"
+    )
+    """Enable chain-of-thought reasoning for insight generation (default: False, can set via GAE_PLATFORM_REPORTING_USE_REASONING)."""
+    
+    max_insights_per_report: int = field(
+        default_factory=lambda: int(os.getenv("GAE_PLATFORM_MAX_LLM_INSIGHTS_PER_REPORT", "5"))
+    )
+    """Maximum number of LLM insights per report (default: 5, can set via GAE_PLATFORM_MAX_LLM_INSIGHTS_PER_REPORT)."""
+    
+    llm_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("GAE_PLATFORM_LLM_REPORTING_TIMEOUT", "30"))
+    )
+    """Timeout for LLM calls in seconds (default: 30, can set via GAE_PLATFORM_LLM_REPORTING_TIMEOUT)."""
+    
+    fallback_to_heuristics: bool = True
+    """Fallback to heuristic insights if LLM fails (always True for reliability)."""
+    
+    min_description_length: int = 100
+    """Minimum description length for quality validation."""
+    
+    min_title_length: int = 15
+    """Minimum title length for quality validation."""
+    
+    require_quantification: bool = True
+    """Require insights to include numbers/metrics."""
+    
+    filter_generic_impacts: bool = True
+    """Filter out insights with generic business impacts."""
+    
+    def __post_init__(self):
+        """Post-initialization validation."""
+        if self.min_confidence < 0.0 or self.min_confidence > 1.0:
+            raise ValueError(f"min_confidence must be between 0.0 and 1.0, got {self.min_confidence}")
+        
+        if self.max_insights_per_report < 1:
+            raise ValueError(f"max_insights_per_report must be >= 1, got {self.max_insights_per_report}")
+        
+        if self.llm_timeout_seconds < 1:
+            raise ValueError(f"llm_timeout_seconds must be >= 1, got {self.llm_timeout_seconds}")
 
 
 @dataclass
@@ -95,6 +173,9 @@ class ReportConfig:
 
     decimal_places: int = 2
     """Number of decimal places for metrics."""
+    
+    llm_config: LLMReportingConfig = field(default_factory=LLMReportingConfig)
+    """Configuration for LLM-based insight generation."""
 
     def __post_init__(self):
         """Post-initialization validation."""
