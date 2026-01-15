@@ -46,6 +46,7 @@ class ReportGenerator:
         llm_provider: Optional[LLMProvider] = None,
         use_llm_interpretation: bool = True,
         enable_charts: bool = True,
+        industry: str = "generic",
     ):
         """
         Initialize report generator.
@@ -54,10 +55,12 @@ class ReportGenerator:
             llm_provider: LLM provider for interpretation (creates default if None)
             use_llm_interpretation: Whether to use LLM for insights
             enable_charts: Whether to generate interactive charts
+            industry: Industry identifier for domain-specific prompts and validation
         """
         self.llm_provider = llm_provider or create_llm_provider()
         self.use_llm_interpretation = use_llm_interpretation
         self.enable_charts = enable_charts
+        self.industry = industry
 
         # Import chart generator if enabled
         if self.enable_charts:
@@ -1042,9 +1045,46 @@ Now provide 3-5 insights following the format below.
 
     def _parse_llm_insights(self, llm_response: str) -> List[Insight]:
         """
-        Parse LLM response into insight objects.
+        Parse LLM response into insight objects with multiple fallback strategies.
         
-        Expected format from LLM:
+        Strategies (in order):
+        1. Structured format (Title:/Description:/Business Impact:/Confidence:)
+        2. Numbered sections (# Insight 1 (PageRank):)
+        3. Re-prompt LLM to reformat
+        4. Create generic insight with raw content
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Strategy 1: Try structured format (existing logic)
+        insights = self._parse_structured_format(llm_response)
+        if insights:
+            logger.debug(f"Successfully parsed {len(insights)} insights using structured format")
+            return insights
+        
+        # Strategy 2: Try numbered sections format
+        insights = self._parse_numbered_sections(llm_response)
+        if insights:
+            logger.info(f"Successfully parsed {len(insights)} insights using numbered sections format")
+            return insights
+        
+        # Strategy 3: Re-prompt LLM to reformat (if we have LLM available)
+        if self.llm_provider:
+            try:
+                insights = self._reformat_and_parse(llm_response)
+                if insights:
+                    logger.info(f"Successfully parsed {len(insights)} insights after re-prompting")
+                    return insights
+            except Exception as e:
+                logger.warning(f"Re-prompting failed: {e}")
+        
+        # Strategy 4: Final fallback - create generic insight
+        logger.error("All parsing strategies failed, using fallback generic insight")
+        return self._create_generic_insight(llm_response)
+    
+    def _parse_structured_format(self, llm_response: str) -> List[Insight]:
+        """
+        Parse structured format:
         - Title: [title]
           Description: [description]
           Business Impact: [impact]
@@ -1053,9 +1093,6 @@ Now provide 3-5 insights following the format below.
         import re
         
         insights = []
-        
-        # Split response into individual insights
-        # Look for "Title:" or numbered bullets
         lines = llm_response.strip().split('\n')
         
         current_insight = {}
@@ -1088,7 +1125,7 @@ Now provide 3-5 insights following the format below.
                     current_insight['confidence'] = 0.7
                 current_field = 'confidence'
                 
-            elif line and current_field and not line.startswith('-'):
+            elif line and current_field and not line.startswith('-') and not line.startswith('#'):
                 # Continuation of current field
                 if current_field in current_insight:
                     current_insight[current_field] += ' ' + line
@@ -1097,19 +1134,117 @@ Now provide 3-5 insights following the format below.
         if current_insight:
             insights.append(self._create_insight_from_dict(current_insight))
         
-        # Fallback if parsing failed - at least preserve some content
-        if not insights and llm_response.strip():
-            insights.append(
-                Insight(
-                    title="Analysis Results",
-                    description=llm_response[:1000],  # Keep more than 500 chars
-                    insight_type=InsightType.KEY_FINDING,
-                    confidence=0.6,  # Lower confidence for fallback
-                    business_impact="Further analysis recommended",
-                )
-            )
+        return insights
+    
+    def _parse_numbered_sections(self, llm_response: str) -> List[Insight]:
+        """
+        Parse numbered sections format like:
+        # Insight 1 (PageRank):
+        - **Title: Site/8448912 Emerges as Central Hub**
+          **Description**: Analysis shows...
+          **Business Impact**: Prioritize this site...
+          **Confidence**: 0.94
+        """
+        import re
+        
+        insights = []
+        
+        # Split by insight headers (# Insight 1, # Insight 2, etc)
+        insight_pattern = r'#\s*Insight\s*\d+[^:]*:'
+        sections = re.split(insight_pattern, llm_response)
+        
+        # Skip first section (usually intro text)
+        for section in sections[1:]:
+            insight_data = {}
+            
+            # Extract title (look for **Title: or - **Title:)
+            title_match = re.search(r'\*\*Title:\s*([^\*\n]+)', section, re.IGNORECASE)
+            if title_match:
+                insight_data['title'] = title_match.group(1).strip()
+            
+            # Extract description
+            desc_match = re.search(r'\*\*Description\*\*:\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)', section, re.IGNORECASE)
+            if desc_match:
+                insight_data['description'] = desc_match.group(1).strip()
+            
+            # Extract business impact
+            impact_match = re.search(r'\*\*Business Impact\*\*:\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)', section, re.IGNORECASE)
+            if impact_match:
+                insight_data['business_impact'] = impact_match.group(1).strip()
+            
+            # Extract confidence
+            conf_match = re.search(r'\*\*Confidence\*\*:\s*([\d.]+)', section, re.IGNORECASE)
+            if conf_match:
+                try:
+                    insight_data['confidence'] = float(conf_match.group(1))
+                except:
+                    insight_data['confidence'] = 0.7
+            
+            # Only add if we have at least title and description
+            if 'title' in insight_data and 'description' in insight_data:
+                insights.append(self._create_insight_from_dict(insight_data))
         
         return insights
+    
+    def _reformat_and_parse(self, llm_response: str) -> List[Insight]:
+        """
+        Ask LLM to reformat its response into structured format.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        reformat_prompt = f"""The following analysis needs to be reformatted into a structured format.
+
+Extract insights from this text and reformat as:
+
+- Title: [specific, clear title]
+  Description: [detailed description with numbers]
+  Business Impact: [actionable business impact]
+  Confidence: [0.0-1.0 score]
+
+- Title: [next insight...]
+  Description: ...
+  Business Impact: ...
+  Confidence: ...
+
+Original text:
+{llm_response[:2000]}
+
+Provide ONLY the reformatted insights, nothing else."""
+
+        try:
+            response = self.llm_provider.generate(
+                prompt=reformat_prompt,
+                system_prompt="You are a data analyst that extracts and structures insights.",
+                max_tokens=1500,
+                temperature=0.3
+            )
+            
+            # Try parsing the reformatted response
+            return self._parse_structured_format(response.content)
+        except Exception as e:
+            logger.warning(f"Reformatting attempt failed: {e}")
+            return []
+    
+    def _create_generic_insight(self, llm_response: str) -> List[Insight]:
+        """
+        Fallback: Create a generic insight with the raw LLM output.
+        This preserves content but flags it as low confidence.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.error(f"Creating generic fallback insight for unparseable response: {llm_response[:200]}...")
+        
+        return [
+            Insight(
+                title="Analysis Results (Unparsed)",
+                description=llm_response[:1500],  # Preserve more content
+                insight_type=InsightType.KEY_FINDING,
+                confidence=0.5,  # Lower confidence for unparsed content
+                business_impact="Further analysis recommended. Note: This insight could not be automatically parsed.",
+            )
+        ]
     
     def _create_insight_from_dict(self, insight_dict: Dict[str, Any]) -> Insight:
         """Create Insight object from parsed dictionary."""

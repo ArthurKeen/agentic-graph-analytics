@@ -925,16 +925,41 @@ Transform technical graph analysis results into actionable business intelligence
 Remember: Business stakeholders need insights they can act on immediately, not just interesting observations."""
 
     def __init__(
-        self, llm_provider: LLMProvider, trace_collector: Optional[Any] = None
+        self, 
+        llm_provider: LLMProvider, 
+        trace_collector: Optional[Any] = None,
+        industry: str = "generic"
     ):
+        """
+        Initialize ReportingAgent with industry-specific configuration.
+        
+        Args:
+            llm_provider: LLM provider for generating insights
+            trace_collector: Optional trace collector for monitoring
+            industry: Industry identifier for domain-specific prompts
+                     (e.g., "adtech", "fintech", "social", "generic")
+        """
+        # Import industry prompts
+        from ..reporting.prompts import get_industry_prompt
+        
+        # Get industry-specific prompt and prepend to system prompt
+        industry_context = get_industry_prompt(industry)
+        combined_prompt = f"{industry_context}\n\n{self.SYSTEM_PROMPT}"
+        
         super().__init__(
             agent_type=AgentType.REPORTING,
             name=AgentNames.REPORTING_SPECIALIST,
             llm_provider=llm_provider,
-            system_prompt=self.SYSTEM_PROMPT,
+            system_prompt=combined_prompt,
             trace_collector=trace_collector,
         )
-        self.generator = ReportGenerator(llm_provider, use_llm_interpretation=True)
+        
+        self.industry = industry
+        self.generator = ReportGenerator(
+            llm_provider, 
+            use_llm_interpretation=True,
+            industry=industry
+        )
 
     @handle_agent_errors
     def process(self, message: AgentMessage, state: AgentState) -> AgentMessage:
