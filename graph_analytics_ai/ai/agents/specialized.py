@@ -242,7 +242,7 @@ Your goal: Transform business needs into structured requirements."""
             )
         else:
             # Parse documents
-            parsed_docs = [self.parser.parse_document(doc) for doc in documents]
+            parsed_docs = [self.parser.parse(doc) for doc in documents]
             requirements = self.extractor.extract(parsed_docs)
 
         state.requirements = requirements
@@ -323,7 +323,7 @@ Your goal: Transform business needs into structured requirements."""
             # Parse documents and extract requirements (run in executor)
             loop = asyncio.get_event_loop()
             parsed_docs = await loop.run_in_executor(
-                None, lambda: [self.parser.parse_document(doc) for doc in documents]
+                None, lambda: [self.parser.parse(doc) for doc in documents]
             )
             # Check if extractor has async method
             if hasattr(self.extractor, "extract_async"):
