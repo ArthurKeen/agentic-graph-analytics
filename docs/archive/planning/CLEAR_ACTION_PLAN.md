@@ -101,7 +101,7 @@ def test_parse_ssl_verify_with_boolean(self):
 
 **Command:**
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 pytest tests/test_config.py -v
 ```
 

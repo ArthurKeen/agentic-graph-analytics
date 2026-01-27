@@ -31,7 +31,7 @@ All library improvements from your migration have been **implemented, tested, an
 **Before:** Library looked in library directory first  
 **After:** Library checks current working directory (project root) first
 
-**Impact:** Your `.env` file in `/Users/arthurkeen/code/dnb_gae/.env` will be found automatically.
+**Impact:** Your `.env` file in `~/code/dnb_gae/.env` will be found automatically.
 
 **No action needed** - Just works now.
 
@@ -64,15 +64,15 @@ All library improvements from your migration have been **implemented, tested, an
 ### Step 1: Update Library
 
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 git pull  # Get latest changes
 ```
 
 ### Step 2: Reinstall in dnb_gae
 
 ```bash
-cd /Users/arthurkeen/code/dnb_gae
-pip install -e /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/dnb_gae
+pip install -e ~/code/graph-analytics-ai
 ```
 
 ### Step 3: Remove Workarounds (If Any)

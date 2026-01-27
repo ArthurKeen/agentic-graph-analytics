@@ -33,7 +33,7 @@ All three improvements from `dnb_gae` are **already in the code**, but we need t
 
 **Command:**
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 grep -n "def test" tests/test_config.py
 ```
 
@@ -106,7 +106,7 @@ def test_parse_ssl_verify_with_boolean(mock_env_amp):
 
 **Command:**
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 pytest tests/test_config.py -v
 ```
 

@@ -66,7 +66,7 @@ When you run your household identity resolution workflow, you'll now get **3 int
 Charts are **enabled by default**. Just re-run your existing workflow:
 
 ```bash
-cd ~/code/premion-graph-analytics
+cd ~/code/your-customer-project
 python scripts/run_household_analysis.py
 
 # HTML reports with charts automatically saved to:

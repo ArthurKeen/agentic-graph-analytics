@@ -16,7 +16,7 @@ You identified a critical gap in the workflow: the library was blindly using all
 
 ### Example Problem
 
-For a Premion-like media graph:
+For a media analytics graph:
 - **Core collections**: `audiences`, `campaigns`, `creatives`, `devices`, `publishers`
 - **Satellite collections**: `audience_metadata`, `device_specs`, `geo_lookups`, `rate_cards`
 
@@ -27,7 +27,7 @@ For a Premion-like media graph:
 
 ### 1. CollectionSelector Class
 
-Created `/Users/arthurkeen/code/graph-analytics-ai-platform/graph_analytics_ai/ai/templates/collection_selector.py`
+Created `.//graph_analytics_ai/ai/templates/collection_selector.py`
 
 **Features**:
 - Algorithm-specific selection logic based on requirements
@@ -62,7 +62,7 @@ If no hints provided, the system auto-classifies based on:
 
 ### 4. Integration with TemplateGenerator
 
-Modified `/Users/arthurkeen/code/graph-analytics-ai-platform/graph_analytics_ai/ai/templates/generator.py`:
+Modified `.//graph_analytics_ai/ai/templates/generator.py`:
 
 ```python
 def __init__(
@@ -102,7 +102,7 @@ from graph_analytics_ai.ai.templates import TemplateGenerator
 
 # Specify collection roles
 generator = TemplateGenerator(
- graph_name="premion_media_graph",
+ graph_name="example_media_graph",
  satellite_collections=["audience_metadata", "device_specs", "geo_lookups"],
  core_collections=["audiences", "campaigns", "devices", "publishers"]
 )
@@ -249,13 +249,13 @@ templates = generator.generate_templates(use_cases, schema)
 # PageRank uses full graph (includes satellites for importance)
 ```
 
-### For Premion Project
+### For Customer Projects
 
-Your Premion project can now specify:
+Your customer project can now specify:
 
 ```python
 generator = TemplateGenerator(
- graph_name="premion_media_graph",
+ graph_name="example_media_graph",
  satellite_collections=[
  "audience_metadata",
  "device_specs",
@@ -323,14 +323,14 @@ orchestrator = WorkflowOrchestrator(
 
 ## Next Steps for Testing
 
-### In Your Premion Project
+### In Your Customer Project
 
 1. **Specify collection roles** in your workflow setup:
  ```python
  from graph_analytics_ai.ai.templates import TemplateGenerator
  
  generator = TemplateGenerator(
- graph_name="premion_media_graph",
+ graph_name="example_media_graph",
  satellite_collections=["audience_metadata", "device_specs", "geo_lookups"],
  core_collections=["audiences", "campaigns", "devices"]
  )

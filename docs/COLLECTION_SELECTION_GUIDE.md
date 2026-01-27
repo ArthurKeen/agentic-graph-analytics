@@ -229,15 +229,15 @@ config = TemplateConfig(
 )
 ```
 
-## Example: Premion Use Case
+## Example: Media Analytics Use Case
 
 ```python
-# Premion has:
+# Example media graph has:
 # - Core: audiences, campaigns, creatives, devices, publishers
 # - Satellite: audience_metadata, device_specs, geo_lookups
 
 generator = TemplateGenerator(
- graph_name="premion_media_graph",
+ graph_name="example_media_graph",
  satellite_collections=[
  "audience_metadata",
  "device_specs", 
@@ -326,11 +326,11 @@ for template in templates:
 ### 3. Document Your Collection Roles
 
 ```python
-# In your customer project (e.g., premion-graph-analytics):
+# In your customer project (e.g., your-customer-project):
 
 # docs/collection_roles.md
 """
-# Premion Collection Roles
+# Collection Role Examples
 
 ## Core Collections
 - audiences: Primary audience entities

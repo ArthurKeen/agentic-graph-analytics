@@ -1,6 +1,6 @@
 # Instructions for Projects Using graph-analytics-ai-platform
 
-## For Customer Projects (e.g., premion-graph-analytics)
+## For Customer Projects (e.g., your-customer-project)
 
 This guide explains how to use the latest features in your project that imports the `graph-analytics-ai-platform` library.
 
@@ -123,8 +123,8 @@ This guide also explains how to use the **Collection Selection** feature for int
 ### 1. Update Your Library Dependency
 
 ```bash
-# In your customer project directory (e.g., ~/code/premion-graph-analytics)
-cd ~/code/premion-graph-analytics
+# In your customer project directory (e.g., ~/code/your-customer-project)
+cd ~/code/your-customer-project
 
 # If you installed the library in editable mode
 cd ~/code/graph-analytics-ai-platform

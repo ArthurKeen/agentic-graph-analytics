@@ -33,14 +33,14 @@ If you have local workarounds or patches, you can now remove them:
 
 1. **Update the library:**
    ```bash
-   cd /Users/arthurkeen/code/graph-analytics-ai
+   cd ~/code/graph-analytics-ai
    git pull  # or update to latest version
    ```
 
 2. **Reinstall in dnb_gae:**
    ```bash
-   cd /Users/arthurkeen/code/dnb_gae
-   pip install -e /Users/arthurkeen/code/graph-analytics-ai
+   cd ~/code/dnb_gae
+   pip install -e ~/code/graph-analytics-ai
    ```
 
 3. **Remove any local workarounds:**

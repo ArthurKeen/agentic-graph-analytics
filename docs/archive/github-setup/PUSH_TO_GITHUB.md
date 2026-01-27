@@ -30,7 +30,7 @@ This will:
 After creating the repo, GitHub will show you commands. Use these:
 
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 
 # Add remote (replace YOUR_USERNAME with your GitHub username)
 git remote add origin https://github.com/YOUR_USERNAME/graph-analytics-ai.git

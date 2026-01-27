@@ -193,7 +193,7 @@ assert parse_ssl_verify("0") == False
 
 These improvements were identified and implemented during the migration of the `dnb_gae` project. They address real-world issues encountered during actual usage.
 
-**Reference:** `/Users/arthurkeen/code/dnb_gae/LIBRARY_IMPROVEMENTS_FOR_LIB.md`
+**Reference:** `~/code/dnb_gae/LIBRARY_IMPROVEMENTS_FOR_LIB.md`
 
 ---
 

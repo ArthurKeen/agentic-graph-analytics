@@ -21,7 +21,7 @@ Before merging to main, we validated that the codebase can:
 ## Validation Methodology
 
 ### Test Environment
-- **Database**: ArangoDB AMP cluster (https://3e74cc551c73.arangodb.cloud:8529)
+- **Database**: ArangoDB AMP cluster (https://your-cluster.arangodb.cloud:8529)
 - **Existing Project**: ecommerce_graph
  - 3 vertex collections (users, products, categories)
  - 5 edge collections (purchased, viewed, rated, follows, belongs_to)

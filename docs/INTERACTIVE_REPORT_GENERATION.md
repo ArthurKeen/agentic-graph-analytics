@@ -306,7 +306,7 @@ All charts include:
 
 ---
 
-## Example: Premion Household Analysis
+## Example: Household Identity Analysis
 
 ```python
 # Generate household identity resolution report
@@ -339,7 +339,7 @@ html_formatter = HTMLReportFormatter()
 charts = report.metadata.get('charts', {})
 html_content = html_formatter.format_report(report, charts=charts)
 
-with open('premion_household_report.html', 'w') as f:
+with open('household_identity_report.html', 'w') as f:
  f.write(html_content)
 
 print(f" Report generated: 4,534 households identified")

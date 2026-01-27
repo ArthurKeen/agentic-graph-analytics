@@ -139,7 +139,7 @@ def test_parse_ssl_verify_unexpected_type():
 
 **Command:**
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 pytest tests/test_config.py -v
 ```
 
@@ -237,7 +237,7 @@ print('String false:', parse_ssl_verify('false'))
 To get started immediately:
 
 ```bash
-cd /Users/arthurkeen/code/graph-analytics-ai
+cd ~/code/graph-analytics-ai
 
 # 1. Add tests to tests/test_config.py (see examples above)
 

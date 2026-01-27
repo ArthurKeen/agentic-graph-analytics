@@ -10,7 +10,7 @@ The Analysis Catalog was tested end-to-end with a **real ArangoDB database** and
 
 ## Test Configuration
 
-- **Database**: ArangoDB Cloud (3e74cc551c73.arangodb.cloud:8529)
+- **Database**: ArangoDB Cloud (your-cluster.arangodb.cloud:8529)
 - **Database Name**: graph-analytics-ai
 - **Test Script**: `test_catalog_e2e.py`
 - **Collections Created**: 5 (executions, epochs, requirements, use_cases, templates)

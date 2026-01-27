@@ -352,7 +352,7 @@ Consider updating these docs:
 ## Contact
 
 For questions or issues with these fixes, contact the library team or see:
-- Bug report: `/Users/arthurkeen/code/premion-graph-analytics/LIBRARY_BUG_REPORT_GAE_EXECUTION.md`
+- Bug report: `~/code/premion-graph-analytics/LIBRARY_BUG_REPORT_GAE_EXECUTION.md`
 - Test suite: `tests/test_gae_bug_fixes.py`
 - Implementation: `graph_analytics_ai/gae_orchestrator.py`
 

@@ -96,7 +96,6 @@ Guides for contributors and developers:
 Historical documentation (for reference only):
 
 - **[Implementation History](archive/implementation-history/)** - Development summaries and progress reports
-- **[Premion Use Case](archive/premion-use-case/)** - Example customer project (archived)
 
 ---
 

@@ -178,7 +178,7 @@ epochs (1) > templates (N)
 
 ### E2E Test Results (Jan 7, 2026)
 ```
-Database: ArangoDB Cloud (3e74cc551c73.arangodb.cloud:8529)
+Database: ArangoDB Cloud (your-cluster.arangodb.cloud:8529)
 Database Name: graph-analytics-ai
 
 Test Results:
