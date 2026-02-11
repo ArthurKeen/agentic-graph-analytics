@@ -83,6 +83,7 @@ tests/catalog/
 - **Parallel Workflow**: Async-compatible tracking with thread safety
 - **Universal Support**: Works seamlessly with all three workflow modes
 - **Zero Impact**: 100% backward compatible, optional feature
+- **Idempotent tracking on re-runs**: Requirements, use cases, and templates are stored with overwrite-by-key semantics in ArangoDB so repeated workflow runs don’t fail on duplicate keys.
 
 ### Phase 4: E2E Validation (Complete)
 

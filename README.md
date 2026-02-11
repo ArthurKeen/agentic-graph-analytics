@@ -81,6 +81,7 @@ Comprehensive tracking system for all analysis executions with complete lineage 
 - [Quick Start Guide](docs/ANALYSIS_CATALOG_SUMMARY.md)
 - [Complete Graph Schema](docs/ANALYSIS_CATALOG_GRAPH_SCHEMA.md)
 - [API Reference](docs/ANALYSIS_CATALOG_PROJECT_COMPLETE.md)
+- [Custom Industry Verticals Quick Start](docs/guides/CUSTOM_VERTICALS_QUICKSTART.md) (generate per-project verticals; supports `industry="auto"`)
 
 ---
 

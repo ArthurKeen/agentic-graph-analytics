@@ -276,41 +276,39 @@ print(list_supported_industries())
 
 ## Adding New Industries
 
-To add a new industry vertical:
+There are **two ways** to add support for a new industry:
 
-1. **Create industry prompt** in `graph_analytics_ai/ai/reporting/prompts.py`:
-   ```python
-   NEW_INDUSTRY_PROMPT = """
-   [Industry-specific context and analysis framework]
-   """
-   ```
+### Option A (recommended): **No-code Custom Vertical Generation**
 
-2. **Add to registry**:
-   ```python
-   INDUSTRY_PROMPTS: Dict[str, str] = {
-       # ...existing entries...
-       "new_industry": NEW_INDUSTRY_PROMPT,
-       "new_alias": NEW_INDUSTRY_PROMPT,  # optional alias
-   }
-   ```
+You can generate a custom vertical **in your client project** without modifying this repo:
 
-3. **Create pattern detectors** in `graph_analytics_ai/ai/reporting/algorithm_insights.py`:
-   ```python
-   def detect_wcc_new_industry_patterns(results, total_nodes):
-       """Detect industry-specific WCC patterns."""
-       # Implementation
-   ```
+1. Generate a vertical JSON from your business requirements:
 
-4. **Update pattern registry**:
-   ```python
-   ALGORITHM_PATTERNS: Dict[str, Dict[str, Callable]] = {
-       "wcc": {
-           # ...existing entries...
-           "new_industry": detect_wcc_new_industry_patterns,
-       },
-       # ...
-   }
-   ```
+```bash
+cd /path/to/your-client-project
+python -m graph_analytics_ai.cli.generate_vertical \
+  --input docs/business_requirements.md \
+  --graph-name your_graph_name \
+  --validate \
+  --interactive
+```
+
+This writes: `.graph-analytics/industry_vertical.json`
+
+2. Run the agentic workflow with either:
+   - `industry="auto"` (auto-detect + generate if missing), or
+   - `industry="<your_industry_key>"` (loads `.graph-analytics/industry_vertical.json` when present)
+
+See `docs/guides/CUSTOM_VERTICALS_QUICKSTART.md` for the full walkthrough.
+
+### Option B: Add a **built-in** vertical (platform code change)
+
+If you want the new vertical to be shipped as a built-in platform vertical:
+
+1. **Add an industry prompt** in `graph_analytics_ai/ai/reporting/prompts.py`
+2. **Register the key/aliases** in the prompt registry
+3. **Add/extend pattern detectors** in `graph_analytics_ai/ai/reporting/algorithm_insights.py`
+4. **Update pattern registry** mappings
 
 ---
 
@@ -359,6 +357,6 @@ Potential future verticals:
 
 ---
 
-**Last Updated:** February 10, 2026
+**Last Updated:** February 11, 2026
 
 **Total Supported Industries:** 5 primary verticals, 15+ keyword aliases

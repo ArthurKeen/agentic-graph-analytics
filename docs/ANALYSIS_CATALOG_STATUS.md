@@ -3,6 +3,13 @@
 **Last Updated:** January 7, 2026 
 **Project Status:** **100% COMPLETE & PRODUCTION READY**
 
+## Notes: Workflow Tracking Updates (Feb 11, 2026)
+
+The agentic-workflow catalog integration was refined to make re-runs safer and more ergonomic:
+
+- **Workflow model adapters**: `AnalysisCatalog.track_requirements()`, `track_use_case()`, and `track_template()` now accept workflow-produced model types (from `graph_analytics_ai.ai.*`) and automatically adapt them into catalog storage models.
+- **Idempotent tracking (upsert by `_key`)**: ArangoDB storage for `analysis_requirements`, `analysis_use_cases`, and `analysis_templates` now overwrites existing documents by `_key` by default. This suppresses duplicate-key warnings on repeated runs while keeping the latest version of tracked records.
+
 ---
 
 ## Project Timeline
