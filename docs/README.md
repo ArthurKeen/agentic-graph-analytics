@@ -11,6 +11,8 @@ Version: 1.1.0
 
 - **New Users**: Start with [Quick Start Guide](getting-started/QUICK_START.md)
 - **Quick Reference**: See [Quick Reference](QUICK_REFERENCE.md) for common tasks
+- **Analytics Catalog**: Start with [Catalog Summary](catalog/ANALYSIS_CATALOG_SUMMARY.md)
+- **Agent Quality**: Start with [Executive Summary](agent-quality/AGENT_QUALITY_EXECUTIVE_SUMMARY.md)
 - **Customer Projects**: See [Customer Projects Guide](customer-projects/INSTRUCTIONS.md)
 - **API Reference**: Browse [API Documentation](api-reference/)
 - **Development**: See [Contributing Guide](development/CONTRIBUTING.md)
@@ -79,11 +81,11 @@ Guides for contributors and developers:
 ## Additional Resources
 
 ### Configuration
-- **[Environment Setup Guide](../ENV_SETUP_GUIDE.md)** - Detailed environment configuration
+- **[Environment Setup Guide](getting-started/ENV_SETUP_GUIDE.md)** - Detailed environment configuration
 
 ### Architecture
-- **[Library Architecture Summary](../LIBRARY_ARCHITECTURE_SUMMARY.md)** - System architecture overview
-- **[Code Quality Review](../CODE_QUALITY_REVIEW.md)** - Current quality status
+- **[Project Overview](getting-started/PROJECT_OVERVIEW.md)** - System architecture overview
+- **[Code Quality Standards](development/CODE_QUALITY.md)** - Current quality status
 
 ### Legal
 - **[License](../LICENSE)** - MIT License

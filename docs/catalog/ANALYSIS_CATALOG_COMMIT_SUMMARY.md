@@ -193,16 +193,16 @@ usage = manager.get_storage_usage()
 ## Documentation Created
 
 ### For Users:
-- `docs/ANALYSIS_CATALOG_SUMMARY.md` - High-level overview
-- `docs/ANALYSIS_CATALOG_REQUIREMENTS_INDEX.md` - All requirements
-- `docs/PRD_ANALYSIS_CATALOG.md` - Product requirements
+- `docs/catalog/ANALYSIS_CATALOG_SUMMARY.md` - High-level overview
+- `docs/catalog/ANALYSIS_CATALOG_REQUIREMENTS_INDEX.md` - All requirements
+- `docs/catalog/PRD_ANALYSIS_CATALOG.md` - Product requirements
 
 ### For Developers:
-- `docs/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` - 14-week plan
-- `docs/ANALYSIS_CATALOG_HANDOFF.md` - **Continuation guide**
-- `docs/ANALYSIS_CATALOG_PHASE1_COMPLETE.md` - Foundation summary
-- `docs/ANALYSIS_CATALOG_PHASE2_COMPLETE.md` - Core features summary
-- `docs/ANALYSIS_CATALOG_PHASE3_PROGRESS.md` - Current progress
+- `docs/catalog/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` - 14-week plan
+- `docs/catalog/ANALYSIS_CATALOG_HANDOFF.md` - **Continuation guide**
+- `docs/catalog/ANALYSIS_CATALOG_PHASE1_COMPLETE.md` - Foundation summary
+- `docs/catalog/ANALYSIS_CATALOG_PHASE2_COMPLETE.md` - Core features summary
+- `docs/catalog/ANALYSIS_CATALOG_PHASE3_PROGRESS.md` - Current progress
 
 ### To Be Created (Phase 3 completion):
 - User guide with examples
@@ -237,7 +237,7 @@ usage = manager.get_storage_usage()
 - API reference
 - Examples
 
-** Start Here:** `docs/ANALYSIS_CATALOG_HANDOFF.md`
+** Start Here:** `docs/catalog/ANALYSIS_CATALOG_HANDOFF.md`
 
 ---
 
@@ -305,7 +305,7 @@ usage = manager.get_storage_usage()
 ## Support
 
 **If continuing this work:**
-1. Read `docs/ANALYSIS_CATALOG_HANDOFF.md` first
+1. Read `docs/catalog/ANALYSIS_CATALOG_HANDOFF.md` first
 2. Review existing tests for patterns
 3. Traditional workflow integration is the reference
 4. All APIs have comprehensive docstrings

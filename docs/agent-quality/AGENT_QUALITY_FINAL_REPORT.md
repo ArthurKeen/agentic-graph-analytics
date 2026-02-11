@@ -85,7 +85,7 @@ Successfully implemented all critical improvements from the Agent Quality Analys
 6. **`docs/ENVIRONMENT_VARIABLES.md`** (NEW - ~120 lines)
    - Comprehensive environment variable documentation
 
-7. **`docs/AGENT_QUALITY_IMPLEMENTATION_SUMMARY.md`** (NEW - ~400 lines)
+7. **`docs/agent-quality/AGENT_QUALITY_IMPLEMENTATION_SUMMARY.md`** (NEW - ~400 lines)
    - Detailed implementation summary
 
 ---

@@ -201,7 +201,7 @@ This document summarizes the implementation of all critical improvements from th
 
 ### Documentation (2 files)
 6. `docs/ENVIRONMENT_VARIABLES.md` - New environment variable documentation
-7. `docs/AGENT_QUALITY_IMPLEMENTATION_SUMMARY.md` - This file
+7. `docs/agent-quality/AGENT_QUALITY_IMPLEMENTATION_SUMMARY.md` - This file
 
 ## Code Statistics
 

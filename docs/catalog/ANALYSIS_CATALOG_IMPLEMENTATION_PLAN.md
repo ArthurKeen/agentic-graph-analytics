@@ -251,8 +251,8 @@ Phase 4: Operational Features (Weeks 11-14)
 - `tests/catalog/test_performance.py`
 - `tests/catalog/test_comparison.py`
 - `tests/catalog/test_alerts.py`
-- `docs/ANALYSIS_CATALOG_USER_GUIDE.md`
-- `docs/ANALYSIS_CATALOG_API_REFERENCE.md`
+- `docs/catalog/ANALYSIS_CATALOG_USER_GUIDE.md`
+- `docs/catalog/ANALYSIS_CATALOG_API_REFERENCE.md`
 
 **Success Criteria:**
 - Can query time-series data efficiently

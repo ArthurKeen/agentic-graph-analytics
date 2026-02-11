@@ -175,14 +175,14 @@ def test_catalog_optional_in_all_workflows():
 
 **Files to Create/Update:**
 
-1. **`docs/ANALYSIS_CATALOG_USER_GUIDE.md`**
+1. **`docs/catalog/ANALYSIS_CATALOG_USER_GUIDE.md`**
  - Getting started
  - Basic usage
  - Workflow integration examples
  - Querying and analysis
  - Troubleshooting
 
-2. **`docs/ANALYSIS_CATALOG_API_REFERENCE.md`**
+2. **`docs/catalog/ANALYSIS_CATALOG_API_REFERENCE.md`**
  - Complete API documentation
  - All classes and methods
  - Code examples
@@ -491,17 +491,17 @@ graph_config = GraphConfig(
 ## Key Documentation
 
 **Created:**
-- `docs/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` - 14-week plan
-- `docs/ANALYSIS_CATALOG_REQUIREMENTS_INDEX.md` - All requirements 
-- `docs/ANALYSIS_CATALOG_PHASE1_COMPLETE.md` - Foundation summary
-- `docs/ANALYSIS_CATALOG_PHASE2_COMPLETE.md` - Core features summary
-- `docs/ANALYSIS_CATALOG_PHASE3_PROGRESS.md` - Current progress
-- `docs/ANALYSIS_CATALOG_SUMMARY.md` - Overall summary
-- `docs/ANALYSIS_CATALOG_HANDOFF.md` - This document
+- `docs/catalog/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` - 14-week plan
+- `docs/catalog/ANALYSIS_CATALOG_REQUIREMENTS_INDEX.md` - All requirements 
+- `docs/catalog/ANALYSIS_CATALOG_PHASE1_COMPLETE.md` - Foundation summary
+- `docs/catalog/ANALYSIS_CATALOG_PHASE2_COMPLETE.md` - Core features summary
+- `docs/catalog/ANALYSIS_CATALOG_PHASE3_PROGRESS.md` - Current progress
+- `docs/catalog/ANALYSIS_CATALOG_SUMMARY.md` - Overall summary
+- `docs/catalog/ANALYSIS_CATALOG_HANDOFF.md` - This document
 
 **To Create:**
-- `docs/ANALYSIS_CATALOG_USER_GUIDE.md`
-- `docs/ANALYSIS_CATALOG_API_REFERENCE.md`
+- `docs/catalog/ANALYSIS_CATALOG_USER_GUIDE.md`
+- `docs/catalog/ANALYSIS_CATALOG_API_REFERENCE.md`
 - `examples/catalog_usage_example.py`
 
 ---

@@ -267,7 +267,7 @@ Hierarchical exception system:
 - `tests/catalog/test_storage.py`
 
 ### Documentation (1 file):
-- `docs/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` (comprehensive plan)
+- `docs/catalog/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` (comprehensive plan)
 
 **Total Lines of Code:** ~2,700 lines (implementation + tests)
 

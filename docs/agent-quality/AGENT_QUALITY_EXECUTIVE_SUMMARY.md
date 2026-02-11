@@ -240,7 +240,7 @@ increase revenue by 15-20% through optimized seasonal marketing.
 
 ## Full Details
 
-See complete analysis in: `/docs/AGENT_QUALITY_ANALYSIS_AND_IMPROVEMENT_PLAN.md`
+See complete analysis in: `/docs/agent-quality/AGENT_QUALITY_ANALYSIS_AND_IMPROVEMENT_PLAN.md`
 
 - 50+ page detailed analysis
 - Code examples and implementation details

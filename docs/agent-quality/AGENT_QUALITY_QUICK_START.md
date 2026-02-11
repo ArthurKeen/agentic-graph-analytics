@@ -165,9 +165,9 @@ This makes the LLM show its analytical process before generating insights.
 
 ## Getting Help
 
-- Documentation: `docs/AGENT_QUALITY_FINAL_REPORT.md`
+- Documentation: `docs/agent-quality/AGENT_QUALITY_FINAL_REPORT.md`
 - Environment Variables: `docs/ENVIRONMENT_VARIABLES.md`
-- Implementation Details: `docs/AGENT_QUALITY_IMPLEMENTATION_SUMMARY.md`
+- Implementation Details: `docs/agent-quality/AGENT_QUALITY_IMPLEMENTATION_SUMMARY.md`
 
 ## Summary
 

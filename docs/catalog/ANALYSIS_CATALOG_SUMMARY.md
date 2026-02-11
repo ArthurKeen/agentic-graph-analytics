@@ -290,17 +290,17 @@ The Analysis Catalog is **production-ready** with:
 
 ## Documentation
 
-- `docs/ANALYSIS_CATALOG_STATUS.md` - Visual completion status
-- `docs/ANALYSIS_CATALOG_PROJECT_COMPLETE.md` - Complete project summary
-- `docs/ANALYSIS_CATALOG_FINAL_SUMMARY.md` - Comprehensive final summary
-- `docs/ANALYSIS_CATALOG_GRAPH_SCHEMA.md` - Complete graph schema
-- `docs/ANALYSIS_CATALOG_E2E_TEST_RESULTS.md` - E2E test results
-- `docs/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` - Original 14-week plan
-- `docs/ANALYSIS_CATALOG_REQUIREMENTS_INDEX.md` - All requirements by priority
-- `docs/ANALYSIS_CATALOG_PHASE1_COMPLETE.md` - Phase 1 summary
-- `docs/ANALYSIS_CATALOG_PHASE2_COMPLETE.md` - Phase 2 summary
-- `docs/ANALYSIS_CATALOG_PHASE3_PROGRESS.md` - Phase 3 summary
-- `docs/ANALYSIS_CATALOG_AGENTIC_INTEGRATION_COMPLETE.md` - Agentic workflow integration
+- `docs/catalog/ANALYSIS_CATALOG_STATUS.md` - Visual completion status
+- `docs/catalog/ANALYSIS_CATALOG_PROJECT_COMPLETE.md` - Complete project summary
+- `docs/catalog/ANALYSIS_CATALOG_FINAL_SUMMARY.md` - Comprehensive final summary
+- `docs/catalog/ANALYSIS_CATALOG_GRAPH_SCHEMA.md` - Complete graph schema
+- `docs/catalog/ANALYSIS_CATALOG_E2E_TEST_RESULTS.md` - E2E test results
+- `docs/catalog/ANALYSIS_CATALOG_IMPLEMENTATION_PLAN.md` - Original 14-week plan
+- `docs/catalog/ANALYSIS_CATALOG_REQUIREMENTS_INDEX.md` - All requirements by priority
+- `docs/catalog/ANALYSIS_CATALOG_PHASE1_COMPLETE.md` - Phase 1 summary
+- `docs/catalog/ANALYSIS_CATALOG_PHASE2_COMPLETE.md` - Phase 2 summary
+- `docs/catalog/ANALYSIS_CATALOG_PHASE3_PROGRESS.md` - Phase 3 summary
+- `docs/catalog/ANALYSIS_CATALOG_AGENTIC_INTEGRATION_COMPLETE.md` - Agentic workflow integration
 
 ---
 

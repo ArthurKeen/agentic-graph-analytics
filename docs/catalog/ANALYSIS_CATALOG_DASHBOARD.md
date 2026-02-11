@@ -275,7 +275,7 @@ Knowledge Transfer:
  START HERE (NEXT) 
 
 
- 1. Read: docs/ANALYSIS_CATALOG_HANDOFF.md
+ 1. Read: docs/catalog/ANALYSIS_CATALOG_HANDOFF.md
  2. Review: Traditional workflow integration (executor.py)
  3. Start: graph_analytics_ai/ai/agents/specialized.py
  4. Pattern: Add catalog parameter to each agent

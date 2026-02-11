@@ -79,7 +79,7 @@ python test_connection.py
 
 ### For Customer Projects
 
-See [Environment Setup Guide](ENV_SETUP_GUIDE.md) for detailed instructions on separating test and production credentials.
+See [Environment Setup Guide](getting-started/ENV_SETUP_GUIDE.md) for detailed instructions on separating test and production credentials.
 
 ---
 
@@ -344,7 +344,7 @@ python -c "import os; from dotenv import load_dotenv; load_dotenv(); \
 ### Getting Started
 - [Project Overview](docs/getting-started/PROJECT_OVERVIEW.md)
 - [Quick Start](docs/getting-started/QUICK_START.md)
-- [Environment Setup Guide](ENV_SETUP_GUIDE.md)
+- [Environment Setup Guide](docs/getting-started/ENV_SETUP_GUIDE.md)
 
 ### User Guides
 - [Agentic Workflow](docs/user-guide/AGENTIC_WORKFLOW.md)

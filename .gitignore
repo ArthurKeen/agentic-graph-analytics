@@ -70,3 +70,6 @@ Thumbs.db
 
 # Workflow output directories
 workflow_output/
+
+# Local documentation reports (not part of the library)
+docs/archive/local-reports/
