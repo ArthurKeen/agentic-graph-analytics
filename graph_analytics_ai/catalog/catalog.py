@@ -267,6 +267,8 @@ class AnalysisCatalog:
         Track extracted requirements.
 
         Used by agentic workflows to track lineage.
+        Accepts both catalog.models.ExtractedRequirements and
+        ai.documents.models.ExtractedRequirements (converted automatically).
 
         Args:
             requirements: Extracted requirements
@@ -274,17 +276,28 @@ class AnalysisCatalog:
         Returns:
             requirements_id
         """
+        from .adapters import adapt_requirements, _is_workflow_requirements
+
+        if _is_workflow_requirements(requirements):
+            requirements = adapt_requirements(requirements)
         return self.storage.insert_requirements(requirements)
 
     async def track_requirements_async(
         self, requirements: ExtractedRequirements
     ) -> str:
         """Async version of track_requirements."""
+        from .adapters import adapt_requirements, _is_workflow_requirements
+
+        if _is_workflow_requirements(requirements):
+            requirements = adapt_requirements(requirements)
         return await self.storage.insert_requirements_async(requirements)
 
     def track_use_case(self, use_case: GeneratedUseCase) -> str:
         """
         Track generated use case.
+
+        Accepts both catalog.models.GeneratedUseCase and
+        ai.generation.models.UseCase (converted automatically).
 
         Args:
             use_case: Generated use case
@@ -292,15 +305,26 @@ class AnalysisCatalog:
         Returns:
             use_case_id
         """
+        from .adapters import adapt_use_case, _is_workflow_use_case
+
+        if _is_workflow_use_case(use_case):
+            use_case = adapt_use_case(use_case)
         return self.storage.insert_use_case(use_case)
 
     async def track_use_case_async(self, use_case: GeneratedUseCase) -> str:
         """Async version of track_use_case."""
+        from .adapters import adapt_use_case, _is_workflow_use_case
+
+        if _is_workflow_use_case(use_case):
+            use_case = adapt_use_case(use_case)
         return await self.storage.insert_use_case_async(use_case)
 
     def track_template(self, template: AnalysisTemplate) -> str:
         """
         Track analysis template.
+
+        Accepts both catalog.models.AnalysisTemplate and
+        ai.templates.models.AnalysisTemplate (converted automatically).
 
         Args:
             template: Analysis template
@@ -308,10 +332,24 @@ class AnalysisCatalog:
         Returns:
             template_id
         """
+        from .adapters import adapt_template, _is_workflow_template
+
+        if _is_workflow_template(template):
+            template = adapt_template(
+                template,
+                use_case_id=getattr(template, "use_case_id", None),
+            )
         return self.storage.insert_template(template)
 
     async def track_template_async(self, template: AnalysisTemplate) -> str:
         """Async version of track_template."""
+        from .adapters import adapt_template, _is_workflow_template
+
+        if _is_workflow_template(template):
+            template = adapt_template(
+                template,
+                use_case_id=getattr(template, "use_case_id", None),
+            )
         return await self.storage.insert_template_async(template)
 
     def get_execution_lineage(self, execution_id: str) -> ExecutionLineage:

@@ -524,26 +524,36 @@ class ArangoDBStorage(StorageBackend):
 
     # --- Requirements Operations ---
 
-    def insert_requirements(self, requirements: ExtractedRequirements) -> str:
-        """Insert requirements record."""
+    def insert_requirements(
+        self, requirements: ExtractedRequirements, upsert: bool = True
+    ) -> str:
+        """Insert or update requirements record.
+
+        Args:
+            requirements: Requirements to store
+            upsert: If True (default), overwrite existing document with same _key
+        """
         with self._lock:
             try:
                 collection = self.db.collection(self.REQUIREMENTS_COLLECTION)
                 doc = requirements.to_dict()
-                collection.insert(doc)
-                logger.debug(f"Inserted requirements: {requirements.requirements_id}")
+                collection.insert(doc, overwrite=upsert)
+                logger.debug(
+                    f"{'Upserted' if upsert else 'Inserted'} requirements: "
+                    f"{requirements.requirements_id}"
+                )
                 return requirements.requirements_id
             except Exception as e:
                 raise StorageError(f"Failed to insert requirements: {e}") from e
 
     async def insert_requirements_async(
-        self, requirements: ExtractedRequirements
+        self, requirements: ExtractedRequirements, upsert: bool = True
     ) -> str:
         """Async version of insert_requirements."""
         async with self._async_lock:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
-                None, self.insert_requirements, requirements
+                None, lambda: self.insert_requirements(requirements, upsert=upsert)
             )
 
     def get_requirements(self, requirements_id: str) -> ExtractedRequirements:
@@ -563,23 +573,35 @@ class ArangoDBStorage(StorageBackend):
 
     # --- Use Case Operations ---
 
-    def insert_use_case(self, use_case: GeneratedUseCase) -> str:
-        """Insert use case record."""
+    def insert_use_case(self, use_case: GeneratedUseCase, upsert: bool = True) -> str:
+        """Insert or update use case record.
+
+        Args:
+            use_case: Use case to store
+            upsert: If True (default), overwrite existing document with same _key.
+                Suppresses duplicate warnings on workflow re-runs.
+        """
         with self._lock:
             try:
                 collection = self.db.collection(self.USE_CASES_COLLECTION)
                 doc = use_case.to_dict()
-                collection.insert(doc)
-                logger.debug(f"Inserted use case: {use_case.use_case_id}")
+                collection.insert(doc, overwrite=upsert)
+                logger.debug(
+                    f"{'Upserted' if upsert else 'Inserted'} use case: {use_case.use_case_id}"
+                )
                 return use_case.use_case_id
             except Exception as e:
                 raise StorageError(f"Failed to insert use case: {e}") from e
 
-    async def insert_use_case_async(self, use_case: GeneratedUseCase) -> str:
+    async def insert_use_case_async(
+        self, use_case: GeneratedUseCase, upsert: bool = True
+    ) -> str:
         """Async version of insert_use_case."""
         async with self._async_lock:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.insert_use_case, use_case)
+            return await loop.run_in_executor(
+                None, lambda: self.insert_use_case(use_case, upsert=upsert)
+            )
 
     def get_use_case(self, use_case_id: str) -> GeneratedUseCase:
         """Get use case by ID."""
@@ -615,23 +637,37 @@ class ArangoDBStorage(StorageBackend):
 
     # --- Template Operations ---
 
-    def insert_template(self, template: AnalysisTemplate) -> str:
-        """Insert template record."""
+    def insert_template(
+        self, template: AnalysisTemplate, upsert: bool = True
+    ) -> str:
+        """Insert or update template record.
+
+        Args:
+            template: Template to store
+            upsert: If True (default), overwrite existing document with same _key
+        """
         with self._lock:
             try:
                 collection = self.db.collection(self.TEMPLATES_COLLECTION)
                 doc = template.to_dict()
-                collection.insert(doc)
-                logger.debug(f"Inserted template: {template.template_id}")
+                collection.insert(doc, overwrite=upsert)
+                logger.debug(
+                    f"{'Upserted' if upsert else 'Inserted'} template: "
+                    f"{template.template_id}"
+                )
                 return template.template_id
             except Exception as e:
                 raise StorageError(f"Failed to insert template: {e}") from e
 
-    async def insert_template_async(self, template: AnalysisTemplate) -> str:
+    async def insert_template_async(
+        self, template: AnalysisTemplate, upsert: bool = True
+    ) -> str:
         """Async version of insert_template."""
         async with self._async_lock:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, self.insert_template, template)
+            return await loop.run_in_executor(
+                None, lambda: self.insert_template(template, upsert=upsert)
+            )
 
     def get_template(self, template_id: str) -> AnalysisTemplate:
         """Get template by ID."""
