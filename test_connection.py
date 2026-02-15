@@ -21,7 +21,7 @@ def test_connection():
     print(f"\n📁 Current Directory: {current_dir}")
     
     # Determine which project we're in
-    if "graph-analytics-ai-platform" in str(current_dir):
+    if "agentic-graph-analytics" in str(current_dir):
         project_type = "LIBRARY PROJECT"
         expected_db = "graph-analytics-ai"
     else:
@@ -108,7 +108,7 @@ def test_connection():
         print("\n❌ ERROR: Cannot import graph_analytics_ai library")
         print(f"   {e}")
         print("\n   Install the library:")
-        print("   pip install -e ../graph-analytics-ai-platform")
+        print("   pip install -e ../agentic-graph-analytics")
         return False
     except Exception as e:
         print("\n❌ ERROR: Connection failed")

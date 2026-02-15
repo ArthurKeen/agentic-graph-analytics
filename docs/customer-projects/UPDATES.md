@@ -9,7 +9,7 @@
 
 ## What's New
 
-The `graph-analytics-ai-platform` library now generates **beautiful, interactive HTML reports** with embedded Plotly charts!
+The `agentic-graph-analytics` library now generates **beautiful, interactive HTML reports** with embedded Plotly charts!
 
 ---
 
@@ -18,7 +18,7 @@ The `graph-analytics-ai-platform` library now generates **beautiful, interactive
 ### 1. Update the Library
 
 ```bash
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 git pull origin feature/ai-foundation-phase1
 ```
 

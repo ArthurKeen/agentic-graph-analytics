@@ -6,7 +6,7 @@ This document retraces the steps to configure and use the Analytics Catalog with
 
 ---
 
-## Step 1: Catalog Integration in graph-analytics-ai-platform
+## Step 1: Catalog Integration in agentic-graph-analytics
 
 ### ✅ Status: FULLY INTEGRATED
 
@@ -77,9 +77,9 @@ if catalog and current_epoch:
 
 1. **Database**: ArangoDB with `fraud-intelligence` database
 2. **Graph**: Graph data loaded (e.g., KnowledgeGraph)
-3. **Platform**: graph-analytics-ai-platform installed
+3. **Platform**: agentic-graph-analytics installed
    ```bash
-   pip install -e ~/code/graph-analytics-ai-platform
+   pip install -e ~/code/agentic-graph-analytics
    ```
 4. **Environment**: `.env` in fraud-intelligence with:
    - `ARANGO_URL` or `ARANGO_ENDPOINT`
@@ -146,7 +146,7 @@ print(f"Total executions: {executions.total_count}")
 
 ## Fixes Applied (February 11, 2026)
 
-### 1. Model Adapters (graph-analytics-ai-platform)
+### 1. Model Adapters (agentic-graph-analytics)
 
 The workflow produces types from `ai.documents`, `ai.generation`, and `ai.templates` that differ from catalog storage types. **Adapters** were added:
 

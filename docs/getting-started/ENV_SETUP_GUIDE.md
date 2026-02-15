@@ -10,13 +10,13 @@ You have production credentials in the library project's `.env` file, but you ne
 ### Step 1: Backup Current .env (if it contains production credentials)
 
 ```bash
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 cp .env .env.production.backup
 ```
 
 ### Step 2: Update Library Project .env (Test Credentials)
 
-Edit `~/code/graph-analytics-ai-platform/.env`:
+Edit `~/code/agentic-graph-analytics/.env`:
 
 ```bash
 # Test credentials for library development/testing
@@ -77,7 +77,7 @@ ARANGO_TIMEOUT=30
 
 ### Step 4: Create .env.example Files (For Version Control)
 
-**Library project** (`~/code/graph-analytics-ai-platform/.env.example`):
+**Library project** (`~/code/agentic-graph-analytics/.env.example`):
 
 ```bash
 # Copy this to .env and fill in your test credentials
@@ -123,7 +123,7 @@ OPENROUTER_MODEL=google/gemini-flash-1.5-8b
 # Swap credentials from library to customer project
 
 # 1. Backup current (production) credentials
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 cp .env .env.production.backup
 
 # 2. Copy production credentials to customer project
@@ -157,7 +157,7 @@ EOF
 ### Test Library Project (with test credentials)
 
 ```bash
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 
 # Verify test database connection
 python -c "from graph_analytics_ai.db_connection import get_db_connection; \
@@ -264,7 +264,7 @@ python -c "import os; from dotenv import load_dotenv; \
 pwd
 
 # Should be one of:
-# /Users/arthurkeen/code/graph-analytics-ai-platform  (library)
+# /Users/arthurkeen/code/agentic-graph-analytics  (library)
 # /Users/arthurkeen/code/your-customer-project         (customer)
 ```
 
@@ -275,7 +275,7 @@ pwd
 **Credential separation is essential!** You need to:
 
 1. ✅ Move production credentials → `your-customer-project/.env`
-2. ✅ Restore test credentials → `graph-analytics-ai-platform/.env`
+2. ✅ Restore test credentials → `agentic-graph-analytics/.env`
 3. ✅ Test library with test database
 4. ✅ Test customer project with production database
 

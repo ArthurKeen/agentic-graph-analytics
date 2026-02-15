@@ -351,7 +351,7 @@ print(f"Execution → {lineage.execution.algorithm}")
 ---
 
 **Project Lead:** AI Assistant 
-**Repository:** github.com/ArthurKeen/graph-analytics-ai-platform 
+**Repository:** github.com/ArthurKeen/agentic-graph-analytics 
 **Branch:** main (all changes merged) 
 **Version:** 3.2.0 (with Analysis Catalog)
 

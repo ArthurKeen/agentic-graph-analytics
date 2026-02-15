@@ -298,7 +298,7 @@ cp .env.example .env
 # Install library
 pip install graph-analytics-ai
 # Or for local development:
-pip install -e /path/to/graph-analytics-ai-platform
+pip install -e /path/to/agentic-graph-analytics
 ```
 
 **Error: Connection failed**

@@ -19,7 +19,7 @@ mkdir -p {docs,scripts,config,outputs,notebooks}
 
 ```txt
 # Install library from local path (development)
--e ../graph-analytics-ai-platform
+-e ../agentic-graph-analytics
 
 # Or from PyPI (when published)
 # graph-analytics-ai>=3.0.0
@@ -255,7 +255,7 @@ python scripts/run_analysis.py
 source venv/bin/activate # or venv\Scripts\activate on Windows
 
 # Update library (if installed in editable mode)
-cd ../graph-analytics-ai-platform
+cd ../agentic-graph-analytics
 git pull
 pip install -e .
 ```
@@ -294,7 +294,7 @@ result = orchestrator.run_complete_workflow(input_files=["requirements.pdf"])
 pip show graph-analytics-ai
 
 # Reinstall
-pip install -e ../graph-analytics-ai-platform --force-reinstall
+pip install -e ../agentic-graph-analytics --force-reinstall
 ```
 
 ### Connection Error
@@ -340,8 +340,8 @@ pwd
 
 ## Need Help?
 
-1. Check library documentation: `graph-analytics-ai-platform/README.md`
-2. Review examples: `graph-analytics-ai-platform/examples/`
+1. Check library documentation: `agentic-graph-analytics/README.md`
+2. Review examples: `agentic-graph-analytics/examples/`
 3. Read archived migration plan: `docs/archive/premion-use-case/PREMION_MIGRATION_PLAN.md`
 4. Check archived cleanup summary: `docs/archive/premion-use-case/CLEANUP_SUMMARY.md`
 

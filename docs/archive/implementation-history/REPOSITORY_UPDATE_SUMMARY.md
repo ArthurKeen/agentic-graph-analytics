@@ -156,7 +156,7 @@ All changes have been committed and pushed to the remote repository.
 cd ~/code/premion-graph-analytics
 
 # Pull latest changes
-pip install -e ~/code/graph-analytics-ai-platform
+pip install -e ~/code/agentic-graph-analytics
 
 # Verify installation
 python -c "from graph_analytics_ai.ai.execution.metrics import ExecutionSummary; print(' New features available')"
@@ -279,7 +279,7 @@ If you encounter any issues:
 Simply reinstall the library in your Premion project:
 ```bash
 cd ~/code/premion-graph-analytics
-pip install -e ~/code/graph-analytics-ai-platform
+pip install -e ~/code/agentic-graph-analytics
 ```
 
 All new features are available and backward compatible with your existing code.

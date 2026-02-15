@@ -390,7 +390,7 @@ Why it's bad: [Missing specifics, no context, unclear action]
 
 ### Template Location
 
-Create: `graph-analytics-ai-platform/templates/business_requirements_template.md`
+Create: `agentic-graph-analytics/templates/business_requirements_template.md`
 
 ---
 
@@ -426,12 +426,12 @@ fraud-intelligence/
 
 ### Option 2: Platform Registry (For sharing)
 
-**Location:** `graph-analytics-ai-platform/graph_analytics_ai/ai/reporting/custom_verticals/`
+**Location:** `agentic-graph-analytics/graph_analytics_ai/ai/reporting/custom_verticals/`
 
 **Use case:** When multiple projects use the same custom vertical
 
 ```
-graph-analytics-ai-platform/
+agentic-graph-analytics/
   graph_analytics_ai/
     ai/
       reporting/
@@ -1036,7 +1036,7 @@ class AgenticWorkflowRunner:
 
 ## File Structure
 
-### graph-analytics-ai-platform
+### agentic-graph-analytics
 
 ```
 graph_analytics_ai/

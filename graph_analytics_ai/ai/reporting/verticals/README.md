@@ -61,10 +61,10 @@ cat .graph-analytics/industry_vertical.json
 
 # 2. Copy to platform verticals directory
 cp .graph-analytics/industry_vertical.json \
-   ~/code/graph-analytics-ai-platform/graph_analytics_ai/ai/reporting/verticals/supply_chain.json
+   ~/code/agentic-graph-analytics/graph_analytics_ai/ai/reporting/verticals/supply_chain.json
 
 # 3. Commit to platform repo
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 git add graph_analytics_ai/ai/reporting/verticals/supply_chain.json
 git commit -m "Add supply chain custom vertical to platform registry"
 git push
@@ -153,9 +153,9 @@ state = await runner.run_async()
 
 ```bash
 cp .graph-analytics/industry_vertical.json \
-   ~/code/graph-analytics-ai-platform/graph_analytics_ai/ai/reporting/verticals/supply_chain.json
+   ~/code/agentic-graph-analytics/graph_analytics_ai/ai/reporting/verticals/supply_chain.json
 
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 git add graph_analytics_ai/ai/reporting/verticals/supply_chain.json
 git commit -m "Add supply chain vertical to platform registry
 

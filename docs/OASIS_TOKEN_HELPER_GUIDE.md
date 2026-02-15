@@ -32,7 +32,7 @@ else:
     print("Failed to obtain token")
     exit(1)
 
-# Now use graph-analytics-ai-platform normally
+# Now use agentic-graph-analytics normally
 from graph_analytics_ai import GAEConnection
 # ... rest of your code
 ```

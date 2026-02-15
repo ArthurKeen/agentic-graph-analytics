@@ -142,7 +142,7 @@ state = await runner.run_async()
 ### Run Test Script
 
 ```bash
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 python test_custom_vertical.py
 ```
 
@@ -192,7 +192,7 @@ your-project/
 
 **Platform:**
 ```
-graph-analytics-ai-platform/
+agentic-graph-analytics/
   graph_analytics_ai/
     ai/
       agents/

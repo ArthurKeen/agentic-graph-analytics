@@ -253,7 +253,7 @@ Message: feat: Add algorithm-specific collection selection
 ### 1. Pull the Changes
 
 ```bash
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 git pull origin feature/ai-foundation-phase1
 ```
 

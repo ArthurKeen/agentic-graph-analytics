@@ -7,7 +7,7 @@
 
 ## Summary
 
-Successfully removed all Premion-specific references from the graph-analytics-ai-platform library while preserving functionality and archiving customer materials for migration.
+Successfully removed all Premion-specific references from the agentic-graph-analytics library while preserving functionality and archiving customer materials for migration.
 
 ---
 

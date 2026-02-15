@@ -160,7 +160,7 @@ your-project/
 ### Platform (for reference)
 
 ```
-graph-analytics-ai-platform/
+agentic-graph-analytics/
   graph_analytics_ai/
     ai/
       agents/
@@ -252,7 +252,7 @@ if vertical:
 ### Test Vertical Generation
 
 ```bash
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 python test_custom_vertical.py
 ```
 

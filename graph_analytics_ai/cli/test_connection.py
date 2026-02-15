@@ -90,7 +90,7 @@ def test_connection():
         print("\n   Install the library:")
         print("   pip install graph-analytics-ai")
         print("   # Or for local development:")
-        print("   pip install -e /path/to/graph-analytics-ai-platform")
+        print("   pip install -e /path/to/agentic-graph-analytics")
         return False
     except Exception as e:
         print(f"\n❌ ERROR: Connection failed")

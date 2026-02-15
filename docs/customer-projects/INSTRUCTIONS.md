@@ -1,8 +1,8 @@
-# Instructions for Projects Using graph-analytics-ai-platform
+# Instructions for Projects Using agentic-graph-analytics
 
 ## For Customer Projects (e.g., your-customer-project)
 
-This guide explains how to use the latest features in your project that imports the `graph-analytics-ai-platform` library.
+This guide explains how to use the latest features in your project that imports the `agentic-graph-analytics` library.
 
 **New Features** :
 - **Interactive HTML Reports with Plotly Charts** - Beautiful visualizations for your analysis results
@@ -127,7 +127,7 @@ This guide also explains how to use the **Collection Selection** feature for int
 cd ~/code/your-customer-project
 
 # If you installed the library in editable mode
-cd ~/code/graph-analytics-ai-platform
+cd ~/code/agentic-graph-analytics
 git pull origin feature/ai-foundation-phase1
 
 # The collection selection feature is now available
