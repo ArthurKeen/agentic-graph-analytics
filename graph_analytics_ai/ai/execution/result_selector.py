@@ -74,8 +74,8 @@ class ResultSelector:
     @staticmethod
     def _aql_for_largest_groups() -> str:
         # Fetch top groups by count, then take up to per_group from each group.
-        # Overall cap is applied by caller (per_group derived from limit) and
-        # a final LIMIT to protect against over-fetch.
+        # Overall cap is applied by (a) per_group derived from limit and (b) a final
+        # LIMIT @limit to protect against over-fetch and to keep bind-vars aligned.
         return (
             "LET topGroups = ("
             "  FOR doc IN @@coll "
@@ -84,11 +84,16 @@ class ResultSelector:
             "    LIMIT @groups "
             "    RETURN g"
             ") "
-            "FOR g IN topGroups "
-            "  FOR doc IN @@coll "
-            "    FILTER doc[@group_field] == g "
-            "    LIMIT @per_group "
-            "    RETURN doc"
+            "LET selected = ("
+            "  FOR g IN topGroups "
+            "    FOR doc IN @@coll "
+            "      FILTER doc[@group_field] == g "
+            "      LIMIT @per_group "
+            "      RETURN doc"
+            ") "
+            "FOR doc IN selected "
+            "LIMIT @limit "
+            "RETURN doc"
         )
 
     @classmethod

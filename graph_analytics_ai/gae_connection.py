@@ -800,6 +800,11 @@ class GenAIGAEConnection(GAEConnectionBase):
             "Content-Type": "application/json",
         }
 
+    def _refresh_jwt_token(self) -> None:
+        """Force-refresh the JWT token (e.g., when a 401 indicates expiry)."""
+        self.jwt_token = None
+        self._get_jwt_token()
+
     def start_engine(self) -> str:
         """Start a new GAE service via GenAI platform."""
         print("Starting GAE service...")
@@ -809,12 +814,15 @@ class GenAIGAEConnection(GAEConnectionBase):
 
         try:
             response = requests.post(
-                url,
-                json={},
-                headers=headers,
-                timeout=self.timeout,
-                verify=self.verify_ssl,
+                url, json={}, headers=headers, timeout=self.timeout, verify=self.verify_ssl
             )
+            if response.status_code == 401:
+                # Common in long runs: JWT expires; refresh + retry once.
+                self._refresh_jwt_token()
+                headers = self._get_headers()
+                response = requests.post(
+                    url, json={}, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                )
             response.raise_for_status()
 
             data = response.json()
@@ -863,6 +871,12 @@ class GenAIGAEConnection(GAEConnectionBase):
             response = requests.delete(
                 url, headers=headers, timeout=self.timeout, verify=self.verify_ssl
             )
+            if response.status_code == 401:
+                self._refresh_jwt_token()
+                headers = self._get_headers()
+                response = requests.delete(
+                    url, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                )
             try:
                 response.raise_for_status()
             except requests.exceptions.HTTPError:
@@ -1067,6 +1081,13 @@ class GenAIGAEConnection(GAEConnectionBase):
                 else:
                     raise ValueError(f"Unsupported HTTP method: {method}")
 
+                if response.status_code == 401 and attempt < max_attempts:
+                    # JWT expired mid-run. Refresh token and retry.
+                    self._refresh_jwt_token()
+                    headers = self._get_headers()
+                    time.sleep(1)
+                    continue
+
                 response.raise_for_status()
 
                 result = response.json() if response.text else {}
@@ -1099,6 +1120,13 @@ class GenAIGAEConnection(GAEConnectionBase):
                 )
                 if is_transient_gral_route and attempt < max_attempts:
                     time.sleep(2)
+                    continue
+
+                if status == 401 and attempt < max_attempts:
+                    # Same as above but for raise_for_status paths.
+                    self._refresh_jwt_token()
+                    headers = self._get_headers()
+                    time.sleep(1)
                     continue
 
                 error_msg = error_message or "Request failed"
@@ -1404,6 +1432,12 @@ class GenAIGAEConnection(GAEConnectionBase):
             response = requests.post(
                 url, headers=headers, timeout=self.timeout, verify=self.verify_ssl
             )
+            if response.status_code == 401:
+                self._refresh_jwt_token()
+                headers = self._get_headers()
+                response = requests.post(
+                    url, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                )
             response.raise_for_status()
             data = response.json()
             # Response has structure: {"services": [...]}
