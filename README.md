@@ -1,4 +1,4 @@
-# AI-Powered Graph Analytics Platform
+# AI-Powered Graph Analytics Platform - Experimental
 
 **Autonomous AI agents transform business requirements into graph insights**
 
