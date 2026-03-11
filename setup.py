@@ -35,10 +35,14 @@ setup(
             "flake8>=5.0.0",
             "mypy>=0.991",
         ],
+        "mcp": [
+            "mcp[cli]>=1.0.0",
+        ],
     },
     entry_points={
         "console_scripts": [
             "gaai=graph_analytics_ai.ai.cli:main",
+            "gaai-mcp=graph_analytics_ai.mcp.server:main",
         ],
     },
     classifiers=[

@@ -1,0 +1,15 @@
+{
+  "graph-analytics-ai": {
+    "command": "python",
+    "args": ["-m", "graph_analytics_ai.mcp"],
+    "env": {
+      "ARANGO_ENDPOINT": "https://your-cluster.arangodb.cloud:8529",
+      "ARANGO_DATABASE": "your_database",
+      "ARANGO_USER": "root",
+      "ARANGO_PASSWORD": "your_password",
+      "LLM_PROVIDER": "openai",
+      "OPENAI_API_KEY": "your_openai_key",
+      "OPENAI_MODEL": "gpt-4"
+    }
+  }
+}

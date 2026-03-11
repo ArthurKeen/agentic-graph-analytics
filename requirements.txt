@@ -5,3 +5,5 @@ python-dotenv>=0.19.0
 click>=8.0.0
 langgraph>=0.0.40
 plotly>=6.0.0  # Optional: for interactive chart generation in reports
+# MCP server (optional): pip install ".[mcp]"
+# mcp[cli]>=1.0.0

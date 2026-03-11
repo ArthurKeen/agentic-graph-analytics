@@ -648,6 +648,76 @@ if test_connection():
 
 ---
 
+## 🔌 MCP Server (NEW)
+
+Expose the platform as an **[MCP (Model Context Protocol)](https://modelcontextprotocol.io)** server so any MCP-compatible AI host — Claude Desktop, Cursor, etc. — can call graph analytics directly as tools.
+
+### Installation
+
+```bash
+pip install ".[mcp]"
+```
+
+### Quick Start
+
+```bash
+# Start the MCP server
+gaai-mcp
+
+# Or via module
+python -m graph_analytics_ai.mcp
+```
+
+### Claude Desktop / Cursor Configuration
+
+Copy this into your `mcp_servers.json` (see [`mcp_config.example.json`](mcp_config.example.json) for a full template):
+
+```json
+{
+  "graph-analytics-ai": {
+    "command": "python",
+    "args": ["-m", "graph_analytics_ai.mcp"],
+    "env": {
+      "ARANGO_ENDPOINT": "https://your-cluster:8529",
+      "ARANGO_DATABASE": "your_db",
+      "ARANGO_USER": "root",
+      "ARANGO_PASSWORD": "...",
+      "LLM_PROVIDER": "openai",
+      "OPENAI_API_KEY": "..."
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Group | Tool | Description |
+|-------|------|-------------|
+| **Graph** | `get_connection_info` | Returns ArangoDB endpoint + database (no password) |
+| | `list_graphs` | Lists named graphs in the configured database |
+| | `describe_graph` | Vertex/edge collection definitions for a graph |
+| | `analyze_schema` | Full schema extraction + LLM analysis |
+| **Workflow** | `start_workflow` | Launch an agentic workflow; returns `job_id` immediately |
+| | `get_workflow_status` | Poll status of a running workflow by `job_id` |
+| | `list_workflow_jobs` | List all jobs in the current server session |
+| **Catalog** | `list_epochs` | Recent analysis epochs |
+| | `get_epoch` | Full detail for one epoch |
+| | `query_executions` | Paginated execution search with filters |
+| | `get_lineage` | Complete lineage chain for an execution |
+| | `get_catalog_stats` | Summary statistics |
+| **GAE** | `list_gae_engines` | Active GAE engine instances |
+| | `run_analysis` | Run a single algorithm directly (no AI planning needed) |
+| | `cleanup_engines` | Remove idle/stale engines (dry-run by default) |
+
+### Interactive Testing (MCP Inspector)
+
+```bash
+# Inspector launches a browser UI at http://localhost:5173
+mcp dev graph_analytics_ai/mcp/server.py
+```
+
+---
+
 ##  Examples
 
 ### Example 1: Complete Workflow (Traditional)
