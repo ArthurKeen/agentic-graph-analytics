@@ -329,7 +329,7 @@ Both workflow modes execute the same underlying pipeline:
 graph TB
     Input[Business Requirements<br/>PDF/DOCX/Text]
 
-    Vertical[Industry Vertical Resolver<br/>Built-in / Project Custom / Auto-generate<br/>• Loads domain prompt + patterns<br/>• Writes .graph-analytics/industry_vertical.json (when generated)]
+    Vertical["Industry Vertical Resolver<br/>Built-in / Project Custom / Auto-generate<br/>Loads domain prompt + patterns<br/>Writes industry_vertical.json (when generated)"]
     
     Schema[Schema Extract<br/>Extract graph structure]
     Req[Requirements<br/>Parse business needs]
@@ -338,9 +338,9 @@ graph TB
     Execute[Execute<br/>Run on ArangoDB GAE]
     Report[Report<br/>Generate insights]
 
-    Catalog[(Analytics Catalog<br/>Epochs + lineage + time-series<br/>Requirements → Use Cases → Templates → Executions)]
+    Catalog[("Analytics Catalog<br/>Epochs + lineage + time-series<br/>Requirements to Use Cases to Templates to Executions")]
     
-    Output[Actionable Intelligence Reports<br/>• Business insights with confidence scores<br/>• Prioritized recommendations<br/>• Multiple output formats]
+    Output["Actionable Intelligence Reports<br/>Business insights with confidence scores<br/>Prioritized recommendations<br/>Multiple output formats"]
     
     Input --> Vertical
     Input --> Schema
