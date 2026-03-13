@@ -557,12 +557,23 @@ asyncio.run(main())
 
 ### Technology Stack
 
-- **Python 3.8+** - Core platform
-- **ArangoDB** - Graph database
-- **GAE (Graph Analytics Engine)** - Analysis execution
-- **LLM Providers** - OpenAI, Anthropic, Google Gemini
-- **Python-Arango** - Database driver
-- **Click** - CLI interface
+**AI & Agent Layer**
+
+| Layer | Technology | Role |
+|-------|-----------|------|
+| **Agent Orchestration** | [LangGraph](https://github.com/langchain-ai/langgraph) | Stateful multi-agent supervisor graph — coordinates 6 specialized agents with conditional routing, self-healing, and parallel execution |
+| **LLM Providers** | OpenAI / Anthropic / Gemini | Inference at every pipeline step (schema analysis, use-case generation, report synthesis) |
+| **Tool Protocol** | [MCP (Model Context Protocol)](https://modelcontextprotocol.io) | Exposes the platform as callable tools to any MCP-compatible AI host (Claude Desktop, Cursor, etc.) |
+
+**Infrastructure Layer**
+
+| Layer | Technology | Role |
+|-------|-----------|------|
+| **Graph Database** | ArangoDB | Stores the business graph and analytics catalog |
+| **Graph Analytics Engine** | ArangoDB GAE | Executes algorithms (PageRank, WCC, SCC, Label Propagation, Betweenness) on the cluster |
+| **Async Runtime** | Python asyncio + aiohttp | Powers parallel agent execution (40-60% speedup) |
+| **Database Driver** | python-arango | ArangoDB Python client |
+| **CLI** | Click | Command-line interface (`gaai` + `gaai-mcp`) |
 
 ---
 
