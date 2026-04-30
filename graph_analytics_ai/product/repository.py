@@ -3,8 +3,13 @@
 from typing import List, Optional
 
 from .models import (
+    AuditEvent,
+    ChartSpec,
     ConnectionProfile,
     GraphProfile,
+    PublishedSnapshot,
+    ReportManifest,
+    ReportSection,
     RequirementInterview,
     RequirementVersion,
     SourceDocument,
@@ -166,4 +171,79 @@ class ProductRepository:
         """List workflow runs for a workspace."""
 
         return self.storage.list_workflow_runs(workspace_id)
+
+    def create_report_manifest(self, manifest: ReportManifest) -> str:
+        """Create a report manifest."""
+
+        return self.storage.insert_report_manifest(manifest)
+
+    def get_report_manifest(self, report_id: str) -> ReportManifest:
+        """Get a report manifest."""
+
+        return self.storage.get_report_manifest(report_id)
+
+    def update_report_manifest(self, manifest: ReportManifest) -> str:
+        """Update a report manifest."""
+
+        return self.storage.update_report_manifest(manifest)
+
+    def list_report_manifests(self, workspace_id: str) -> List[ReportManifest]:
+        """List report manifests for a workspace."""
+
+        return self.storage.list_report_manifests(workspace_id)
+
+    def create_report_section(self, section: ReportSection) -> str:
+        """Create a report section."""
+
+        return self.storage.insert_report_section(section)
+
+    def get_report_section(self, section_id: str) -> ReportSection:
+        """Get a report section."""
+
+        return self.storage.get_report_section(section_id)
+
+    def list_report_sections(self, report_id: str) -> List[ReportSection]:
+        """List report sections for a report."""
+
+        return self.storage.list_report_sections(report_id)
+
+    def create_chart_spec(self, chart: ChartSpec) -> str:
+        """Create a chart spec."""
+
+        return self.storage.insert_chart_spec(chart)
+
+    def get_chart_spec(self, chart_id: str) -> ChartSpec:
+        """Get a chart spec."""
+
+        return self.storage.get_chart_spec(chart_id)
+
+    def list_chart_specs(self, report_id: str) -> List[ChartSpec]:
+        """List chart specs for a report."""
+
+        return self.storage.list_chart_specs(report_id)
+
+    def create_published_snapshot(self, snapshot: PublishedSnapshot) -> str:
+        """Create a published snapshot."""
+
+        return self.storage.insert_published_snapshot(snapshot)
+
+    def get_published_snapshot(self, published_snapshot_id: str) -> PublishedSnapshot:
+        """Get a published snapshot."""
+
+        return self.storage.get_published_snapshot(published_snapshot_id)
+
+    def list_published_snapshots(self, report_id: str) -> List[PublishedSnapshot]:
+        """List published snapshots for a report."""
+
+        return self.storage.list_published_snapshots(report_id)
+
+    def create_audit_event(self, event: AuditEvent) -> str:
+        """Create an audit event."""
+
+        return self.storage.insert_audit_event(event)
+
+    def list_audit_events(self, workspace_id: str, limit: int = 100) -> List[AuditEvent]:
+        """List audit events for a workspace."""
+
+        return self.storage.list_audit_events(workspace_id, limit=limit)
 

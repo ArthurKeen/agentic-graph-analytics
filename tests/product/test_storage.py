@@ -6,6 +6,7 @@ import pytest
 from arango import ArangoClient
 
 from graph_analytics_ai.product import (
+    ChartType,
     ConnectionVerificationStatus,
     DeploymentMode,
     DocumentStorageMode,
@@ -13,14 +14,21 @@ from graph_analytics_ai.product import (
     ProductRepository,
     RequirementInterviewStatus,
     RequirementVersionStatus,
+    ReportSectionType,
+    ReportStatus,
     WorkspaceStatus,
     WorkflowDAGEdge,
     WorkflowMode,
     WorkflowRunStatus,
     WorkflowStep,
     WorkflowStepStatus,
+    create_audit_event,
+    create_chart_spec,
     create_connection_profile,
     create_graph_profile,
+    create_published_snapshot,
+    create_report_manifest,
+    create_report_section,
     create_requirement_interview,
     create_requirement_version,
     create_source_document,
@@ -28,10 +36,15 @@ from graph_analytics_ai.product import (
     create_workspace,
 )
 from graph_analytics_ai.product.constants import (
+    AUDIT_EVENTS_COLLECTION,
+    CHART_SPECS_COLLECTION,
     CONNECTION_PROFILES_COLLECTION,
     DOCUMENTS_COLLECTION,
     GRAPH_PROFILES_COLLECTION,
     PRODUCT_COLLECTIONS,
+    PUBLISHED_SNAPSHOTS_COLLECTION,
+    REPORT_MANIFESTS_COLLECTION,
+    REPORT_SECTIONS_COLLECTION,
     REQUIREMENT_INTERVIEWS_COLLECTION,
     REQUIREMENT_VERSIONS_COLLECTION,
     WORKFLOW_RUNS_COLLECTION,
@@ -276,5 +289,107 @@ def test_workflow_run_crud(storage, arango_db):
     assert updated.steps[0].status == WorkflowStepStatus.COMPLETED
     assert [r.run_id for r in repository.list_workflow_runs(workspace.workspace_id)] == [
         run_id
+    ]
+
+
+def test_report_and_audit_crud(storage, arango_db):
+    """Repository supports report rendering metadata and audit events."""
+
+    repository = ProductRepository(storage)
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.create_workspace(workspace)
+    run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=WorkflowRunStatus.COMPLETED,
+    )
+    run_id = repository.create_workflow_run(run)
+
+    manifest = create_report_manifest(
+        workspace_id=workspace.workspace_id,
+        run_id=run_id,
+        title="Audience Graph Analysis",
+        status=ReportStatus.READY,
+        summary="Dynamic report summary.",
+    )
+    report_id = repository.create_report_manifest(manifest)
+    restored_manifest = repository.get_report_manifest(report_id)
+    assert restored_manifest.status == ReportStatus.READY
+    assert arango_db.collection(REPORT_MANIFESTS_COLLECTION).count() == 1
+
+    section = create_report_section(
+        workspace_id=workspace.workspace_id,
+        report_id=report_id,
+        order=1,
+        type=ReportSectionType.SUMMARY,
+        title="Summary",
+        content={"markdown": "Report body."},
+    )
+    section_id = repository.create_report_section(section)
+    restored_section = repository.get_report_section(section_id)
+    assert restored_section.content["markdown"] == "Report body."
+    assert arango_db.collection(REPORT_SECTIONS_COLLECTION).count() == 1
+
+    chart = create_chart_spec(
+        workspace_id=workspace.workspace_id,
+        report_id=report_id,
+        title="Top Scores",
+        chart_type=ChartType.BAR,
+        data_source={"collection": "analysis_results"},
+        encoding={"x": "name", "y": "score"},
+    )
+    chart_id = repository.create_chart_spec(chart)
+    restored_chart = repository.get_chart_spec(chart_id)
+    assert restored_chart.chart_type == ChartType.BAR
+    assert arango_db.collection(CHART_SPECS_COLLECTION).count() == 1
+
+    snapshot = create_published_snapshot(
+        workspace_id=workspace.workspace_id,
+        report_id=report_id,
+        title="Audience Graph Analysis",
+        published_by="analyst@example.com",
+        content_hash="sha256:abc123",
+        rendered_snapshot={"report_id": report_id},
+    )
+    snapshot_id = repository.create_published_snapshot(snapshot)
+    restored_snapshot = repository.get_published_snapshot(snapshot_id)
+    assert restored_snapshot.content_hash == "sha256:abc123"
+    assert arango_db.collection(PUBLISHED_SNAPSHOTS_COLLECTION).count() == 1
+
+    event = create_audit_event(
+        workspace_id=workspace.workspace_id,
+        actor="analyst@example.com",
+        action="publish_report",
+        target_type="report",
+        target_id=report_id,
+    )
+    repository.create_audit_event(event)
+    assert arango_db.collection(AUDIT_EVENTS_COLLECTION).count() == 1
+
+    manifest.section_ids = [section_id]
+    manifest.chart_ids = [chart_id]
+    manifest.published_snapshot_id = snapshot_id
+    manifest.status = ReportStatus.PUBLISHED
+    repository.update_report_manifest(manifest)
+
+    updated_manifest = repository.get_report_manifest(report_id)
+    assert updated_manifest.status == ReportStatus.PUBLISHED
+    assert updated_manifest.published_snapshot_id == snapshot_id
+    assert [r.report_id for r in repository.list_report_manifests(workspace.workspace_id)] == [
+        report_id
+    ]
+    assert [s.section_id for s in repository.list_report_sections(report_id)] == [
+        section_id
+    ]
+    assert [c.chart_id for c in repository.list_chart_specs(report_id)] == [chart_id]
+    assert [
+        s.published_snapshot_id for s in repository.list_published_snapshots(report_id)
+    ] == [snapshot_id]
+    assert [e.audit_event_id for e in repository.list_audit_events(workspace.workspace_id)] == [
+        event.audit_event_id
     ]
 

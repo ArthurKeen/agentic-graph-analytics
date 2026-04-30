@@ -102,6 +102,38 @@ class WorkflowStepStatus(Enum):
     PAUSED = "paused"
 
 
+class ReportStatus(Enum):
+    """Lifecycle status for dynamic reports."""
+
+    DRAFT = "draft"
+    READY = "ready"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"
+
+
+class ReportSectionType(Enum):
+    """Supported structured report section types."""
+
+    TEXT = "text"
+    SUMMARY = "summary"
+    INSIGHT = "insight"
+    RECOMMENDATION = "recommendation"
+    EVIDENCE = "evidence"
+    CHART = "chart"
+    TABLE = "table"
+
+
+class ChartType(Enum):
+    """Supported chart specification types."""
+
+    BAR = "bar"
+    LINE = "line"
+    PIE = "pie"
+    SCATTER = "scatter"
+    TABLE = "table"
+    CUSTOM = "custom"
+
+
 def current_timestamp() -> datetime:
     """Get the current UTC timestamp."""
 
@@ -735,6 +767,281 @@ class WorkflowRun:
         )
 
 
+@dataclass
+class ReportManifest:
+    """Report identity, publication state, and lineage links."""
+
+    report_id: str
+    workspace_id: str
+    run_id: str
+    title: str
+    status: ReportStatus = ReportStatus.DRAFT
+    summary: str = ""
+    version: int = 1
+    section_ids: List[str] = field(default_factory=list)
+    chart_ids: List[str] = field(default_factory=list)
+    published_snapshot_id: Optional[str] = None
+    requirement_version_id: Optional[str] = None
+    use_case_ids: List[str] = field(default_factory=list)
+    template_ids: List[str] = field(default_factory=list)
+    analysis_execution_ids: List[str] = field(default_factory=list)
+    result_collections: List[str] = field(default_factory=list)
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.report_id,
+            "report_id": self.report_id,
+            "workspace_id": self.workspace_id,
+            "run_id": self.run_id,
+            "status": _enum_value(self.status),
+            "title": self.title,
+            "summary": self.summary,
+            "version": self.version,
+            "section_ids": self.section_ids,
+            "chart_ids": self.chart_ids,
+            "published_snapshot_id": self.published_snapshot_id,
+            "requirement_version_id": self.requirement_version_id,
+            "use_case_ids": self.use_case_ids,
+            "template_ids": self.template_ids,
+            "analysis_execution_ids": self.analysis_execution_ids,
+            "result_collections": self.result_collections,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ReportManifest":
+        """Create a report manifest from an ArangoDB document."""
+
+        return cls(
+            report_id=data.get("report_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            run_id=data["run_id"],
+            status=ReportStatus(data.get("status", ReportStatus.DRAFT.value)),
+            title=data["title"],
+            summary=data.get("summary", ""),
+            version=data.get("version", 1),
+            section_ids=data.get("section_ids", []),
+            chart_ids=data.get("chart_ids", []),
+            published_snapshot_id=data.get("published_snapshot_id"),
+            requirement_version_id=data.get("requirement_version_id"),
+            use_case_ids=data.get("use_case_ids", []),
+            template_ids=data.get("template_ids", []),
+            analysis_execution_ids=data.get("analysis_execution_ids", []),
+            result_collections=data.get("result_collections", []),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class ReportSection:
+    """Ordered structured report content block."""
+
+    section_id: str
+    workspace_id: str
+    report_id: str
+    order: int
+    type: ReportSectionType
+    title: str
+    content: Dict[str, Any] = field(default_factory=dict)
+    evidence_refs: List[Dict[str, str]] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.section_id,
+            "section_id": self.section_id,
+            "workspace_id": self.workspace_id,
+            "report_id": self.report_id,
+            "order": self.order,
+            "type": _enum_value(self.type),
+            "title": self.title,
+            "content": self.content,
+            "evidence_refs": self.evidence_refs,
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ReportSection":
+        """Create a report section from an ArangoDB document."""
+
+        return cls(
+            section_id=data.get("section_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            report_id=data["report_id"],
+            order=data["order"],
+            type=ReportSectionType(data["type"]),
+            title=data["title"],
+            content=data.get("content", {}),
+            evidence_refs=data.get("evidence_refs", []),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class ChartSpec:
+    """Renderable chart specification for dynamic reports."""
+
+    chart_id: str
+    workspace_id: str
+    report_id: str
+    title: str
+    chart_type: ChartType
+    data_source: Dict[str, Any] = field(default_factory=dict)
+    data: Dict[str, Any] = field(default_factory=dict)
+    encoding: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.chart_id,
+            "chart_id": self.chart_id,
+            "workspace_id": self.workspace_id,
+            "report_id": self.report_id,
+            "title": self.title,
+            "chart_type": _enum_value(self.chart_type),
+            "data_source": self.data_source,
+            "data": self.data,
+            "encoding": self.encoding,
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ChartSpec":
+        """Create a chart spec from an ArangoDB document."""
+
+        return cls(
+            chart_id=data.get("chart_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            report_id=data["report_id"],
+            title=data["title"],
+            chart_type=ChartType(data["chart_type"]),
+            data_source=data.get("data_source", {}),
+            data=data.get("data", {}),
+            encoding=data.get("encoding", {}),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class PublishedSnapshot:
+    """Immutable report publication snapshot metadata."""
+
+    published_snapshot_id: str
+    report_id: str
+    workspace_id: str
+    title: str
+    published_at: datetime
+    published_by: str
+    content_hash: str
+    rendered_snapshot: Dict[str, Any] = field(default_factory=dict)
+    export_uris: Dict[str, str] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.published_snapshot_id,
+            "published_snapshot_id": self.published_snapshot_id,
+            "report_id": self.report_id,
+            "workspace_id": self.workspace_id,
+            "title": self.title,
+            "published_at": self.published_at.isoformat(),
+            "published_by": self.published_by,
+            "content_hash": self.content_hash,
+            "rendered_snapshot": self.rendered_snapshot,
+            "export_uris": self.export_uris,
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "PublishedSnapshot":
+        """Create a published snapshot from an ArangoDB document."""
+
+        return cls(
+            published_snapshot_id=data.get("published_snapshot_id") or data["_key"],
+            report_id=data["report_id"],
+            workspace_id=data["workspace_id"],
+            title=data["title"],
+            published_at=datetime.fromisoformat(data["published_at"]),
+            published_by=data["published_by"],
+            content_hash=data["content_hash"],
+            rendered_snapshot=data.get("rendered_snapshot", {}),
+            export_uris=data.get("export_uris", {}),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class AuditEvent:
+    """Append-only audit event for product actions."""
+
+    audit_event_id: str
+    workspace_id: str
+    actor: str
+    action: str
+    target_type: str
+    target_id: str
+    timestamp: datetime = field(default_factory=current_timestamp)
+    details: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.audit_event_id,
+            "audit_event_id": self.audit_event_id,
+            "workspace_id": self.workspace_id,
+            "actor": self.actor,
+            "action": self.action,
+            "target_type": self.target_type,
+            "target_id": self.target_id,
+            "timestamp": self.timestamp.isoformat(),
+            "details": self.details,
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AuditEvent":
+        """Create an audit event from an ArangoDB document."""
+
+        return cls(
+            audit_event_id=data.get("audit_event_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            actor=data["actor"],
+            action=data["action"],
+            target_type=data["target_type"],
+            target_id=data["target_id"],
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+            details=data.get("details", {}),
+            metadata=data.get("metadata", {}),
+        )
+
+
 def create_workspace(
     customer_name: str,
     project_name: str,
@@ -854,6 +1161,106 @@ def create_workflow_run(
         run_id=generate_product_id("run"),
         workspace_id=workspace_id,
         workflow_mode=workflow_mode,
+        **kwargs,
+    )
+
+
+def create_report_manifest(
+    workspace_id: str,
+    run_id: str,
+    title: str,
+    **kwargs: Any,
+) -> ReportManifest:
+    """Create a report manifest with a generated ID."""
+
+    return ReportManifest(
+        report_id=generate_product_id("report"),
+        workspace_id=workspace_id,
+        run_id=run_id,
+        title=title,
+        **kwargs,
+    )
+
+
+def create_report_section(
+    workspace_id: str,
+    report_id: str,
+    order: int,
+    type: ReportSectionType,
+    title: str,
+    **kwargs: Any,
+) -> ReportSection:
+    """Create a report section with a generated ID."""
+
+    return ReportSection(
+        section_id=generate_product_id("report-section"),
+        workspace_id=workspace_id,
+        report_id=report_id,
+        order=order,
+        type=type,
+        title=title,
+        **kwargs,
+    )
+
+
+def create_chart_spec(
+    workspace_id: str,
+    report_id: str,
+    title: str,
+    chart_type: ChartType,
+    **kwargs: Any,
+) -> ChartSpec:
+    """Create a chart spec with a generated ID."""
+
+    return ChartSpec(
+        chart_id=generate_product_id("chart"),
+        workspace_id=workspace_id,
+        report_id=report_id,
+        title=title,
+        chart_type=chart_type,
+        **kwargs,
+    )
+
+
+def create_published_snapshot(
+    workspace_id: str,
+    report_id: str,
+    title: str,
+    published_by: str,
+    content_hash: str,
+    **kwargs: Any,
+) -> PublishedSnapshot:
+    """Create a published snapshot with a generated ID."""
+
+    return PublishedSnapshot(
+        published_snapshot_id=generate_product_id("published-snapshot"),
+        workspace_id=workspace_id,
+        report_id=report_id,
+        title=title,
+        published_by=published_by,
+        published_at=current_timestamp(),
+        content_hash=content_hash,
+        **kwargs,
+    )
+
+
+def create_audit_event(
+    workspace_id: str,
+    actor: str,
+    action: str,
+    target_type: str,
+    target_id: str,
+    **kwargs: Any,
+) -> AuditEvent:
+    """Create an audit event with a generated ID."""
+
+    return AuditEvent(
+        audit_event_id=generate_product_id("audit"),
+        workspace_id=workspace_id,
+        actor=actor,
+        action=action,
+        target_type=target_type,
+        target_id=target_id,
         **kwargs,
     )
 

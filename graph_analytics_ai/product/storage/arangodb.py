@@ -28,8 +28,13 @@ from ..constants import (
 )
 from ..exceptions import DuplicateError, NotFoundError, StorageError
 from ..models import (
+    AuditEvent,
+    ChartSpec,
     ConnectionProfile,
     GraphProfile,
+    PublishedSnapshot,
+    ReportManifest,
+    ReportSection,
     RequirementInterview,
     RequirementVersion,
     SourceDocument,
@@ -55,6 +60,11 @@ class ProductArangoStorage:
     REQUIREMENT_INTERVIEWS_COLLECTION = REQUIREMENT_INTERVIEWS_COLLECTION
     REQUIREMENT_VERSIONS_COLLECTION = REQUIREMENT_VERSIONS_COLLECTION
     WORKFLOW_RUNS_COLLECTION = WORKFLOW_RUNS_COLLECTION
+    REPORT_MANIFESTS_COLLECTION = REPORT_MANIFESTS_COLLECTION
+    REPORT_SECTIONS_COLLECTION = REPORT_SECTIONS_COLLECTION
+    CHART_SPECS_COLLECTION = CHART_SPECS_COLLECTION
+    PUBLISHED_SNAPSHOTS_COLLECTION = PUBLISHED_SNAPSHOTS_COLLECTION
+    AUDIT_EVENTS_COLLECTION = AUDIT_EVENTS_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -517,6 +527,144 @@ class ProductArangoStorage:
 
         docs = self._list_workspace_documents(WORKFLOW_RUNS_COLLECTION, workspace_id)
         return [WorkflowRun.from_dict(doc) for doc in docs]
+
+    # --- Report operations ---
+
+    def insert_report_manifest(self, manifest: ReportManifest) -> str:
+        """Insert a report manifest."""
+
+        return self._insert_document(REPORT_MANIFESTS_COLLECTION, manifest.to_dict())
+
+    def get_report_manifest(self, report_id: str) -> ReportManifest:
+        """Get a report manifest by ID."""
+
+        return ReportManifest.from_dict(
+            self._get_document(REPORT_MANIFESTS_COLLECTION, report_id)
+        )
+
+    def update_report_manifest(self, manifest: ReportManifest) -> str:
+        """Update a report manifest."""
+
+        manifest.updated_at = datetime.now(timezone.utc)
+        return self._update_document(REPORT_MANIFESTS_COLLECTION, manifest.to_dict())
+
+    def list_report_manifests(self, workspace_id: str) -> List[ReportManifest]:
+        """List report manifests for a workspace."""
+
+        docs = self._list_workspace_documents(REPORT_MANIFESTS_COLLECTION, workspace_id)
+        return [ReportManifest.from_dict(doc) for doc in docs]
+
+    def insert_report_section(self, section: ReportSection) -> str:
+        """Insert a report section."""
+
+        return self._insert_document(REPORT_SECTIONS_COLLECTION, section.to_dict())
+
+    def get_report_section(self, section_id: str) -> ReportSection:
+        """Get a report section by ID."""
+
+        return ReportSection.from_dict(
+            self._get_document(REPORT_SECTIONS_COLLECTION, section_id)
+        )
+
+    def list_report_sections(self, report_id: str) -> List[ReportSection]:
+        """List report sections for a report ordered by section order."""
+
+        query = f"""
+        FOR doc IN {REPORT_SECTIONS_COLLECTION}
+            FILTER doc.report_id == @report_id
+            SORT doc.order ASC
+            RETURN doc
+        """
+
+        try:
+            cursor = self.db.aql.execute(query, bind_vars={"report_id": report_id})
+            return [ReportSection.from_dict(doc) for doc in cursor]
+        except Exception as exc:
+            raise StorageError(f"Failed to list report sections: {exc}") from exc
+
+    def insert_chart_spec(self, chart: ChartSpec) -> str:
+        """Insert a chart spec."""
+
+        return self._insert_document(CHART_SPECS_COLLECTION, chart.to_dict())
+
+    def get_chart_spec(self, chart_id: str) -> ChartSpec:
+        """Get a chart spec by ID."""
+
+        return ChartSpec.from_dict(self._get_document(CHART_SPECS_COLLECTION, chart_id))
+
+    def list_chart_specs(self, report_id: str) -> List[ChartSpec]:
+        """List chart specs for a report."""
+
+        query = f"""
+        FOR doc IN {CHART_SPECS_COLLECTION}
+            FILTER doc.report_id == @report_id
+            SORT doc.title ASC
+            RETURN doc
+        """
+
+        try:
+            cursor = self.db.aql.execute(query, bind_vars={"report_id": report_id})
+            return [ChartSpec.from_dict(doc) for doc in cursor]
+        except Exception as exc:
+            raise StorageError(f"Failed to list chart specs: {exc}") from exc
+
+    def insert_published_snapshot(self, snapshot: PublishedSnapshot) -> str:
+        """Insert a published report snapshot."""
+
+        return self._insert_document(
+            PUBLISHED_SNAPSHOTS_COLLECTION,
+            snapshot.to_dict(),
+        )
+
+    def get_published_snapshot(self, published_snapshot_id: str) -> PublishedSnapshot:
+        """Get a published report snapshot by ID."""
+
+        return PublishedSnapshot.from_dict(
+            self._get_document(PUBLISHED_SNAPSHOTS_COLLECTION, published_snapshot_id)
+        )
+
+    def list_published_snapshots(self, report_id: str) -> List[PublishedSnapshot]:
+        """List published snapshots for a report."""
+
+        query = f"""
+        FOR doc IN {PUBLISHED_SNAPSHOTS_COLLECTION}
+            FILTER doc.report_id == @report_id
+            SORT doc.published_at DESC
+            RETURN doc
+        """
+
+        try:
+            cursor = self.db.aql.execute(query, bind_vars={"report_id": report_id})
+            return [PublishedSnapshot.from_dict(doc) for doc in cursor]
+        except Exception as exc:
+            raise StorageError(f"Failed to list published snapshots: {exc}") from exc
+
+    # --- Audit operations ---
+
+    def insert_audit_event(self, event: AuditEvent) -> str:
+        """Insert an audit event."""
+
+        return self._insert_document(AUDIT_EVENTS_COLLECTION, event.to_dict())
+
+    def list_audit_events(self, workspace_id: str, limit: int = 100) -> List[AuditEvent]:
+        """List audit events for a workspace."""
+
+        query = f"""
+        FOR doc IN {AUDIT_EVENTS_COLLECTION}
+            FILTER doc.workspace_id == @workspace_id
+            SORT doc.timestamp DESC
+            LIMIT @limit
+            RETURN doc
+        """
+
+        try:
+            cursor = self.db.aql.execute(
+                query,
+                bind_vars={"workspace_id": workspace_id, "limit": limit},
+            )
+            return [AuditEvent.from_dict(doc) for doc in cursor]
+        except Exception as exc:
+            raise StorageError(f"Failed to list audit events: {exc}") from exc
 
     def reset(self, confirm: bool = False) -> None:
         """Delete all product metadata documents.

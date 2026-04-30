@@ -1,6 +1,7 @@
 """Unit tests for product metadata models."""
 
 from graph_analytics_ai.product import (
+    ChartType,
     ConnectionProfile,
     ConnectionVerificationStatus,
     DeploymentMode,
@@ -10,6 +11,8 @@ from graph_analytics_ai.product import (
     RequirementInterviewStatus,
     RequirementVersion,
     RequirementVersionStatus,
+    ReportSectionType,
+    ReportStatus,
     SourceDocument,
     Workspace,
     WorkspaceStatus,
@@ -19,8 +22,13 @@ from graph_analytics_ai.product import (
     WorkflowRunStatus,
     WorkflowStep,
     WorkflowStepStatus,
+    create_audit_event,
+    create_chart_spec,
     create_connection_profile,
     create_graph_profile,
+    create_published_snapshot,
+    create_report_manifest,
+    create_report_section,
     create_requirement_interview,
     create_requirement_version,
     create_source_document,
@@ -239,4 +247,87 @@ def test_workflow_run_round_trip_with_visualizer_dag():
     assert restored.steps[1].retry_count == 1
     assert restored.dag_edges[0].from_step_id == "schema_analysis"
     assert restored.analysis_execution_ids == ["execution-1"]
+
+
+def test_report_manifest_round_trip():
+    """Report manifests preserve lineage for dynamic report rendering."""
+
+    manifest = create_report_manifest(
+        workspace_id="workspace-1",
+        run_id="run-1",
+        title="Audience Graph Analysis",
+        status=ReportStatus.READY,
+        summary="High influence identity clusters.",
+        section_ids=["section-1"],
+        chart_ids=["chart-1"],
+        requirement_version_id="requirement-version-1",
+        analysis_execution_ids=["execution-1"],
+        result_collections=["analysis_results"],
+    )
+
+    restored = manifest.from_dict(manifest.to_dict())
+
+    assert restored.status == ReportStatus.READY
+    assert restored.section_ids == ["section-1"]
+    assert restored.result_collections == ["analysis_results"]
+
+
+def test_report_section_and_chart_spec_round_trip():
+    """Report sections and chart specs preserve structured rendering data."""
+
+    section = create_report_section(
+        workspace_id="workspace-1",
+        report_id="report-1",
+        order=1,
+        type=ReportSectionType.INSIGHT,
+        title="Key Findings",
+        content={"markdown": "Cluster A has high centrality."},
+        evidence_refs=[{"type": "query", "id": "query-1"}],
+    )
+    chart = create_chart_spec(
+        workspace_id="workspace-1",
+        report_id="report-1",
+        title="Top Nodes",
+        chart_type=ChartType.BAR,
+        data_source={"collection": "analysis_results"},
+        encoding={"x": "node", "y": "score"},
+    )
+
+    restored_section = section.from_dict(section.to_dict())
+    restored_chart = chart.from_dict(chart.to_dict())
+
+    assert restored_section.type == ReportSectionType.INSIGHT
+    assert restored_section.evidence_refs[0]["id"] == "query-1"
+    assert restored_chart.chart_type == ChartType.BAR
+    assert restored_chart.encoding["y"] == "score"
+
+
+def test_published_snapshot_and_audit_event_round_trip():
+    """Published snapshots and audit events preserve immutable UI records."""
+
+    snapshot = create_published_snapshot(
+        workspace_id="workspace-1",
+        report_id="report-1",
+        title="Audience Graph Analysis",
+        published_by="analyst@example.com",
+        content_hash="sha256:abc123",
+        rendered_snapshot={"sections": [{"title": "Summary"}]},
+        export_uris={"pdf": "s3://bucket/report.pdf"},
+    )
+    audit_event = create_audit_event(
+        workspace_id="workspace-1",
+        actor="analyst@example.com",
+        action="publish_report",
+        target_type="report",
+        target_id="report-1",
+        details={"snapshot_id": snapshot.published_snapshot_id},
+    )
+
+    restored_snapshot = snapshot.from_dict(snapshot.to_dict())
+    restored_event = audit_event.from_dict(audit_event.to_dict())
+
+    assert restored_snapshot.content_hash == "sha256:abc123"
+    assert restored_snapshot.export_uris["pdf"] == "s3://bucket/report.pdf"
+    assert restored_event.action == "publish_report"
+    assert restored_event.details["snapshot_id"] == snapshot.published_snapshot_id
 
