@@ -42,6 +42,7 @@ from .models import (
     create_workspace,
 )
 from .repository import ProductRepository
+from .service import ProductService, ReportBundle, WorkflowDAGView, WorkspaceOverview
 from .storage import ProductArangoStorage
 
 __all__ = [
@@ -56,8 +57,10 @@ __all__ = [
     "GraphProfileStatus",
     "ProductArangoStorage",
     "ProductRepository",
+    "ProductService",
     "PublishedSnapshot",
     "ReportManifest",
+    "ReportBundle",
     "ReportSection",
     "ReportSectionType",
     "ReportStatus",
@@ -67,8 +70,10 @@ __all__ = [
     "RequirementVersionStatus",
     "SourceDocument",
     "Workspace",
+    "WorkspaceOverview",
     "WorkspaceStatus",
     "WorkflowDAGEdge",
+    "WorkflowDAGView",
     "WorkflowMode",
     "WorkflowRun",
     "WorkflowRunStatus",
