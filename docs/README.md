@@ -13,6 +13,7 @@ Version: 1.2.0
 - **Quick Reference**: See [Quick Reference](QUICK_REFERENCE.md) for common tasks
 - **Analytics Catalog**: Start with [Catalog Summary](catalog/ANALYSIS_CATALOG_SUMMARY.md)
 - **Agent Quality**: Start with [Executive Summary](agent-quality/AGENT_QUALITY_EXECUTIVE_SUMMARY.md)
+- **Product UI Planning**: Read the [UI Vision](UI_PRODUCT_VISION.md) and [UI PRD](PRD_AGENTIC_GRAPH_ANALYTICS_UI.md)
 - **Customer Projects**: See [Customer Projects Guide](customer-projects/INSTRUCTIONS.md)
 - **API Reference**: Browse [API Documentation](api-reference/)
 - **Development**: See [Contributing Guide](development/CONTRIBUTING.md)
@@ -53,6 +54,15 @@ Documentation for teams using this library in their own projects:
 - **[Quick Start](customer-projects/QUICK_START.md)** - Get started with the library
 - **[Complete Instructions](customer-projects/INSTRUCTIONS.md)** - Full integration guide
 - **[Update Notifications](customer-projects/UPDATES.md)** - Latest feature announcements
+
+---
+
+## Product Planning
+
+Planning documents for turning the library into a product experience:
+
+- **[Agentic Graph Analytics UI Vision](UI_PRODUCT_VISION.md)** - Product vision, storage strategy, UX model, and migration approach
+- **[Agentic Graph Analytics UI PRD](PRD_AGENTIC_GRAPH_ANALYTICS_UI.md)** - Requirements, data model, APIs, milestones, and MVP acceptance criteria
 
 ---
 
@@ -113,6 +123,7 @@ Historical documentation (for reference only):
 | Select the right collections | [Collection Selection Guide](COLLECTION_SELECTION_GUIDE.md) |
 | Debug my workflow | [Workflow Tracing Guide](WORKFLOW_TRACING_GUIDE.md) |
 | Track performance metrics | [Execution Reporting Guide](EXECUTION_REPORTING_GUIDE.md) |
+| Plan the product UI | [UI Vision](UI_PRODUCT_VISION.md) and [UI PRD](PRD_AGENTIC_GRAPH_ANALYTICS_UI.md) |
 | Use this library in my project | [Customer Project Instructions](customer-projects/INSTRUCTIONS.md) |
 | Contribute code | [Contributing Guide](development/CONTRIBUTING.md) |
 | Write tests | [Testing Guide](development/TESTING.md) |
