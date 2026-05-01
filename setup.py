@@ -38,6 +38,10 @@ setup(
         "mcp": [
             "mcp[cli]>=1.0.0",
         ],
+        "api": [
+            "fastapi>=0.110.0",
+            "uvicorn[standard]>=0.27.0",
+        ],
     },
     entry_points={
         "console_scripts": [

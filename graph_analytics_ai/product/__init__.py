@@ -6,6 +6,7 @@ from .api import (
     ProductAPIEndpoint,
     list_product_api_endpoints,
 )
+from .fastapi_app import create_product_fastapi_app
 from .models import (
     AuditEvent,
     ChartSpec,
@@ -113,6 +114,7 @@ __all__ = [
     "create_audit_event",
     "create_chart_spec",
     "create_connection_profile",
+    "create_product_fastapi_app",
     "create_graph_profile",
     "create_published_snapshot",
     "create_report_manifest",
