@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { RequirementInterview } from "@/lib/product-api/types";
+import type { RequirementInterview, RequirementVersion } from "@/lib/product-api/types";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 
 interface RequirementsCopilotPanelProps {
@@ -9,9 +9,12 @@ interface RequirementsCopilotPanelProps {
   stackIndex?: number;
   isSavingAnswer: boolean;
   isGeneratingDraft: boolean;
+  isApprovingDraft: boolean;
   errorMessage: string | null;
+  approvedRequirementVersion: RequirementVersion | null;
   onAnswerQuestion: (questionId: string, answer: string) => Promise<void>;
   onGenerateDraft: () => Promise<void>;
+  onApproveDraft: (version: number) => Promise<void>;
   onClose: () => void;
 }
 
@@ -20,9 +23,12 @@ export function RequirementsCopilotPanel({
   stackIndex = 0,
   isSavingAnswer,
   isGeneratingDraft,
+  isApprovingDraft,
   errorMessage,
+  approvedRequirementVersion,
   onAnswerQuestion,
   onGenerateDraft,
+  onApproveDraft,
   onClose
 }: RequirementsCopilotPanelProps) {
   const answerMap = useMemo(() => {
@@ -34,6 +40,7 @@ export function RequirementsCopilotPanel({
     );
   }, [interview.answers]);
   const [draftAnswers, setDraftAnswers] = useState<Record<string, string>>(answerMap);
+  const [approvalVersion, setApprovalVersion] = useState(1);
 
   useEffect(() => {
     setDraftAnswers(answerMap);
@@ -85,6 +92,12 @@ export function RequirementsCopilotPanel({
 
       {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
 
+      {approvedRequirementVersion ? (
+        <p className="success-text">
+          Approved as requirement version {approvedRequirementVersion.version}.
+        </p>
+      ) : null}
+
       <button
         className="primary-button"
         type="button"
@@ -93,6 +106,26 @@ export function RequirementsCopilotPanel({
       >
         {isGeneratingDraft ? "Generating..." : "Generate Draft"}
       </button>
+
+      {interview.draftBrd ? (
+        <label className="copilot-approval">
+          <span>Requirement version</span>
+          <input
+            type="number"
+            min={1}
+            value={approvalVersion}
+            onChange={(event) => setApprovalVersion(Number(event.target.value))}
+          />
+          <button
+            className="primary-button"
+            type="button"
+            disabled={isApprovingDraft || approvalVersion < 1}
+            onClick={() => void onApproveDraft(approvalVersion)}
+          >
+            {isApprovingDraft ? "Approving..." : "Approve Draft"}
+          </button>
+        </label>
+      ) : null}
     </FloatingDetailPanel>
   );
 }

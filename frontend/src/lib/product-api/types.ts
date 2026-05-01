@@ -120,6 +120,20 @@ export interface RequirementsDraftResult {
   provenanceLabels: Array<Record<string, unknown>>;
 }
 
+export interface RequirementVersion {
+  requirementVersionId: string;
+  workspaceId: string;
+  version: number;
+  status: string;
+  requirementInterviewId?: string | null;
+  summary: string;
+  objectives: Array<Record<string, unknown>>;
+  requirements: Array<Record<string, unknown>>;
+  constraints: Array<Record<string, unknown>>;
+  approvedAt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -246,6 +260,11 @@ export interface ProductAPIClient {
   generateRequirementsCopilotDraft(
     requirementInterviewId: string
   ): Promise<RequirementsDraftResult>;
+  approveRequirementsCopilotDraft(
+    requirementInterviewId: string,
+    version: number,
+    approvedBy?: string
+  ): Promise<RequirementVersion>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
@@ -311,6 +330,20 @@ export interface RawRequirementsDraftResult {
   requirement_interview: RawRequirementInterview;
   draft_brd: string;
   provenance_labels?: Array<Record<string, unknown>>;
+}
+
+export interface RawRequirementVersion {
+  requirement_version_id: string;
+  workspace_id: string;
+  version: number;
+  status: string;
+  requirement_interview_id?: string | null;
+  summary?: string;
+  objectives?: Array<Record<string, unknown>>;
+  requirements?: Array<Record<string, unknown>>;
+  constraints?: Array<Record<string, unknown>>;
+  approved_at?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RawSourceDocumentSummary {

@@ -19,6 +19,7 @@ import type {
   GraphProfileSummary,
   ProductAPIClient,
   RequirementInterview,
+  RequirementVersion,
   RequirementsDraftResult,
   ReportBundle,
   SourceDocumentSummary,
@@ -73,6 +74,11 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   generateRequirementsCopilotDraft: (
     requirementInterviewId: string
   ) => Promise<RequirementsDraftResult>;
+  approveRequirementsCopilotDraft: (
+    requirementInterviewId: string,
+    version: number,
+    approvedBy?: string
+  ) => Promise<RequirementVersion>;
 }
 
 export function useWorkspaceData({
@@ -348,6 +354,16 @@ export function useWorkspaceData({
       : statefulDemoGenerateRequirementsCopilotDraft(requirementInterviewId);
   };
 
+  const approveRequirementsCopilotDraft = async (
+    requirementInterviewId: string,
+    version: number,
+    approvedBy = "workspace-ui"
+  ): Promise<RequirementVersion> => {
+    return initialWorkspaceId
+      ? apiClient.approveRequirementsCopilotDraft(requirementInterviewId, version, approvedBy)
+      : statefulDemoApproveRequirementsCopilotDraft(requirementInterviewId, version, approvedBy);
+  };
+
   return {
     ...state,
     publishReport,
@@ -356,7 +372,8 @@ export function useWorkspaceData({
     discoverGraphProfile,
     startRequirementsCopilot,
     answerRequirementsCopilotQuestion,
-    generateRequirementsCopilotDraft
+    generateRequirementsCopilotDraft,
+    approveRequirementsCopilotDraft
   };
 }
 
@@ -526,5 +543,36 @@ function statefulDemoGenerateRequirementsCopilotDraft(
       { path: "observed_schema.graph_name", label: "observed_from_schema" },
       { path: "answers", label: "user_provided" }
     ]
+  };
+}
+
+function statefulDemoApproveRequirementsCopilotDraft(
+  requirementInterviewId: string,
+  version: number,
+  approvedBy: string
+): RequirementVersion {
+  const currentInterview =
+    demoRequirementInterview?.requirementInterviewId === requirementInterviewId
+      ? demoRequirementInterview
+      : statefulDemoStartRequirementsCopilot(demoGraphProfile.graphProfileId, {});
+  demoRequirementInterview = {
+    ...currentInterview,
+    status: "approved"
+  };
+  return {
+    requirementVersionId: `requirement-version-${Date.now()}`,
+    workspaceId: currentInterview.workspaceId,
+    version,
+    status: "approved",
+    requirementInterviewId,
+    summary: "Requirements Copilot approved draft",
+    objectives: [],
+    requirements: [],
+    constraints: [],
+    approvedAt: new Date().toISOString(),
+    metadata: {
+      approved_by: approvedBy,
+      source: "requirements_copilot"
+    }
   };
 }

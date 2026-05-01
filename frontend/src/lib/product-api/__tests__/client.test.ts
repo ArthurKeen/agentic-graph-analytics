@@ -524,4 +524,43 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("approves Requirements Copilot drafts through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requirement_version_id: "requirement-version-1",
+        workspace_id: "workspace-1",
+        requirement_interview_id: "interview-1",
+        version: 3,
+        status: "approved",
+        summary: "Prioritize trial sites",
+        objectives: [{ id: "OBJ-1", text: "Prioritize trial sites" }]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const requirementVersion = await createProductAPIClient(
+      "http://api.example"
+    ).approveRequirementsCopilotDraft("interview-1", 3, "analyst@example.com");
+
+    expect(requirementVersion).toMatchObject({
+      requirementVersionId: "requirement-version-1",
+      version: 3,
+      status: "approved",
+      summary: "Prioritize trial sites"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/requirements-copilot/sessions/interview-1/approve",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          version: 3,
+          approved_by: "analyst@example.com"
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

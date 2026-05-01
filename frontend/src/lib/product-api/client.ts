@@ -12,6 +12,7 @@ import type {
   RawGraphDiscoveryResult,
   RawGraphProfileSummary,
   RawRequirementInterview,
+  RawRequirementVersion,
   RawRequirementsDraftResult,
   RawReportBundle,
   RawSourceDocumentSummary,
@@ -21,6 +22,7 @@ import type {
   ReportBundle,
   ReportSection,
   RequirementInterview,
+  RequirementVersion,
   RequirementsDraftResult,
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
@@ -124,6 +126,21 @@ export function createProductAPIClient(
         )
       );
     },
+    async approveRequirementsCopilotDraft(
+      requirementInterviewId: string,
+      version: number,
+      approvedBy = "workspace-ui"
+    ): Promise<RequirementVersion> {
+      return mapRequirementVersion(
+        await postJSON<RawRequirementVersion>(
+          `${normalizedBaseUrl}/api/requirements-copilot/sessions/${requirementInterviewId}/approve`,
+          {
+            version,
+            approved_by: approvedBy
+          }
+        )
+      );
+    },
     async getWorkflowDAG(runId: string): Promise<WorkflowDAGView> {
       return mapWorkflowDAGView(
         await getJSON<RawWorkflowDAGView>(
@@ -223,6 +240,22 @@ export function mapRequirementsDraftResult(
     requirementInterview: mapRequirementInterview(raw.requirement_interview),
     draftBrd: raw.draft_brd,
     provenanceLabels: raw.provenance_labels ?? []
+  };
+}
+
+export function mapRequirementVersion(raw: RawRequirementVersion): RequirementVersion {
+  return {
+    requirementVersionId: raw.requirement_version_id,
+    workspaceId: raw.workspace_id,
+    version: raw.version,
+    status: raw.status,
+    requirementInterviewId: raw.requirement_interview_id,
+    summary: raw.summary ?? "",
+    objectives: raw.objectives ?? [],
+    requirements: raw.requirements ?? [],
+    constraints: raw.constraints ?? [],
+    approvedAt: raw.approved_at,
+    metadata: raw.metadata ?? {}
   };
 }
 

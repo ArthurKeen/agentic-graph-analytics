@@ -546,6 +546,25 @@ button {
   white-space: pre-wrap;
 }
 
+.copilot-approval {
+  display: grid;
+  gap: 8px;
+}
+
+.copilot-approval span {
+  color: var(--aga-muted);
+  font-size: 13px;
+}
+
+.copilot-approval input {
+  width: 120px;
+  border: 1px solid var(--aga-border);
+  border-radius: 10px;
+  background: var(--aga-bg);
+  color: var(--aga-text);
+  padding: 8px 10px;
+}
+
 .detail-list {
   display: grid;
   gap: 12px;
@@ -700,6 +719,10 @@ button {
 
 .error-text {
   color: var(--aga-danger) !important;
+}
+
+.success-text {
+  color: var(--aga-success) !important;
 }
 
 .confirmation-actions {

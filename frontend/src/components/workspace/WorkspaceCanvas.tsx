@@ -19,6 +19,7 @@ import type {
   ReportBundle,
   GraphProfileSummary,
   RequirementInterview,
+  RequirementVersion,
   SourceDocumentSummary,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -41,9 +42,11 @@ interface WorkspaceCanvasProps {
   isStartingRequirementsCopilot: boolean;
   isSavingCopilotAnswer: boolean;
   isGeneratingRequirementsDraft: boolean;
+  isApprovingRequirementsDraft: boolean;
   connectionVerificationErrorMessage: string | null;
   requirementsCopilotErrorMessage: string | null;
   activeRequirementInterview: RequirementInterview | null;
+  approvedRequirementVersion: RequirementVersion | null;
   showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
@@ -58,6 +61,10 @@ interface WorkspaceCanvasProps {
     answer: string
   ) => Promise<void>;
   onGenerateRequirementsDraft: (requirementInterviewId: string) => Promise<void>;
+  onApproveRequirementsDraft: (
+    requirementInterviewId: string,
+    version: number
+  ) => Promise<void>;
   onCloseRequirementsCopilot: () => void;
   onShowHelp: () => void;
   onCloseHelp: () => void;
@@ -80,9 +87,11 @@ export function WorkspaceCanvas({
   isStartingRequirementsCopilot,
   isSavingCopilotAnswer,
   isGeneratingRequirementsDraft,
+  isApprovingRequirementsDraft,
   connectionVerificationErrorMessage,
   requirementsCopilotErrorMessage,
   activeRequirementInterview,
+  approvedRequirementVersion,
   showHelp,
   onSelectStep,
   onClearAssetSelection,
@@ -93,6 +102,7 @@ export function WorkspaceCanvas({
   onRequestStartRequirementsCopilot,
   onAnswerRequirementsCopilotQuestion,
   onGenerateRequirementsDraft,
+  onApproveRequirementsDraft,
   onCloseRequirementsCopilot,
   onShowHelp,
   onCloseHelp,
@@ -254,7 +264,9 @@ export function WorkspaceCanvas({
           stackIndex={selectedStep ? 1 : 0}
           isSavingAnswer={isSavingCopilotAnswer}
           isGeneratingDraft={isGeneratingRequirementsDraft}
+          isApprovingDraft={isApprovingRequirementsDraft}
           errorMessage={requirementsCopilotErrorMessage}
+          approvedRequirementVersion={approvedRequirementVersion}
           onAnswerQuestion={(questionId, answer) =>
             onAnswerRequirementsCopilotQuestion(
               activeRequirementInterview.requirementInterviewId,
@@ -264,6 +276,12 @@ export function WorkspaceCanvas({
           }
           onGenerateDraft={() =>
             onGenerateRequirementsDraft(activeRequirementInterview.requirementInterviewId)
+          }
+          onApproveDraft={(version) =>
+            onApproveRequirementsDraft(
+              activeRequirementInterview.requirementInterviewId,
+              version
+            )
           }
           onClose={onCloseRequirementsCopilot}
         />

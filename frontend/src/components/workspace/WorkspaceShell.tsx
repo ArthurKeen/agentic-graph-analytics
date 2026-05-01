@@ -14,6 +14,7 @@ import type { ContextMenuState } from "./contextMenus/types";
 import type {
   ConnectionVerificationResult,
   RequirementInterview,
+  RequirementVersion,
   WorkflowDAGNode,
   WorkspaceAsset
 } from "@/lib/product-api/types";
@@ -39,6 +40,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     startRequirementsCopilot,
     answerRequirementsCopilotQuestion,
     generateRequirementsCopilotDraft,
+    approveRequirementsCopilotDraft,
     verifyConnectionProfile,
     publishReport
   } = useWorkspaceData({
@@ -80,8 +82,11 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   >(null);
   const [isSavingCopilotAnswer, setIsSavingCopilotAnswer] = useState(false);
   const [isGeneratingRequirementsDraft, setIsGeneratingRequirementsDraft] = useState(false);
+  const [isApprovingRequirementsDraft, setIsApprovingRequirementsDraft] = useState(false);
   const [activeRequirementInterview, setActiveRequirementInterview] =
     useState<RequirementInterview | null>(null);
+  const [approvedRequirementVersion, setApprovedRequirementVersion] =
+    useState<RequirementVersion | null>(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
@@ -278,9 +283,11 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         }
         isSavingCopilotAnswer={isSavingCopilotAnswer}
         isGeneratingRequirementsDraft={isGeneratingRequirementsDraft}
+        isApprovingRequirementsDraft={isApprovingRequirementsDraft}
         connectionVerificationErrorMessage={connectionVerificationErrorMessage}
         requirementsCopilotErrorMessage={requirementsCopilotErrorMessage}
         activeRequirementInterview={activeRequirementInterview}
+        approvedRequirementVersion={approvedRequirementVersion}
         showHelp={showHelp}
         onSelectStep={setSelectedStep}
         onClearAssetSelection={() => {
@@ -341,6 +348,28 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             );
           } finally {
             setIsGeneratingRequirementsDraft(false);
+          }
+        }}
+        onApproveRequirementsDraft={async (requirementInterviewId, version) => {
+          setRequirementsCopilotErrorMessage(null);
+          setIsApprovingRequirementsDraft(true);
+          try {
+            const requirementVersion = await approveRequirementsCopilotDraft(
+              requirementInterviewId,
+              version
+            );
+            setApprovedRequirementVersion(requirementVersion);
+            setActiveRequirementInterview((current) =>
+              current?.requirementInterviewId === requirementInterviewId
+                ? { ...current, status: "approved" }
+                : current
+            );
+          } catch (error) {
+            setRequirementsCopilotErrorMessage(
+              error instanceof Error ? error.message : "Failed to approve requirements draft"
+            );
+          } finally {
+            setIsApprovingRequirementsDraft(false);
           }
         }}
         onCloseRequirementsCopilot={() => setActiveRequirementInterview(null)}
@@ -418,6 +447,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             try {
               const interview = await startRequirementsCopilot(pendingStartCopilot.id, input);
               setActiveRequirementInterview(interview);
+              setApprovedRequirementVersion(null);
               setSelectedAsset(pendingStartCopilot);
               setSelectedStep(null);
               setPendingStartCopilot(null);
