@@ -12,6 +12,8 @@ interface WorkspaceCanvasProps {
   selectedAsset: WorkspaceAsset | null;
   selectedStep: WorkflowDAGNode | null;
   dagView: WorkflowDAGView | null;
+  dataStatus: "demo" | "loading" | "ready" | "error";
+  dataErrorMessage?: string;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onClearSelection: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
@@ -21,6 +23,8 @@ export function WorkspaceCanvas({
   selectedAsset,
   selectedStep,
   dagView,
+  dataStatus,
+  dataErrorMessage,
   onSelectStep,
   onClearSelection,
   onOpenMenu
@@ -70,6 +74,10 @@ export function WorkspaceCanvas({
         </div>
         <p className="muted">Right-click steps or canvas for actions.</p>
       </header>
+      <p className="muted">
+        Data source: {dataStatus}
+        {dataErrorMessage ? ` (${dataErrorMessage})` : ""}
+      </p>
 
       {dagView && selectedAsset.kind === "run" ? (
         <section className="pipeline-dag" aria-label="Workflow DAG">
