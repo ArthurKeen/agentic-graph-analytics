@@ -2,6 +2,7 @@
 
 import { CanvasLensLegend } from "./CanvasLensLegend";
 import { EmptyCanvasState } from "./EmptyCanvasState";
+import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { buildCanvasContextMenu } from "./contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
@@ -15,6 +16,7 @@ interface WorkspaceCanvasProps {
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
   onSelectStep: (step: WorkflowDAGNode) => void;
+  onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
 }
@@ -26,6 +28,7 @@ export function WorkspaceCanvas({
   dataStatus,
   dataErrorMessage,
   onSelectStep,
+  onClearAssetSelection,
   onClearSelection,
   onOpenMenu
 }: WorkspaceCanvasProps) {
@@ -122,6 +125,8 @@ export function WorkspaceCanvas({
       )}
 
       <CanvasLensLegend lensName="Operational DAG" />
+
+      <AssetInfoPanel asset={selectedAsset} onClose={onClearAssetSelection} />
 
       {selectedStep ? (
         <FloatingDetailPanel title={selectedStep.label} onClose={onClearSelection}>

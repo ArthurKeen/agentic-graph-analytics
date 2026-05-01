@@ -65,6 +65,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         dataStatus={status}
         dataErrorMessage={errorMessage}
         onSelectStep={setSelectedStep}
+        onClearAssetSelection={() => {
+          setSelectedAsset(null);
+          setSelectedStep(null);
+        }}
         onClearSelection={() => setSelectedStep(null)}
         onOpenMenu={setMenu}
       />

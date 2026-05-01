@@ -1,6 +1,7 @@
 "use client";
 
 import type { WorkspaceAsset } from "@/lib/product-api/types";
+import { buildAssetContextMenu } from "./contextMenus/asset";
 import { buildRunContextMenu } from "./contextMenus/run";
 import type { ContextMenuState } from "./contextMenus/types";
 
@@ -33,8 +34,16 @@ export function AssetExplorer({
               onClick={() => onSelectAsset(asset)}
               onContextMenu={(event) => {
                 event.preventDefault();
+                const baseArgs = {
+                  onViewInfo: () => onSelectAsset(asset),
+                  onCopyId: () => void navigator.clipboard?.writeText(asset.id)
+                };
                 if (asset.kind !== "run") {
-                  onSelectAsset(asset);
+                  onOpenMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    items: buildAssetContextMenu(baseArgs)
+                  });
                   return;
                 }
                 onOpenMenu({
@@ -42,7 +51,7 @@ export function AssetExplorer({
                   y: event.clientY,
                   items: buildRunContextMenu({
                     onViewPipeline: () => onOpenRun(asset.id),
-                    onCopyRunId: () => void navigator.clipboard?.writeText(asset.id),
+                    onCopyRunId: baseArgs.onCopyId,
                     onRetryRun: () => onOpenRun(asset.id),
                     onDeleteRun: () => onSelectAsset(asset)
                   })

@@ -163,13 +163,20 @@ button {
 
 .floating-panel {
   position: absolute;
-  right: 20px;
   top: 88px;
   width: min(420px, calc(100% - 40px));
   border: 1px solid var(--aga-border);
   border-radius: 14px;
   background: var(--aga-panel);
   box-shadow: 0 24px 80px rgb(0 0 0 / 35%);
+}
+
+.floating-panel[data-placement="viewportTopRight"] {
+  right: 20px;
+}
+
+.floating-panel[data-placement="mainColumnTopLeft"] {
+  left: 20px;
 }
 
 .floating-panel header {
@@ -182,6 +189,28 @@ button {
 
 .floating-panel section {
   padding: 14px;
+}
+
+.detail-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.detail-list div {
+  display: grid;
+  gap: 4px;
+}
+
+.detail-list dt {
+  color: var(--aga-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.detail-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .context-menu {

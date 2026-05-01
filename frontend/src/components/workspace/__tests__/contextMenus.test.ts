@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildAssetContextMenu } from "../contextMenus/asset";
 import { buildCanvasContextMenu } from "../contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "../contextMenus/pipelineStep";
 import { buildRunContextMenu } from "../contextMenus/run";
@@ -21,6 +22,15 @@ describe("workspace context menu builders", () => {
       "fit-all",
       "center-view"
     ]);
+  });
+
+  it("builds generic explorer asset actions", () => {
+    const items = buildAssetContextMenu({
+      onViewInfo: noop,
+      onCopyId: noop
+    });
+
+    expect(items.map((item) => item.id)).toEqual(["view-info", "copy-id"]);
   });
 
   it("builds run actions with retry and destructive delete", () => {
