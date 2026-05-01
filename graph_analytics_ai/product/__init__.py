@@ -42,7 +42,9 @@ from .models import (
     create_workspace,
 )
 from .repository import ProductRepository
+from .secrets import EnvironmentSecretResolver, MappingSecretResolver
 from .service import (
+    ConnectionVerificationResult,
     ProductService,
     ReportBundle,
     WorkflowDAGView,
@@ -54,14 +56,17 @@ from .storage import ProductArangoStorage
 
 __all__ = [
     "ConnectionProfile",
+    "ConnectionVerificationResult",
     "AuditEvent",
     "ChartSpec",
     "ChartType",
     "ConnectionVerificationStatus",
     "DeploymentMode",
     "DocumentStorageMode",
+    "EnvironmentSecretResolver",
     "GraphProfile",
     "GraphProfileStatus",
+    "MappingSecretResolver",
     "ProductArangoStorage",
     "ProductRepository",
     "ProductService",

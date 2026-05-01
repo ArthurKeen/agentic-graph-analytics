@@ -7,14 +7,16 @@ coupling the core package to a web framework.
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
+from ..db_connection import connect_arango_database
 from .constants import PRODUCT_SCHEMA_VERSION
 from .exceptions import ValidationError
 from .models import (
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
+    ConnectionVerificationStatus,
     GraphProfile,
     PublishedSnapshot,
     ReportManifest,
@@ -29,8 +31,10 @@ from .models import (
     WorkflowStep,
     create_audit_event,
     create_published_snapshot,
+    current_timestamp,
 )
 from .repository import ProductRepository
+from .secrets import EnvironmentSecretResolver, SecretResolver
 
 
 @dataclass
@@ -151,13 +155,46 @@ class WorkspaceImportResult:
         }
 
 
+@dataclass
+class ConnectionVerificationResult:
+    """Result of testing a connection profile."""
+
+    connection_profile_id: str
+    workspace_id: str
+    status: str
+    verified_at: str
+    endpoint: str
+    database: str
+    error_message: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert verification result to an API-friendly dictionary."""
+
+        return {
+            "connection_profile_id": self.connection_profile_id,
+            "workspace_id": self.workspace_id,
+            "status": self.status,
+            "verified_at": self.verified_at,
+            "endpoint": self.endpoint,
+            "database": self.database,
+            "error_message": self.error_message,
+        }
+
+
 class ProductService:
     """Use-case oriented product operations for the future UI API."""
 
-    def __init__(self, repository: ProductRepository):
+    def __init__(
+        self,
+        repository: ProductRepository,
+        secret_resolver: Optional[SecretResolver] = None,
+        db_connector: Optional[Callable[..., Any]] = None,
+    ):
         """Initialize service."""
 
         self.repository = repository
+        self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
+        self.db_connector = db_connector or connect_arango_database
 
     def get_workspace_overview(
         self,
@@ -221,6 +258,59 @@ class ProductService:
         snapshots = self.repository.list_published_snapshots(report_id)
 
         return self._report_bundle(manifest, sections, charts, snapshots)
+
+    def verify_connection_profile(
+        self,
+        connection_profile_id: str,
+        password_secret_key: str = "password",
+        verify_system: bool = True,
+    ) -> ConnectionVerificationResult:
+        """Resolve a profile password and test its ArangoDB connection."""
+
+        profile = self.repository.get_connection_profile(connection_profile_id)
+        password_ref = profile.secret_refs.get(password_secret_key)
+        if not password_ref:
+            raise ValidationError(
+                f"Connection profile is missing secret ref: {password_secret_key}"
+            )
+
+        password = self.secret_resolver.resolve(password_ref)
+        verified_at = current_timestamp()
+
+        try:
+            self.db_connector(
+                endpoint=profile.endpoint,
+                username=profile.username,
+                password=password,
+                database=profile.database,
+                verify_ssl=profile.verify_ssl,
+                verify_system=verify_system,
+            )
+        except Exception as exc:
+            profile.last_verified_at = verified_at
+            profile.last_verification_status = ConnectionVerificationStatus.FAILED
+            self.repository.update_connection_profile(profile)
+            return ConnectionVerificationResult(
+                connection_profile_id=profile.connection_profile_id,
+                workspace_id=profile.workspace_id,
+                status=ConnectionVerificationStatus.FAILED.value,
+                verified_at=verified_at.isoformat(),
+                endpoint=profile.endpoint,
+                database=profile.database,
+                error_message=self._mask_secret(str(exc), password),
+            )
+
+        profile.last_verified_at = verified_at
+        profile.last_verification_status = ConnectionVerificationStatus.SUCCESS
+        self.repository.update_connection_profile(profile)
+        return ConnectionVerificationResult(
+            connection_profile_id=profile.connection_profile_id,
+            workspace_id=profile.workspace_id,
+            status=ConnectionVerificationStatus.SUCCESS.value,
+            verified_at=verified_at.isoformat(),
+            endpoint=profile.endpoint,
+            database=profile.database,
+        )
 
     def export_workspace_bundle(
         self,
@@ -518,6 +608,11 @@ class ProductService:
                 f"Workspace bundle item in {collection_name} has mismatched "
                 f"workspace_id: {item_workspace_id}"
             )
+
+    def _mask_secret(self, message: str, secret_value: str) -> str:
+        if not secret_value:
+            return message
+        return message.replace(secret_value, "***MASKED***")
 
     def _content_hash(self, payload: Dict[str, Any]) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(

@@ -2,6 +2,8 @@
 
 from graph_analytics_ai.product import (
     ChartType,
+    ConnectionVerificationStatus,
+    MappingSecretResolver,
     ProductService,
     ReportSectionType,
     ReportStatus,
@@ -60,6 +62,19 @@ class FakeProductRepository:
     def create_connection_profile(self, profile):
         self.connection_profiles.append(profile)
         return profile.connection_profile_id
+
+    def get_connection_profile(self, connection_profile_id):
+        for profile in self.connection_profiles:
+            if profile.connection_profile_id == connection_profile_id:
+                return profile
+        raise KeyError(connection_profile_id)
+
+    def update_connection_profile(self, profile):
+        for index, existing in enumerate(self.connection_profiles):
+            if existing.connection_profile_id == profile.connection_profile_id:
+                self.connection_profiles[index] = profile
+                return profile.connection_profile_id
+        raise KeyError(profile.connection_profile_id)
 
     def list_graph_profiles(self, workspace_id):
         return [
@@ -563,3 +578,96 @@ def test_import_workspace_bundle_rejects_mismatched_workspace_id():
         assert "mismatched workspace_id" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for mismatched workspace_id")
+
+
+def test_verify_connection_profile_resolves_secret_and_updates_success_status():
+    """Connection verification resolves secrets at runtime and stores only status."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+    connector_calls = []
+
+    def fake_connector(**kwargs):
+        connector_calls.append(kwargs)
+        return object()
+
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=fake_connector,
+    ).verify_connection_profile(profile.connection_profile_id)
+
+    updated_profile = repository.get_connection_profile(profile.connection_profile_id)
+    assert result.status == "success"
+    assert result.error_message is None
+    assert updated_profile.last_verification_status == ConnectionVerificationStatus.SUCCESS
+    assert updated_profile.last_verified_at is not None
+    assert connector_calls[0]["password"] == "resolved-secret"
+    assert connector_calls[0]["verify_system"] is True
+    assert updated_profile.secret_refs["password"]["ref"] == "ARANGO_PASSWORD"
+
+
+def test_verify_connection_profile_masks_secret_on_failure():
+    """Connection verification failure messages do not leak resolved secrets."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+
+    def fake_connector(**kwargs):
+        raise ConnectionError(f"bad password {kwargs['password']}")
+
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=fake_connector,
+    ).verify_connection_profile(profile.connection_profile_id, verify_system=False)
+
+    updated_profile = repository.get_connection_profile(profile.connection_profile_id)
+    assert result.status == "failed"
+    assert "resolved-secret" not in result.error_message
+    assert "***MASKED***" in result.error_message
+    assert updated_profile.last_verification_status == ConnectionVerificationStatus.FAILED
+
+
+def test_verify_connection_profile_requires_password_secret_ref():
+    """Connection verification requires an explicit password secret reference."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+    )
+    repository.connection_profiles.append(profile)
+
+    try:
+        ProductService(
+            repository,
+            secret_resolver=MappingSecretResolver({}),
+            db_connector=lambda **kwargs: object(),
+        ).verify_connection_profile(profile.connection_profile_id)
+    except ValidationError as exc:
+        assert "password" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError for missing password secret ref")
