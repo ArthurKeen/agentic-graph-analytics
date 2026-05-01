@@ -1,6 +1,7 @@
 import type { ContextMenuItem } from "./types";
 
 interface BuildCanvasContextMenuArgs {
+  onCreateConnectionProfile: () => void;
   onFitAll: () => void;
   onCenterView: () => void;
   onViewAsOperational: () => void;
@@ -8,12 +9,19 @@ interface BuildCanvasContextMenuArgs {
 }
 
 export function buildCanvasContextMenu({
+  onCreateConnectionProfile,
   onFitAll,
   onCenterView,
   onViewAsOperational,
   onShowHelp
 }: BuildCanvasContextMenuArgs): ContextMenuItem[] {
   return [
+    {
+      id: "create-connection-profile",
+      label: "Create Connection Profile",
+      icon: "+",
+      onSelect: onCreateConnectionProfile
+    },
     {
       id: "view-operational",
       label: "View As Operational DAG",

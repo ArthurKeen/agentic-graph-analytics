@@ -19,6 +19,18 @@ describe("product API client mappers", () => {
         environment: "dev"
       },
       counts: { workflow_runs: 1, reports: 1 },
+      latest_connection_profiles: [
+        {
+          connection_profile_id: "connection-1",
+          workspace_id: "workspace-1",
+          name: "Development",
+          deployment_mode: "local",
+          endpoint: "http://localhost:8529",
+          database: "customer_graph",
+          username: "root",
+          last_verification_status: "unknown"
+        }
+      ],
       latest_graph_profiles: [
         {
           graph_profile_id: "graph-profile-1",
@@ -61,6 +73,11 @@ describe("product API client mappers", () => {
     });
 
     expect(overview.latestWorkflowRuns[0].run_id).toBe("run-1");
+    expect(overview.latestConnectionProfiles[0]).toMatchObject({
+      connectionProfileId: "connection-1",
+      name: "Development",
+      deploymentMode: "local"
+    });
     expect(overview.latestGraphProfiles[0]).toMatchObject({
       graphProfileId: "graph-profile-1",
       graphName: "CustomerGraph",
@@ -74,6 +91,12 @@ describe("product API client mappers", () => {
       metadata: { source: "upload" }
     });
     expect(workspaceAssetsFromOverview(overview)).toEqual([
+      {
+        id: "connection-1",
+        kind: "connection-profile",
+        label: "Development",
+        description: "local connection (unknown)"
+      },
       {
         id: "graph-profile-1",
         kind: "graph-profile",
@@ -234,6 +257,55 @@ describe("product API client mappers", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ actor: "tester" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("creates connection profiles through the product API without plaintext secrets", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connection_profile_id: "connection-1",
+        workspace_id: "workspace-1",
+        name: "Development",
+        deployment_mode: "local",
+        endpoint: "http://localhost:8529",
+        database: "customer_graph",
+        username: "root",
+        verify_ssl: false,
+        secret_refs: { password: { kind: "env", ref: "ARANGO_PASSWORD" } }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const profile = await createProductAPIClient(
+      "http://api.example"
+    ).createConnectionProfile("workspace-1", {
+      name: "Development",
+      deploymentMode: "local",
+      endpoint: "http://localhost:8529",
+      database: "customer_graph",
+      username: "root",
+      verifySsl: false,
+      passwordSecretEnvVar: "ARANGO_PASSWORD"
+    });
+
+    expect(profile.connectionProfileId).toBe("connection-1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/connection-profiles",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "Development",
+          deployment_mode: "local",
+          endpoint: "http://localhost:8529",
+          database: "customer_graph",
+          username: "root",
+          verify_ssl: false,
+          secret_refs: { password: { kind: "env", ref: "ARANGO_PASSWORD" } }
+        })
       })
     );
 

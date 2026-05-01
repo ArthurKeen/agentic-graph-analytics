@@ -1,6 +1,7 @@
 """Unit tests for product API contract definitions."""
 
 from graph_analytics_ai.product import (
+    DeploymentMode,
     PRODUCT_API_ENDPOINTS,
     ProductAPIDispatcher,
     WorkflowMode,
@@ -20,6 +21,10 @@ def test_product_api_contract_includes_core_ui_routes():
     assert ("GET", "/api/workspaces/{workspace_id}/health") in route_keys
     assert (
         "POST",
+        "/api/workspaces/{workspace_id}/connection-profiles",
+    ) in route_keys
+    assert (
+        "POST",
         "/api/connection-profiles/{connection_profile_id}/verify",
     ) in route_keys
     assert ("GET", "/api/runs/{run_id}/workflow-dag") in route_keys
@@ -37,6 +42,7 @@ def test_product_api_contract_maps_to_service_methods():
     service_methods = {endpoint.service_method for endpoint in PRODUCT_API_ENDPOINTS}
 
     assert "get_workspace_overview" in service_methods
+    assert "create_connection_profile" in service_methods
     assert "verify_connection_profile" in service_methods
     assert "discover_graph_profile" in service_methods
     assert "start_requirements_copilot" in service_methods
@@ -93,6 +99,14 @@ def test_product_api_dispatcher_coerces_json_shapes_to_service_types():
         def __init__(self):
             self.workflow_call = None
             self.step_update_call = None
+            self.connection_call = None
+
+        def create_connection_profile(self, workspace_id, deployment_mode: DeploymentMode):
+            self.connection_call = {
+                "workspace_id": workspace_id,
+                "deployment_mode": deployment_mode,
+            }
+            return {"ok": True}
 
         def create_workflow_run_from_steps(
             self,
@@ -121,6 +135,12 @@ def test_product_api_dispatcher_coerces_json_shapes_to_service_types():
     dispatcher = ProductAPIDispatcher(service)
     dispatcher.dispatch(
         method="POST",
+        path="/api/workspaces/{workspace_id}/connection-profiles",
+        path_params={"workspace_id": "workspace-1"},
+        body={"deployment_mode": "local"},
+    )
+    dispatcher.dispatch(
+        method="POST",
         path="/api/runs",
         body={
             "workspace_id": "workspace-1",
@@ -138,6 +158,7 @@ def test_product_api_dispatcher_coerces_json_shapes_to_service_types():
         body={"status": "completed"},
     )
 
+    assert service.connection_call["deployment_mode"] == DeploymentMode.LOCAL
     assert service.workflow_call["workflow_mode"] == WorkflowMode.AGENTIC
     assert isinstance(service.workflow_call["steps"][0], WorkflowStep)
     assert isinstance(service.workflow_call["dag_edges"][0], WorkflowDAGEdge)

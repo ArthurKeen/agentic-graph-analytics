@@ -19,6 +19,7 @@ from .models import (
     ChartSpec,
     ConnectionProfile,
     ConnectionVerificationStatus,
+    DeploymentMode,
     GraphProfile,
     PublishedSnapshot,
     ReportManifest,
@@ -37,6 +38,7 @@ from .models import (
     WorkflowStep,
     WorkflowStepStatus,
     create_audit_event,
+    create_connection_profile,
     create_graph_profile,
     create_published_snapshot,
     create_requirement_interview,
@@ -54,6 +56,7 @@ class WorkspaceOverview:
 
     workspace: Dict[str, Any]
     counts: Dict[str, int]
+    latest_connection_profiles: List[Dict[str, Any]] = field(default_factory=list)
     latest_graph_profiles: List[Dict[str, Any]] = field(default_factory=list)
     latest_source_documents: List[Dict[str, Any]] = field(default_factory=list)
     latest_workflow_runs: List[Dict[str, Any]] = field(default_factory=list)
@@ -66,6 +69,7 @@ class WorkspaceOverview:
         return {
             "workspace": self.workspace,
             "counts": self.counts,
+            "latest_connection_profiles": self.latest_connection_profiles,
             "latest_graph_profiles": self.latest_graph_profiles,
             "latest_source_documents": self.latest_source_documents,
             "latest_workflow_runs": self.latest_workflow_runs,
@@ -314,6 +318,9 @@ class ProductService:
         return WorkspaceOverview(
             workspace=workspace.to_dict(),
             counts=counts,
+            latest_connection_profiles=[
+                profile.to_dict() for profile in connection_profiles[:recent_limit]
+            ],
             latest_graph_profiles=[
                 profile.to_dict() for profile in graph_profiles[:recent_limit]
             ],
@@ -326,6 +333,44 @@ class ProductService:
             latest_reports=[report.to_dict() for report in reports[:recent_limit]],
             latest_audit_events=[event.to_dict() for event in audit_events],
         )
+
+    def create_connection_profile(
+        self,
+        workspace_id: str,
+        name: str,
+        deployment_mode: DeploymentMode,
+        endpoint: str,
+        database: str,
+        username: str,
+        verify_ssl: bool = True,
+        secret_refs: Optional[Dict[str, Dict[str, str]]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ConnectionProfile:
+        """Create non-secret ArangoDB connection metadata for a workspace."""
+
+        self.repository.get_workspace(workspace_id)
+        if not name.strip():
+            raise ValidationError("Connection profile name is required")
+        if not endpoint.strip():
+            raise ValidationError("Connection endpoint is required")
+        if not database.strip():
+            raise ValidationError("Database name is required")
+        if not username.strip():
+            raise ValidationError("Database username is required")
+
+        profile = create_connection_profile(
+            workspace_id=workspace_id,
+            name=name.strip(),
+            deployment_mode=deployment_mode,
+            endpoint=endpoint.strip(),
+            database=database.strip(),
+            username=username.strip(),
+            verify_ssl=verify_ssl,
+            secret_refs=secret_refs or {},
+            metadata=metadata or {},
+        )
+        self.repository.create_connection_profile(profile)
+        return profile
 
     def check_workspace_health(self, workspace_id: str) -> WorkspaceHealthResult:
         """Check workspace metadata readiness for admin and setup views."""

@@ -57,6 +57,15 @@ PRODUCT_API_ENDPOINTS = [
     ),
     ProductAPIEndpoint(
         method="POST",
+        path="/api/workspaces/{workspace_id}/connection-profiles",
+        service_method="create_connection_profile",
+        summary="Create an ArangoDB connection profile",
+        tags=["connection-profiles"],
+        request_model="CreateConnectionProfileRequest",
+        response_model="ConnectionProfile",
+    ),
+    ProductAPIEndpoint(
+        method="POST",
         path="/api/connection-profiles/{connection_profile_id}/verify",
         service_method="verify_connection_profile",
         summary="Verify an ArangoDB connection profile",

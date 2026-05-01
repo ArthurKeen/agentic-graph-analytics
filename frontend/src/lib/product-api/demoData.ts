@@ -1,4 +1,5 @@
 import type {
+  ConnectionProfileSummary,
   GraphProfileSummary,
   ReportBundle,
   SourceDocumentSummary,
@@ -7,6 +8,12 @@ import type {
 } from "./types";
 
 export const demoAssets: WorkspaceAsset[] = [
+  {
+    id: "connection-demo",
+    kind: "connection-profile",
+    label: "Demo ArangoDB",
+    description: "local connection (unknown)"
+  },
   {
     id: "run-demo",
     kind: "run",
@@ -32,6 +39,21 @@ export const demoAssets: WorkspaceAsset[] = [
     description: "Structured report bundle"
   }
 ];
+
+export const demoConnectionProfile: ConnectionProfileSummary = {
+  connectionProfileId: "connection-demo",
+  workspaceId: "workspace-demo",
+  name: "Demo ArangoDB",
+  deploymentMode: "local",
+  endpoint: "http://localhost:8529",
+  database: "customer_graph",
+  username: "root",
+  verifySsl: false,
+  secretRefs: { password: { kind: "env", ref: "ARANGO_PASSWORD" } },
+  lastVerificationStatus: "unknown",
+  lastVerifiedAt: null,
+  metadata: { source: "demo" }
+};
 
 export const demoDag: WorkflowDAGView = {
   runId: "run-demo",

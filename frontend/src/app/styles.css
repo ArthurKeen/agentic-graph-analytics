@@ -552,6 +552,60 @@ button {
   margin-top: 12px !important;
 }
 
+.connection-profile-overlay {
+  display: grid;
+  gap: 12px;
+  width: min(620px, 100%);
+  max-height: min(760px, 92vh);
+  overflow: auto;
+  border: 1px solid var(--aga-border);
+  border-radius: 16px;
+  background: var(--aga-panel);
+  box-shadow: 0 24px 100px rgb(0 0 0 / 45%);
+  padding: 20px;
+}
+
+.connection-profile-overlay header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.connection-profile-overlay h2,
+.connection-profile-overlay p {
+  margin: 0;
+}
+
+.connection-profile-overlay label {
+  display: grid;
+  gap: 6px;
+  color: var(--aga-muted);
+  font-size: 13px;
+}
+
+.connection-profile-overlay input,
+.connection-profile-overlay select {
+  border: 1px solid var(--aga-border);
+  border-radius: 10px;
+  background: var(--aga-bg);
+  color: var(--aga-text);
+  padding: 10px 12px;
+}
+
+.connection-profile-overlay .checkbox-row {
+  display: flex;
+  align-items: center;
+}
+
+.connection-profile-overlay .checkbox-row input {
+  width: auto;
+}
+
+.error-text {
+  color: var(--aga-danger) !important;
+}
+
 .confirmation-actions {
   display: flex;
   justify-content: flex-end;

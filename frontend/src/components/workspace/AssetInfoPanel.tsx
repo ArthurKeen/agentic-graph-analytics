@@ -9,6 +9,7 @@ interface AssetInfoPanelProps {
 }
 
 const assetKindLabels: Record<WorkspaceAsset["kind"], string> = {
+  "connection-profile": "Connection Profile",
   document: "Document",
   "graph-profile": "Graph Profile",
   report: "Report",

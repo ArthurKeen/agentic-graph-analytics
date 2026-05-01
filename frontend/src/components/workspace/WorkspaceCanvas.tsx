@@ -33,6 +33,7 @@ interface WorkspaceCanvasProps {
   onSelectStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
+  onRequestCreateConnectionProfile: () => void;
   onShowHelp: () => void;
   onCloseHelp: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
@@ -51,6 +52,7 @@ export function WorkspaceCanvas({
   onSelectStep,
   onClearAssetSelection,
   onClearSelection,
+  onRequestCreateConnectionProfile,
   onShowHelp,
   onCloseHelp,
   onOpenMenu
@@ -65,6 +67,7 @@ export function WorkspaceCanvas({
           : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
+      onCreateConnectionProfile: onRequestCreateConnectionProfile,
       onFitAll: () => undefined,
       onCenterView: () => undefined,
       onViewAsOperational: () => undefined,

@@ -1,7 +1,10 @@
 import type {
   ChartSpec,
+  ConnectionProfileSummary,
+  CreateConnectionProfileInput,
   GraphProfileSummary,
   ProductAPIClient,
+  RawConnectionProfileSummary,
   RawGraphProfileSummary,
   RawReportBundle,
   RawSourceDocumentSummary,
@@ -38,6 +41,17 @@ export function createProductAPIClient(
       return mapWorkspaceHealth(
         await getJSON<RawWorkspaceHealth>(
           `${normalizedBaseUrl}/api/workspaces/${workspaceId}/health`
+        )
+      );
+    },
+    async createConnectionProfile(
+      workspaceId: string,
+      input: CreateConnectionProfileInput
+    ): Promise<ConnectionProfileSummary> {
+      return mapConnectionProfileSummary(
+        await postJSON<RawConnectionProfileSummary>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/connection-profiles`,
+          createConnectionProfilePayload(input)
         )
       );
     },
@@ -98,11 +112,33 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
   return {
     workspace: raw.workspace,
     counts: raw.counts,
+    latestConnectionProfiles: (raw.latest_connection_profiles ?? []).map(
+      mapConnectionProfileSummary
+    ),
     latestGraphProfiles: (raw.latest_graph_profiles ?? []).map(mapGraphProfileSummary),
     latestSourceDocuments: (raw.latest_source_documents ?? []).map(mapSourceDocumentSummary),
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
+  };
+}
+
+export function mapConnectionProfileSummary(
+  raw: RawConnectionProfileSummary
+): ConnectionProfileSummary {
+  return {
+    connectionProfileId: raw.connection_profile_id,
+    workspaceId: raw.workspace_id,
+    name: raw.name,
+    deploymentMode: raw.deployment_mode,
+    endpoint: raw.endpoint,
+    database: raw.database,
+    username: raw.username,
+    verifySsl: raw.verify_ssl ?? true,
+    secretRefs: raw.secret_refs ?? {},
+    lastVerificationStatus: raw.last_verification_status ?? "unknown",
+    lastVerifiedAt: raw.last_verified_at,
+    metadata: raw.metadata ?? {}
   };
 }
 
@@ -184,6 +220,12 @@ export function mapReportBundle(raw: RawReportBundle): ReportBundle {
 }
 
 export function workspaceAssetsFromOverview(overview: WorkspaceOverview): WorkspaceAsset[] {
+  const connectionProfileAssets = overview.latestConnectionProfiles.map((profile) => ({
+    id: profile.connectionProfileId,
+    kind: "connection-profile" as const,
+    label: profile.name,
+    description: `${profile.deploymentMode} connection (${profile.lastVerificationStatus})`
+  }));
   const graphProfileAssets = overview.latestGraphProfiles.map((profile) => ({
     id: profile.graphProfileId,
     kind: "graph-profile" as const,
@@ -209,7 +251,32 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     description: `Report (${report.status})`
   }));
 
-  return [...graphProfileAssets, ...documentAssets, ...runAssets, ...reportAssets];
+  return [
+    ...connectionProfileAssets,
+    ...graphProfileAssets,
+    ...documentAssets,
+    ...runAssets,
+    ...reportAssets
+  ];
+}
+
+function createConnectionProfilePayload(
+  input: CreateConnectionProfileInput
+): Record<string, unknown> {
+  const passwordSecretEnvVar = input.passwordSecretEnvVar?.trim() ?? "";
+  const secretRefs = passwordSecretEnvVar
+    ? { password: { kind: "env", ref: passwordSecretEnvVar } }
+    : {};
+
+  return {
+    name: input.name,
+    deployment_mode: input.deploymentMode,
+    endpoint: input.endpoint,
+    database: input.database,
+    username: input.username,
+    verify_ssl: input.verifySsl,
+    secret_refs: secretRefs
+  };
 }
 
 function mapReportSection(raw: RawReportBundle["sections"][number]): ReportSection {

@@ -274,6 +274,7 @@ def test_workspace_overview_counts_and_recent_items():
 
     assert overview.counts["connection_profiles"] == 1
     assert overview.counts["reports"] == 1
+    assert overview.latest_connection_profiles[0]["name"] == "Development"
     assert overview.latest_graph_profiles[0]["graph_name"] == "customer_graph"
     assert overview.latest_source_documents[0]["filename"] == "requirements.md"
     assert overview.latest_workflow_runs[0]["run_id"] == run.run_id
@@ -354,6 +355,38 @@ def test_workspace_health_is_healthy_when_core_metadata_exists():
 
     assert health.status == "healthy"
     assert health.issues == []
+
+
+def test_create_connection_profile_stores_secret_references_only():
+    """Connection profile creation persists non-secret metadata."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+
+    profile = ProductService(repository).create_connection_profile(
+        workspace_id=workspace.workspace_id,
+        name=" Development ",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint=" http://localhost:8529 ",
+        database="customer_graph",
+        username="root",
+        verify_ssl=False,
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+
+    assert profile.connection_profile_id
+    assert profile.name == "Development"
+    assert profile.endpoint == "http://localhost:8529"
+    assert profile.verify_ssl is False
+    assert profile.secret_refs == {
+        "password": {"kind": "env", "ref": "ARANGO_PASSWORD"}
+    }
+    assert repository.connection_profiles == [profile]
 
 
 def test_workflow_dag_view_is_visualizer_ready():

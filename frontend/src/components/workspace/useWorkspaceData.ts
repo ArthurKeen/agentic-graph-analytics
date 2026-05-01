@@ -4,12 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { createProductAPIClient, workspaceAssetsFromOverview } from "@/lib/product-api/client";
 import {
   demoAssets,
+  demoConnectionProfile,
   demoDag,
   demoGraphProfile,
   demoReport,
   demoSourceDocument
 } from "@/lib/product-api/demoData";
 import type {
+  ConnectionProfileSummary,
+  CreateConnectionProfileInput,
   GraphProfileSummary,
   ProductAPIClient,
   ReportBundle,
@@ -28,6 +31,7 @@ interface UseWorkspaceDataArgs {
 
 interface WorkspaceDataState {
   assets: WorkspaceAsset[];
+  connectionProfileById: Record<string, ConnectionProfileSummary>;
   graphProfileById: Record<string, GraphProfileSummary>;
   documentById: Record<string, SourceDocumentSummary>;
   dagByRunId: Record<string, WorkflowDAGView>;
@@ -40,6 +44,9 @@ interface WorkspaceDataState {
 
 interface WorkspaceDataResult extends WorkspaceDataState {
   publishReport: (reportId: string, actor?: string) => Promise<ReportBundle>;
+  createConnectionProfile: (
+    input: CreateConnectionProfileInput
+  ) => Promise<ConnectionProfileSummary>;
 }
 
 export function useWorkspaceData({
@@ -50,6 +57,9 @@ export function useWorkspaceData({
   const apiClient = useMemo(() => client ?? createProductAPIClient(), [client]);
   const [state, setState] = useState<WorkspaceDataState>({
     assets: demoAssets,
+    connectionProfileById: {
+      [demoConnectionProfile.connectionProfileId]: demoConnectionProfile
+    },
     graphProfileById: { [demoGraphProfile.graphProfileId]: demoGraphProfile },
     documentById: { [demoSourceDocument.documentId]: demoSourceDocument },
     dagByRunId: { [demoDag.runId]: demoDag },
@@ -94,6 +104,17 @@ export function useWorkspaceData({
 
         setState({
           assets: assets.length > 0 ? assets : demoAssets,
+          connectionProfileById:
+            overview.latestConnectionProfiles.length > 0
+              ? Object.fromEntries(
+                  overview.latestConnectionProfiles.map((profile) => [
+                    profile.connectionProfileId,
+                    profile
+                  ])
+                )
+              : {
+                  [demoConnectionProfile.connectionProfileId]: demoConnectionProfile
+                },
           graphProfileById:
             overview.latestGraphProfiles.length > 0
               ? Object.fromEntries(
@@ -175,9 +196,34 @@ export function useWorkspaceData({
     return publishedReport;
   };
 
+  const createConnectionProfile = async (
+    input: CreateConnectionProfileInput
+  ): Promise<ConnectionProfileSummary> => {
+    const profile = initialWorkspaceId
+      ? await apiClient.createConnectionProfile(initialWorkspaceId, input)
+      : statefulDemoCreateConnectionProfile(input);
+    const asset: WorkspaceAsset = {
+      id: profile.connectionProfileId,
+      kind: "connection-profile",
+      label: profile.name,
+      description: `${profile.deploymentMode} connection (${profile.lastVerificationStatus})`
+    };
+
+    setState((current) => ({
+      ...current,
+      assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+      connectionProfileById: {
+        ...current.connectionProfileById,
+        [profile.connectionProfileId]: profile
+      }
+    }));
+    return profile;
+  };
+
   return {
     ...state,
-    publishReport
+    publishReport,
+    createConnectionProfile
   };
 }
 
@@ -189,5 +235,26 @@ function statefulDemoPublish(reportId: string): ReportBundle {
       reportId,
       status: "published"
     }
+  };
+}
+
+function statefulDemoCreateConnectionProfile(
+  input: CreateConnectionProfileInput
+): ConnectionProfileSummary {
+  return {
+    connectionProfileId: `connection-${Date.now()}`,
+    workspaceId: "workspace-demo",
+    name: input.name,
+    deploymentMode: input.deploymentMode,
+    endpoint: input.endpoint,
+    database: input.database,
+    username: input.username,
+    verifySsl: input.verifySsl,
+    secretRefs: input.passwordSecretEnvVar
+      ? { password: { kind: "env", ref: input.passwordSecretEnvVar } }
+      : {},
+    lastVerificationStatus: "unknown",
+    lastVerifiedAt: null,
+    metadata: { source: "demo" }
   };
 }

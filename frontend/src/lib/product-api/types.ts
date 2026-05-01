@@ -6,7 +6,12 @@ export type WorkflowStepStatus =
   | "skipped"
   | "paused";
 
-export type WorkspaceAssetKind = "document" | "graph-profile" | "run" | "report";
+export type WorkspaceAssetKind =
+  | "connection-profile"
+  | "document"
+  | "graph-profile"
+  | "run"
+  | "report";
 
 export interface WorkspaceAsset {
   id: string;
@@ -40,6 +45,31 @@ export interface SourceDocumentSummary {
   extractedText?: string | null;
   uploadedAt?: string;
   metadata: Record<string, unknown>;
+}
+
+export interface ConnectionProfileSummary {
+  connectionProfileId: string;
+  workspaceId: string;
+  name: string;
+  deploymentMode: string;
+  endpoint: string;
+  database: string;
+  username: string;
+  verifySsl: boolean;
+  secretRefs: Record<string, Record<string, string>>;
+  lastVerificationStatus: string;
+  lastVerifiedAt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreateConnectionProfileInput {
+  name: string;
+  deploymentMode: string;
+  endpoint: string;
+  database: string;
+  username: string;
+  verifySsl: boolean;
+  passwordSecretEnvVar?: string;
 }
 
 export interface WorkflowDAGNode {
@@ -78,6 +108,7 @@ export interface WorkspaceOverview {
     environment: string;
   };
   counts: Record<string, number>;
+  latestConnectionProfiles: ConnectionProfileSummary[];
   latestGraphProfiles: GraphProfileSummary[];
   latestSourceDocuments: SourceDocumentSummary[];
   latestWorkflowRuns: Array<{
@@ -145,6 +176,10 @@ export interface ReportBundle {
 export interface ProductAPIClient {
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
+  createConnectionProfile(
+    workspaceId: string,
+    input: CreateConnectionProfileInput
+  ): Promise<ConnectionProfileSummary>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
@@ -153,11 +188,27 @@ export interface ProductAPIClient {
 export interface RawWorkspaceOverview {
   workspace: WorkspaceOverview["workspace"];
   counts: Record<string, number>;
+  latest_connection_profiles?: RawConnectionProfileSummary[];
   latest_graph_profiles?: RawGraphProfileSummary[];
   latest_source_documents?: RawSourceDocumentSummary[];
   latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
   latest_reports: WorkspaceOverview["latestReports"];
   latest_audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawConnectionProfileSummary {
+  connection_profile_id: string;
+  workspace_id: string;
+  name: string;
+  deployment_mode: string;
+  endpoint: string;
+  database: string;
+  username: string;
+  verify_ssl?: boolean;
+  secret_refs?: Record<string, Record<string, string>>;
+  last_verification_status?: string;
+  last_verified_at?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RawSourceDocumentSummary {

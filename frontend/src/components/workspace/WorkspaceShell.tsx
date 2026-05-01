@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
+import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
@@ -25,6 +26,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     health,
     status,
     errorMessage,
+    createConnectionProfile,
     publishReport
   } = useWorkspaceData({
     initialWorkspaceId,
@@ -36,6 +38,11 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
+  const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
+  const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
+    null
+  );
+  const [isCreatingConnectionProfile, setIsCreatingConnectionProfile] = useState(false);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
@@ -99,6 +106,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setSelectedStep(null);
       setPendingDeleteRun(null);
       setPendingPublishReport(null);
+      setShowCreateConnectionProfile(false);
+      setCreateConnectionErrorMessage(null);
       setPublishErrorMessage(null);
     }
 
@@ -163,11 +172,43 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setSelectedStep(null);
         }}
         onClearSelection={() => setSelectedStep(null)}
+        onRequestCreateConnectionProfile={() => {
+          setCreateConnectionErrorMessage(null);
+          setShowCreateConnectionProfile(true);
+        }}
         onShowHelp={() => setShowHelp(true)}
         onCloseHelp={() => setShowHelp(false)}
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {showCreateConnectionProfile ? (
+        <CreateConnectionProfileOverlay
+          isCreating={isCreatingConnectionProfile}
+          errorMessage={createConnectionErrorMessage}
+          onCancel={() => setShowCreateConnectionProfile(false)}
+          onSubmit={async (input) => {
+            setCreateConnectionErrorMessage(null);
+            setIsCreatingConnectionProfile(true);
+            try {
+              const profile = await createConnectionProfile(input);
+              setSelectedAsset({
+                id: profile.connectionProfileId,
+                kind: "connection-profile",
+                label: profile.name,
+                description: `${profile.deploymentMode} connection (${profile.lastVerificationStatus})`
+              });
+              setSelectedStep(null);
+              setShowCreateConnectionProfile(false);
+            } catch (error) {
+              setCreateConnectionErrorMessage(
+                error instanceof Error ? error.message : "Failed to create connection profile"
+              );
+            } finally {
+              setIsCreatingConnectionProfile(false);
+            }
+          }}
+        />
+      ) : null}
       {pendingDeleteRun ? (
         <DeleteRunConfirmationOverlay
           run={pendingDeleteRun}
