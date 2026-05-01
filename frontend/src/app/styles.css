@@ -145,7 +145,7 @@ button {
 
 .workspace-header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
@@ -224,7 +224,7 @@ button {
 
 .report-canvas > header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   border: 1px solid var(--aga-border);
@@ -297,7 +297,7 @@ button {
 
 .connection-profile-canvas > header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   border: 1px solid var(--aga-border);
@@ -327,7 +327,7 @@ button {
 
 .connection-profile-card-header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
@@ -350,7 +350,7 @@ button {
 
 .graph-profile-canvas > header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   border: 1px solid var(--aga-border);
@@ -415,7 +415,7 @@ button {
 
 .source-document-canvas > header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   border: 1px solid var(--aga-border);
@@ -682,7 +682,7 @@ button {
 
 .connection-profile-overlay header {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
