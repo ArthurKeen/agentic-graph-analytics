@@ -656,4 +656,27 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("loads workflow recovery actions through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        "step-1": ["retry", "open_logs"],
+        "step-2": []
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const actions = await createProductAPIClient(
+      "http://api.example"
+    ).getWorkflowRecoveryActions("run-1");
+
+    expect(actions["step-1"]).toEqual(["retry", "open_logs"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs/run-1/recovery-actions",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

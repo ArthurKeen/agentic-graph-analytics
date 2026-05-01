@@ -32,6 +32,7 @@ interface WorkspaceCanvasProps {
   connectionProfile: ConnectionProfileSummary | null;
   connectionVerificationResult: ConnectionVerificationResult | null;
   dagView: WorkflowDAGView | null;
+  selectedStepRecoveryActions: string[];
   graphProfile: GraphProfileSummary | null;
   sourceDocument: SourceDocumentSummary | null;
   reportBundle: ReportBundle | null;
@@ -79,6 +80,7 @@ export function WorkspaceCanvas({
   connectionProfile,
   connectionVerificationResult,
   dagView,
+  selectedStepRecoveryActions,
   graphProfile,
   sourceDocument,
   reportBundle,
@@ -261,6 +263,12 @@ export function WorkspaceCanvas({
           <p>Artifacts: {selectedStep.artifactCount}</p>
           <p>Warnings: {selectedStep.warningCount}</p>
           <p>Errors: {selectedStep.errorCount}</p>
+          <p>
+            Recovery actions:{" "}
+            {selectedStepRecoveryActions.length > 0
+              ? selectedStepRecoveryActions.join(", ")
+              : "None"}
+          </p>
         </FloatingDetailPanel>
       ) : null}
 

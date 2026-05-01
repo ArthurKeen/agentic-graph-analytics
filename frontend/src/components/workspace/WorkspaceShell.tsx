@@ -33,6 +33,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     graphProfileById,
     documentById,
     dagByRunId,
+    recoveryActionsByRunId,
     reportById,
     health,
     status,
@@ -133,6 +134,12 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     () => (selectedAsset?.kind === "run" ? dagByRunId[selectedAsset.id] ?? null : null),
     [dagByRunId, selectedAsset]
   );
+  const selectedStepRecoveryActions = useMemo(() => {
+    if (!selectedStep || selectedAsset?.kind !== "run") {
+      return [];
+    }
+    return recoveryActionsByRunId[selectedAsset.id]?.[selectedStep.id] ?? [];
+  }, [recoveryActionsByRunId, selectedAsset, selectedStep]);
   const reportBundle = useMemo(
     () => (selectedAsset?.kind === "report" ? reportById[selectedAsset.id] ?? null : null),
     [reportById, selectedAsset]
@@ -281,6 +288,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             : null
         }
         dagView={dagView}
+        selectedStepRecoveryActions={selectedStepRecoveryActions}
         graphProfile={graphProfile}
         sourceDocument={sourceDocument}
         reportBundle={reportBundle}

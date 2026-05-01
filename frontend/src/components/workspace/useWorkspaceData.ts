@@ -25,6 +25,7 @@ import type {
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
   WorkflowDAGView,
+  WorkflowRecoveryActions,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -46,6 +47,7 @@ interface WorkspaceDataState {
   graphProfileById: Record<string, GraphProfileSummary>;
   documentById: Record<string, SourceDocumentSummary>;
   dagByRunId: Record<string, WorkflowDAGView>;
+  recoveryActionsByRunId: Record<string, WorkflowRecoveryActions>;
   reportById: Record<string, ReportBundle>;
   overview: WorkspaceOverview | null;
   health: WorkspaceHealth | null;
@@ -99,6 +101,7 @@ export function useWorkspaceData({
     graphProfileById: { [demoGraphProfile.graphProfileId]: demoGraphProfile },
     documentById: { [demoSourceDocument.documentId]: demoSourceDocument },
     dagByRunId: { [demoDag.runId]: demoDag },
+    recoveryActionsByRunId: { [demoDag.runId]: demoRecoveryActions(demoDag) },
     reportById: { [demoReport.manifest.reportId]: demoReport },
     overview: null,
     health: null,
@@ -124,7 +127,12 @@ export function useWorkspaceData({
         const firstRunId =
           initialRunId ??
           assets.find((asset) => asset.kind === "run")?.id;
-        const dag = firstRunId ? await apiClient.getWorkflowDAG(firstRunId) : null;
+        const [dag, recoveryActions] = firstRunId
+          ? await Promise.all([
+              apiClient.getWorkflowDAG(firstRunId),
+              apiClient.getWorkflowRecoveryActions(firstRunId)
+            ])
+          : [null, null];
         const reportBundles = await Promise.all(
           assets
             .filter((asset) => asset.kind === "report")
@@ -170,6 +178,10 @@ export function useWorkspaceData({
                 )
               : { [demoSourceDocument.documentId]: demoSourceDocument },
           dagByRunId: dag ? { [dag.runId]: dag } : { [demoDag.runId]: demoDag },
+          recoveryActionsByRunId:
+            firstRunId && recoveryActions
+              ? { [firstRunId]: recoveryActions }
+              : { [demoDag.runId]: demoRecoveryActions(demoDag) },
           reportById:
             Object.keys(reportById).length > 0
               ? reportById
@@ -406,6 +418,19 @@ function statefulDemoPublish(reportId: string): ReportBundle {
       status: "published"
     }
   };
+}
+
+function demoRecoveryActions(dag: WorkflowDAGView): WorkflowRecoveryActions {
+  return Object.fromEntries(
+    dag.nodes.map((node) => [
+      node.id,
+      node.status === "failed"
+        ? ["retry", "open_logs"]
+        : node.status === "paused"
+          ? ["resume", "cancel", "open_logs"]
+          : []
+    ])
+  );
 }
 
 function statefulDemoCreateConnectionProfile(

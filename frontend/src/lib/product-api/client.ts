@@ -31,6 +31,7 @@ import type {
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
+  WorkflowRecoveryActions,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -180,6 +181,11 @@ export function createProductAPIClient(
           `${normalizedBaseUrl}/api/workspaces/import`,
           workspaceBundlePayload(bundle)
         )
+      );
+    },
+    async getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions> {
+      return getJSON<WorkflowRecoveryActions>(
+        `${normalizedBaseUrl}/api/runs/${runId}/recovery-actions`
       );
     }
   };

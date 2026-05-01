@@ -162,6 +162,8 @@ export interface WorkflowDAGView {
   errors: string[];
 }
 
+export type WorkflowRecoveryActions = Record<string, string[]>;
+
 export interface WorkspaceOverview {
   workspace: {
     workspace_id: string;
@@ -288,6 +290,7 @@ export interface ProductAPIClient {
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
   exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle>;
   importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult>;
+  getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions>;
 }
 
 export interface RawWorkspaceOverview {
