@@ -7,6 +7,7 @@ import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
+import { ImportWorkspaceBundleOverlay } from "./ImportWorkspaceBundleOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
@@ -44,7 +45,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     approveRequirementsCopilotDraft,
     verifyConnectionProfile,
     publishReport,
-    exportWorkspaceBundle
+    exportWorkspaceBundle,
+    importWorkspaceBundle
   } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
@@ -93,6 +95,12 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
+  const [showImportWorkspaceBundle, setShowImportWorkspaceBundle] = useState(false);
+  const [isImportingWorkspaceBundle, setIsImportingWorkspaceBundle] = useState(false);
+  const [importWorkspaceErrorMessage, setImportWorkspaceErrorMessage] = useState<string | null>(
+    null
+  );
+  const [importWorkspaceMessage, setImportWorkspaceMessage] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
   const [publishedReportIds, setPublishedReportIds] = useState<Set<string>>(() => new Set());
   const visibleAssets = useMemo(
@@ -172,6 +180,9 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setPublishErrorMessage(null);
       setExportMessage(null);
       setExportErrorMessage(null);
+      setShowImportWorkspaceBundle(false);
+      setImportWorkspaceErrorMessage(null);
+      setImportWorkspaceMessage(null);
     }
 
     window.addEventListener("keydown", closePanels);
@@ -323,6 +334,11 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
               )
             );
         }}
+        onRequestImportWorkspace={() => {
+          setImportWorkspaceErrorMessage(null);
+          setImportWorkspaceMessage(null);
+          setShowImportWorkspaceBundle(true);
+        }}
         onVerifyConnectionProfile={verifySelectedConnectionProfile}
         onRequestDiscoverGraph={(connectionProfileId) => {
           const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
@@ -409,6 +425,43 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           onClose={() => {
             setExportMessage(null);
             setExportErrorMessage(null);
+          }}
+        />
+      ) : null}
+      {importWorkspaceMessage ? (
+        <FloatingDetailPanel
+          title="Workspace Import"
+          stackIndex={2}
+          onClose={() => setImportWorkspaceMessage(null)}
+        >
+          <p className="success-text">{importWorkspaceMessage}</p>
+        </FloatingDetailPanel>
+      ) : null}
+      {showImportWorkspaceBundle ? (
+        <ImportWorkspaceBundleOverlay
+          isImporting={isImportingWorkspaceBundle}
+          errorMessage={importWorkspaceErrorMessage}
+          onCancel={() => setShowImportWorkspaceBundle(false)}
+          onSubmit={async (bundle) => {
+            setImportWorkspaceErrorMessage(null);
+            setIsImportingWorkspaceBundle(true);
+            try {
+              const result = await importWorkspaceBundle(bundle);
+              const importedTotal = Object.values(result.counts).reduce(
+                (sum, count) => sum + count,
+                0
+              );
+              setImportWorkspaceMessage(
+                `Imported workspace ${result.workspaceId} (${importedTotal} records).`
+              );
+              setShowImportWorkspaceBundle(false);
+            } catch (error) {
+              setImportWorkspaceErrorMessage(
+                error instanceof Error ? error.message : "Failed to import workspace bundle"
+              );
+            } finally {
+              setIsImportingWorkspaceBundle(false);
+            }
           }}
         />
       ) : null}

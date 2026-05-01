@@ -18,6 +18,7 @@ describe("workspace context menu builders", () => {
     const items = buildCanvasContextMenu({
       onCreateConnectionProfile: noop,
       onExportWorkspace: noop,
+      onImportWorkspace: noop,
       onFitAll: noop,
       onCenterView: noop,
       onViewAsOperational: noop,
@@ -27,6 +28,7 @@ describe("workspace context menu builders", () => {
     expect(items.map((item) => item.id)).toEqual([
       "create-connection-profile",
       "export-workspace",
+      "import-workspace",
       "view-operational",
       "fit-all",
       "center-view",

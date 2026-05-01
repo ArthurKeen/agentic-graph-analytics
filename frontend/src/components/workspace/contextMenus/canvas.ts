@@ -3,6 +3,7 @@ import type { ContextMenuItem } from "./types";
 interface BuildCanvasContextMenuArgs {
   onCreateConnectionProfile: () => void;
   onExportWorkspace: () => void;
+  onImportWorkspace: () => void;
   onFitAll: () => void;
   onCenterView: () => void;
   onViewAsOperational: () => void;
@@ -12,6 +13,7 @@ interface BuildCanvasContextMenuArgs {
 export function buildCanvasContextMenu({
   onCreateConnectionProfile,
   onExportWorkspace,
+  onImportWorkspace,
   onFitAll,
   onCenterView,
   onViewAsOperational,
@@ -29,6 +31,12 @@ export function buildCanvasContextMenu({
       label: "Export Workspace Bundle",
       icon: "JSON",
       onSelect: onExportWorkspace
+    },
+    {
+      id: "import-workspace",
+      label: "Import Workspace Bundle",
+      icon: "JSON",
+      onSelect: onImportWorkspace
     },
     {
       id: "view-operational",

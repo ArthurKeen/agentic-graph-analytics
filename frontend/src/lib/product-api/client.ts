@@ -19,6 +19,7 @@ import type {
   RawWorkflowDAGView,
   RawWorkspaceBundle,
   RawWorkspaceHealth,
+  RawWorkspaceImportResult,
   RawWorkspaceOverview,
   ReportBundle,
   ReportSection,
@@ -33,6 +34,7 @@ import type {
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
+  WorkspaceImportResult,
   WorkspaceOverview
 } from "./types";
 
@@ -169,6 +171,14 @@ export function createProductAPIClient(
       return mapWorkspaceBundle(
         await getJSON<RawWorkspaceBundle>(
           `${normalizedBaseUrl}/api/workspaces/${workspaceId}/export`
+        )
+      );
+    },
+    async importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult> {
+      return mapWorkspaceImportResult(
+        await postJSON<RawWorkspaceImportResult>(
+          `${normalizedBaseUrl}/api/workspaces/import`,
+          workspaceBundlePayload(bundle)
         )
       );
     }
@@ -393,6 +403,15 @@ export function mapWorkspaceBundle(raw: RawWorkspaceBundle): WorkspaceBundle {
   };
 }
 
+export function mapWorkspaceImportResult(
+  raw: RawWorkspaceImportResult
+): WorkspaceImportResult {
+  return {
+    workspaceId: raw.workspace_id,
+    counts: raw.counts
+  };
+}
+
 export function workspaceAssetsFromOverview(overview: WorkspaceOverview): WorkspaceAsset[] {
   const connectionProfileAssets = overview.latestConnectionProfiles.map((profile) => ({
     id: profile.connectionProfileId,
@@ -471,6 +490,21 @@ function startRequirementsCopilotPayload(
   return {
     ...(domain ? { domain } : {}),
     ...(createdBy ? { created_by: createdBy } : {})
+  };
+}
+
+function workspaceBundlePayload(bundle: WorkspaceBundle): Record<string, unknown> {
+  return {
+    schema_version: bundle.schemaVersion,
+    workspace: bundle.workspace,
+    connection_profiles: bundle.connectionProfiles,
+    graph_profiles: bundle.graphProfiles,
+    source_documents: bundle.sourceDocuments,
+    requirement_interviews: bundle.requirementInterviews,
+    requirement_versions: bundle.requirementVersions,
+    workflow_runs: bundle.workflowRuns,
+    reports: bundle.reports,
+    audit_events: bundle.auditEvents
   };
 }
 

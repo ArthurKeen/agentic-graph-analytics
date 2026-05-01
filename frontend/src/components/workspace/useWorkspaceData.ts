@@ -28,6 +28,7 @@ import type {
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
+  WorkspaceImportResult,
   WorkspaceOverview
 } from "@/lib/product-api/types";
 
@@ -81,6 +82,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     approvedBy?: string
   ) => Promise<RequirementVersion>;
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
+  importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
 }
 
 export function useWorkspaceData({
@@ -372,6 +374,14 @@ export function useWorkspaceData({
       : statefulDemoExportWorkspaceBundle(state);
   };
 
+  const importWorkspaceBundle = async (
+    bundle: WorkspaceBundle
+  ): Promise<WorkspaceImportResult> => {
+    return initialWorkspaceId
+      ? apiClient.importWorkspaceBundle(bundle)
+      : statefulDemoImportWorkspaceBundle(bundle);
+  };
+
   return {
     ...state,
     publishReport,
@@ -382,7 +392,8 @@ export function useWorkspaceData({
     answerRequirementsCopilotQuestion,
     generateRequirementsCopilotDraft,
     approveRequirementsCopilotDraft,
-    exportWorkspaceBundle
+    exportWorkspaceBundle,
+    importWorkspaceBundle
   };
 }
 
@@ -608,4 +619,18 @@ function statefulDemoExportWorkspaceBundle(state: WorkspaceDataState): Workspace
 
 function toRecordArray<T>(items: T[]): Array<Record<string, unknown>> {
   return items.map((item) => ({ ...(item as object) }));
+}
+
+function statefulDemoImportWorkspaceBundle(bundle: WorkspaceBundle): WorkspaceImportResult {
+  return {
+    workspaceId: String(bundle.workspace.workspace_id ?? bundle.workspace._key ?? "workspace-demo"),
+    counts: {
+      connection_profiles: bundle.connectionProfiles.length,
+      graph_profiles: bundle.graphProfiles.length,
+      source_documents: bundle.sourceDocuments.length,
+      requirement_versions: bundle.requirementVersions.length,
+      workflow_runs: bundle.workflowRuns.length,
+      reports: bundle.reports.length
+    }
+  };
 }

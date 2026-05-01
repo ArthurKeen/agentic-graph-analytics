@@ -601,4 +601,59 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("imports workspace bundles through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        counts: {
+          connection_profiles: 1,
+          reports: 2
+        }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient("http://api.example").importWorkspaceBundle({
+      schemaVersion: "1",
+      workspace: { workspace_id: "workspace-1" },
+      connectionProfiles: [{ connection_profile_id: "connection-1" }],
+      graphProfiles: [],
+      sourceDocuments: [],
+      requirementInterviews: [],
+      requirementVersions: [],
+      workflowRuns: [],
+      reports: [],
+      auditEvents: []
+    });
+
+    expect(result).toEqual({
+      workspaceId: "workspace-1",
+      counts: {
+        connection_profiles: 1,
+        reports: 2
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/import",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          schema_version: "1",
+          workspace: { workspace_id: "workspace-1" },
+          connection_profiles: [{ connection_profile_id: "connection-1" }],
+          graph_profiles: [],
+          source_documents: [],
+          requirement_interviews: [],
+          requirement_versions: [],
+          workflow_runs: [],
+          reports: [],
+          audit_events: []
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

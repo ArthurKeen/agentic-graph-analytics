@@ -248,6 +248,11 @@ export interface WorkspaceBundle {
   auditEvents: Array<Record<string, unknown>>;
 }
 
+export interface WorkspaceImportResult {
+  workspaceId: string;
+  counts: Record<string, number>;
+}
+
 export interface ProductAPIClient {
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
@@ -282,6 +287,7 @@ export interface ProductAPIClient {
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
   exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle>;
+  importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult>;
 }
 
 export interface RawWorkspaceOverview {
@@ -463,4 +469,9 @@ export interface RawWorkspaceBundle {
   workflow_runs?: Array<Record<string, unknown>>;
   reports?: Array<Record<string, unknown>>;
   audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawWorkspaceImportResult {
+  workspace_id: string;
+  counts: Record<string, number>;
 }
