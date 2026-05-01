@@ -9,7 +9,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from .constants import PRODUCT_SCHEMA_VERSION
 from .models import (
+    ConnectionProfile,
     ChartSpec,
     PublishedSnapshot,
     ReportManifest,
@@ -93,6 +95,38 @@ class ReportBundle:
         }
 
 
+@dataclass
+class WorkspaceBundle:
+    """Portable workspace export payload."""
+
+    schema_version: str
+    workspace: Dict[str, Any]
+    connection_profiles: List[Dict[str, Any]]
+    graph_profiles: List[Dict[str, Any]]
+    source_documents: List[Dict[str, Any]]
+    requirement_interviews: List[Dict[str, Any]]
+    requirement_versions: List[Dict[str, Any]]
+    workflow_runs: List[Dict[str, Any]]
+    reports: List[Dict[str, Any]]
+    audit_events: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert bundle to an API-friendly dictionary."""
+
+        return {
+            "schema_version": self.schema_version,
+            "workspace": self.workspace,
+            "connection_profiles": self.connection_profiles,
+            "graph_profiles": self.graph_profiles,
+            "source_documents": self.source_documents,
+            "requirement_interviews": self.requirement_interviews,
+            "requirement_versions": self.requirement_versions,
+            "workflow_runs": self.workflow_runs,
+            "reports": self.reports,
+            "audit_events": self.audit_events,
+        }
+
+
 class ProductService:
     """Use-case oriented product operations for the future UI API."""
 
@@ -164,6 +198,59 @@ class ProductService:
 
         return self._report_bundle(manifest, sections, charts, snapshots)
 
+    def export_workspace_bundle(
+        self,
+        workspace_id: str,
+        include_audit_events: bool = True,
+        audit_limit: int = 1000,
+    ) -> WorkspaceBundle:
+        """Export workspace metadata without resolved secrets or secret refs."""
+
+        workspace = self.repository.get_workspace(workspace_id)
+        connection_profiles = self.repository.list_connection_profiles(workspace_id)
+        graph_profiles = self.repository.list_graph_profiles(workspace_id)
+        source_documents = self.repository.list_source_documents(workspace_id)
+        requirement_interviews = self.repository.list_requirement_interviews(workspace_id)
+        requirement_versions = self.repository.list_requirement_versions(workspace_id)
+        workflow_runs = self.repository.list_workflow_runs(workspace_id)
+        report_manifests = self.repository.list_report_manifests(workspace_id)
+
+        reports = [
+            self.get_report_bundle(report.report_id).to_dict()
+            for report in report_manifests
+        ]
+        audit_events = (
+            [
+                event.to_dict()
+                for event in self.repository.list_audit_events(
+                    workspace_id,
+                    limit=audit_limit,
+                )
+            ]
+            if include_audit_events
+            else []
+        )
+
+        return WorkspaceBundle(
+            schema_version=PRODUCT_SCHEMA_VERSION,
+            workspace=workspace.to_dict(),
+            connection_profiles=[
+                self._export_connection_profile(profile)
+                for profile in connection_profiles
+            ],
+            graph_profiles=[profile.to_dict() for profile in graph_profiles],
+            source_documents=[document.to_dict() for document in source_documents],
+            requirement_interviews=[
+                interview.to_dict() for interview in requirement_interviews
+            ],
+            requirement_versions=[
+                version.to_dict() for version in requirement_versions
+            ],
+            workflow_runs=[run.to_dict() for run in workflow_runs],
+            reports=reports,
+            audit_events=audit_events,
+        )
+
     def publish_report(self, report_id: str, actor: str) -> ReportBundle:
         """Publish a report and record an immutable snapshot plus audit event."""
 
@@ -228,6 +315,16 @@ class ProductService:
             "to": edge.to_step_id,
             **edge.to_dict(),
         }
+
+    def _export_connection_profile(
+        self,
+        profile: ConnectionProfile,
+    ) -> Dict[str, Any]:
+        doc = profile.to_dict()
+        secret_ref_keys = sorted(doc.get("secret_refs", {}).keys())
+        doc.pop("secret_refs", None)
+        doc["secret_ref_keys"] = secret_ref_keys
+        return doc
 
     def _content_hash(self, payload: Dict[str, Any]) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(

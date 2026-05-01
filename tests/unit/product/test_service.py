@@ -14,6 +14,7 @@ from graph_analytics_ai.product import (
     create_chart_spec,
     create_connection_profile,
     create_graph_profile,
+    create_requirement_interview,
     create_report_manifest,
     create_report_section,
     create_requirement_version,
@@ -32,6 +33,7 @@ class FakeProductRepository:
         self.connection_profiles = []
         self.graph_profiles = []
         self.source_documents = []
+        self.requirement_interviews = []
         self.requirement_versions = []
         self.workflow_runs = {}
         self.reports = {}
@@ -67,6 +69,13 @@ class FakeProductRepository:
             version
             for version in self.requirement_versions
             if version.workspace_id == workspace_id
+        ]
+
+    def list_requirement_interviews(self, workspace_id):
+        return [
+            interview
+            for interview in self.requirement_interviews
+            if interview.workspace_id == workspace_id
         ]
 
     def list_workflow_runs(self, workspace_id):
@@ -262,3 +271,98 @@ def test_publish_report_creates_snapshot_updates_manifest_and_audits():
     assert repository.audit_events[0].action == "publish_report"
     assert bundle.manifest["status"] == "published"
     assert bundle.snapshots[0]["published_by"] == "analyst@example.com"
+
+
+def test_export_workspace_bundle_omits_connection_secret_refs():
+    """Workspace export gathers metadata while excluding secret references."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    connection_profile = create_connection_profile(
+        workspace_id=workspace.workspace_id,
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(connection_profile)
+    graph_profile = create_graph_profile(
+        workspace_id=workspace.workspace_id,
+        connection_profile_id=connection_profile.connection_profile_id,
+        graph_name="customer_graph",
+    )
+    repository.graph_profiles.append(graph_profile)
+    repository.source_documents.append(
+        create_source_document(
+            workspace_id=workspace.workspace_id,
+            filename="requirements.md",
+            mime_type="text/markdown",
+            sha256="abc123",
+            storage_mode=DocumentStorageMode.INLINE,
+        )
+    )
+    repository.requirement_interviews.append(
+        create_requirement_interview(
+            workspace_id=workspace.workspace_id,
+            graph_profile_id=graph_profile.graph_profile_id,
+        )
+    )
+    repository.requirement_versions.append(
+        create_requirement_version(workspace_id=workspace.workspace_id, version=1)
+    )
+    run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+    )
+    repository.workflow_runs[run.run_id] = run
+    report = create_report_manifest(
+        workspace_id=workspace.workspace_id,
+        run_id=run.run_id,
+        title="Graph Report",
+    )
+    repository.reports[report.report_id] = report
+    repository.sections.append(
+        create_report_section(
+            workspace_id=workspace.workspace_id,
+            report_id=report.report_id,
+            order=1,
+            type=ReportSectionType.SUMMARY,
+            title="Summary",
+        )
+    )
+    repository.charts.append(
+        create_chart_spec(
+            workspace_id=workspace.workspace_id,
+            report_id=report.report_id,
+            title="Top Scores",
+            chart_type=ChartType.BAR,
+        )
+    )
+    repository.audit_events.append(
+        create_audit_event(
+            workspace_id=workspace.workspace_id,
+            actor="analyst@example.com",
+            action="export_workspace",
+            target_type="workspace",
+            target_id=workspace.workspace_id,
+        )
+    )
+
+    bundle = ProductService(repository).export_workspace_bundle(workspace.workspace_id)
+    doc = bundle.to_dict()
+
+    assert doc["schema_version"]
+    assert doc["workspace"]["workspace_id"] == workspace.workspace_id
+    assert len(doc["graph_profiles"]) == 1
+    assert len(doc["requirement_interviews"]) == 1
+    assert len(doc["reports"]) == 1
+    assert "secret_refs" not in doc["connection_profiles"][0]
+    assert doc["connection_profiles"][0]["secret_ref_keys"] == ["password"]
+    assert doc["audit_events"][0]["action"] == "export_workspace"

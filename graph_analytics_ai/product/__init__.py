@@ -42,7 +42,13 @@ from .models import (
     create_workspace,
 )
 from .repository import ProductRepository
-from .service import ProductService, ReportBundle, WorkflowDAGView, WorkspaceOverview
+from .service import (
+    ProductService,
+    ReportBundle,
+    WorkflowDAGView,
+    WorkspaceBundle,
+    WorkspaceOverview,
+)
 from .storage import ProductArangoStorage
 
 __all__ = [
@@ -70,6 +76,7 @@ __all__ = [
     "RequirementVersionStatus",
     "SourceDocument",
     "Workspace",
+    "WorkspaceBundle",
     "WorkspaceOverview",
     "WorkspaceStatus",
     "WorkflowDAGEdge",
