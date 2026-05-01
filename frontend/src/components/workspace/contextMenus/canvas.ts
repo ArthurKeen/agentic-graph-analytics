@@ -2,6 +2,7 @@ import type { ContextMenuItem } from "./types";
 
 interface BuildCanvasContextMenuArgs {
   onCreateConnectionProfile: () => void;
+  onCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
   onImportWorkspace: () => void;
   onFitAll: () => void;
@@ -12,6 +13,7 @@ interface BuildCanvasContextMenuArgs {
 
 export function buildCanvasContextMenu({
   onCreateConnectionProfile,
+  onCreateWorkflowRun,
   onExportWorkspace,
   onImportWorkspace,
   onFitAll,
@@ -25,6 +27,12 @@ export function buildCanvasContextMenu({
       label: "Create Connection Profile",
       icon: "+",
       onSelect: onCreateConnectionProfile
+    },
+    {
+      id: "create-workflow-run",
+      label: "Create Workflow Run",
+      icon: "+",
+      onSelect: onCreateWorkflowRun
     },
     {
       id: "export-workspace",

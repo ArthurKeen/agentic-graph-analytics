@@ -178,6 +178,16 @@ export interface WorkflowStepUpdateResult {
   dagView: WorkflowDAGView;
 }
 
+export interface CreateWorkflowRunInput {
+  workflowMode: string;
+  stepLabels: string[];
+}
+
+export interface CreateWorkflowRunResult {
+  workflowRun: WorkflowRunSummary;
+  dagView: WorkflowDAGView;
+}
+
 export interface WorkspaceOverview {
   workspace: {
     workspace_id: string;
@@ -305,6 +315,10 @@ export interface ProductAPIClient {
   exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle>;
   importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult>;
   getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions>;
+  createWorkflowRun(
+    workspaceId: string,
+    input: CreateWorkflowRunInput
+  ): Promise<CreateWorkflowRunResult>;
   startWorkflowRun(runId: string): Promise<WorkflowRunSummary>;
   updateWorkflowStep(
     runId: string,
@@ -447,6 +461,22 @@ export interface RawWorkflowRunSummary {
   status: string;
   started_at?: string | null;
   completed_at?: string | null;
+  steps?: Array<{
+    step_id: string;
+    label: string;
+    status: WorkflowStepStatus;
+    agent_name?: string;
+    artifact_refs?: Array<Record<string, string>>;
+    warnings?: string[];
+    errors?: string[];
+  }>;
+  dag_edges?: Array<{
+    from_step_id: string;
+    to_step_id: string;
+    label?: string;
+  }>;
+  warnings?: string[];
+  errors?: string[];
 }
 
 export interface RawWorkflowStepUpdateResult {

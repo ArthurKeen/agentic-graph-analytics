@@ -14,6 +14,8 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  CreateWorkflowRunInput,
+  CreateWorkflowRunResult,
   DiscoverGraphProfileInput,
   GraphDiscoveryResult,
   GraphProfileSummary,
@@ -88,6 +90,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   ) => Promise<RequirementVersion>;
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
+  createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<CreateWorkflowRunResult>;
   startWorkflowRun: (runId: string) => Promise<WorkflowRunSummary>;
   updateWorkflowStep: (
     runId: string,
@@ -403,6 +406,37 @@ export function useWorkspaceData({
       : statefulDemoImportWorkspaceBundle(bundle);
   };
 
+  const createWorkflowRun = async (
+    input: CreateWorkflowRunInput
+  ): Promise<CreateWorkflowRunResult> => {
+    const workspaceId =
+      initialWorkspaceId ?? state.overview?.workspace.workspace_id ?? demoDag.workspaceId;
+    const result = initialWorkspaceId
+      ? await apiClient.createWorkflowRun(workspaceId, input)
+      : statefulDemoCreateWorkflowRun(workspaceId, input);
+    const asset: WorkspaceAsset = {
+      id: result.workflowRun.runId,
+      kind: "run",
+      label: `Run ${result.workflowRun.runId}`,
+      description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
+    };
+
+    setState((current) => ({
+      ...current,
+      assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+      dagByRunId: {
+        ...current.dagByRunId,
+        [result.workflowRun.runId]: result.dagView
+      },
+      recoveryActionsByRunId: {
+        ...current.recoveryActionsByRunId,
+        [result.workflowRun.runId]: demoRecoveryActions(result.dagView)
+      }
+    }));
+
+    return result;
+  };
+
   const startWorkflowRun = async (runId: string): Promise<WorkflowRunSummary> => {
     const workflowRun = initialWorkspaceId
       ? await apiClient.startWorkflowRun(runId)
@@ -476,6 +510,7 @@ export function useWorkspaceData({
     approveRequirementsCopilotDraft,
     exportWorkspaceBundle,
     importWorkspaceBundle,
+    createWorkflowRun,
     startWorkflowRun,
     updateWorkflowStep
   };
@@ -730,6 +765,52 @@ function statefulDemoImportWorkspaceBundle(bundle: WorkspaceBundle): WorkspaceIm
       reports: bundle.reports.length
     }
   };
+}
+
+function statefulDemoCreateWorkflowRun(
+  workspaceId: string,
+  input: CreateWorkflowRunInput
+): CreateWorkflowRunResult {
+  const runId = `run-${Date.now()}`;
+  const nodes = input.stepLabels.map((label, index) => ({
+    id: slugifyStepId(label, index),
+    label,
+    status: "pending" as const,
+    artifactCount: 0,
+    warningCount: 0,
+    errorCount: 0
+  }));
+  const dagView = {
+    runId,
+    workspaceId,
+    status: "queued",
+    workflowMode: input.workflowMode,
+    nodes,
+    edges: nodes.slice(1).map((node, index) => ({
+      id: `${nodes[index].id}-${node.id}`,
+      from: nodes[index].id,
+      to: node.id
+    })),
+    warnings: [],
+    errors: []
+  };
+  return {
+    workflowRun: {
+      runId,
+      workspaceId,
+      workflowMode: input.workflowMode,
+      status: "queued"
+    },
+    dagView
+  };
+}
+
+function slugifyStepId(label: string, index: number): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || `step-${index + 1}`;
 }
 
 function statefulDemoStartWorkflowRun(runId: string): WorkflowRunSummary {

@@ -763,4 +763,79 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("creates workflow runs from planned steps through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        run_id: "run-1",
+        workspace_id: "workspace-1",
+        workflow_mode: "agentic",
+        status: "queued",
+        steps: [
+          {
+            step_id: "schema-discovery",
+            label: "Schema Discovery",
+            status: "pending"
+          },
+          {
+            step_id: "agent-analysis",
+            label: "Agent Analysis",
+            status: "pending"
+          }
+        ],
+        dag_edges: [
+          {
+            from_step_id: "schema-discovery",
+            to_step_id: "agent-analysis"
+          }
+        ]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient("http://api.example").createWorkflowRun(
+      "workspace-1",
+      {
+        workflowMode: "agentic",
+        stepLabels: ["Schema Discovery", "Agent Analysis"]
+      }
+    );
+
+    expect(result.workflowRun.status).toBe("queued");
+    expect(result.dagView.nodes.map((node) => node.id)).toEqual([
+      "schema-discovery",
+      "agent-analysis"
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          workspace_id: "workspace-1",
+          workflow_mode: "agentic",
+          steps: [
+            {
+              step_id: "schema-discovery",
+              label: "Schema Discovery",
+              status: "pending"
+            },
+            {
+              step_id: "agent-analysis",
+              label: "Agent Analysis",
+              status: "pending"
+            }
+          ],
+          dag_edges: [
+            {
+              from_step_id: "schema-discovery",
+              to_step_id: "agent-analysis"
+            }
+          ]
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

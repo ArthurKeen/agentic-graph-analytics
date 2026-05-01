@@ -3,6 +3,8 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  CreateWorkflowRunInput,
+  CreateWorkflowRunResult,
   DiscoverGraphProfileInput,
   GraphDiscoveryResult,
   GraphProfileSummary,
@@ -192,6 +194,19 @@ export function createProductAPIClient(
       return getJSON<WorkflowRecoveryActions>(
         `${normalizedBaseUrl}/api/runs/${runId}/recovery-actions`
       );
+    },
+    async createWorkflowRun(
+      workspaceId: string,
+      input: CreateWorkflowRunInput
+    ): Promise<CreateWorkflowRunResult> {
+      const workflowRun = await postJSON<RawWorkflowRunSummary>(
+        `${normalizedBaseUrl}/api/runs`,
+        createWorkflowRunPayload(workspaceId, input)
+      );
+      return {
+        workflowRun: mapWorkflowRunSummary(workflowRun),
+        dagView: mapWorkflowRunToDAGView(workflowRun)
+      };
     },
     async startWorkflowRun(runId: string): Promise<WorkflowRunSummary> {
       return mapWorkflowRunSummary(
@@ -404,6 +419,32 @@ export function mapWorkflowRunSummary(raw: RawWorkflowRunSummary): WorkflowRunSu
   };
 }
 
+export function mapWorkflowRunToDAGView(raw: RawWorkflowRunSummary): WorkflowDAGView {
+  return {
+    runId: raw.run_id,
+    workspaceId: raw.workspace_id,
+    status: raw.status,
+    workflowMode: raw.workflow_mode,
+    nodes: (raw.steps ?? []).map((step) => ({
+      id: step.step_id,
+      label: step.label,
+      status: step.status,
+      agentName: step.agent_name,
+      artifactCount: step.artifact_refs?.length ?? 0,
+      warningCount: step.warnings?.length ?? 0,
+      errorCount: step.errors?.length ?? 0
+    })),
+    edges: (raw.dag_edges ?? []).map((edge) => ({
+      id: `${edge.from_step_id}-${edge.to_step_id}`,
+      from: edge.from_step_id,
+      to: edge.to_step_id,
+      label: edge.label
+    })),
+    warnings: raw.warnings ?? [],
+    errors: raw.errors ?? []
+  };
+}
+
 export function mapWorkflowStepUpdateResult(
   raw: RawWorkflowStepUpdateResult
 ): WorkflowStepUpdateResult {
@@ -564,6 +605,34 @@ function workspaceBundlePayload(bundle: WorkspaceBundle): Record<string, unknown
     reports: bundle.reports,
     audit_events: bundle.auditEvents
   };
+}
+
+function createWorkflowRunPayload(
+  workspaceId: string,
+  input: CreateWorkflowRunInput
+): Record<string, unknown> {
+  const steps = input.stepLabels.map((label, index) => ({
+    step_id: slugifyStepId(label, index),
+    label,
+    status: "pending"
+  }));
+  return {
+    workspace_id: workspaceId,
+    workflow_mode: input.workflowMode,
+    steps,
+    dag_edges: steps.slice(1).map((step, index) => ({
+      from_step_id: steps[index].step_id,
+      to_step_id: step.step_id
+    }))
+  };
+}
+
+function slugifyStepId(label: string, index: number): string {
+  const slug = label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return slug || `step-${index + 1}`;
 }
 
 function mapReportSection(raw: RawReportBundle["sections"][number]): ReportSection {

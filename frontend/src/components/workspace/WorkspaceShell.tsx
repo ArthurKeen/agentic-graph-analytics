@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
+import { CreateWorkflowRunOverlay } from "./CreateWorkflowRunOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
@@ -48,6 +49,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     publishReport,
     exportWorkspaceBundle,
     importWorkspaceBundle,
+    createWorkflowRun,
     startWorkflowRun,
     updateWorkflowStep
   } = useWorkspaceData({
@@ -63,10 +65,15 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
+  const [showCreateWorkflowRun, setShowCreateWorkflowRun] = useState(false);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
     null
   );
+  const [createWorkflowRunErrorMessage, setCreateWorkflowRunErrorMessage] = useState<
+    string | null
+  >(null);
   const [isCreatingConnectionProfile, setIsCreatingConnectionProfile] = useState(false);
+  const [isCreatingWorkflowRun, setIsCreatingWorkflowRun] = useState(false);
   const [verifyingConnectionProfileId, setVerifyingConnectionProfileId] = useState<string | null>(
     null
   );
@@ -185,7 +192,9 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setPendingDiscoverGraph(null);
       setPendingStartCopilot(null);
       setShowCreateConnectionProfile(false);
+      setShowCreateWorkflowRun(false);
       setCreateConnectionErrorMessage(null);
+      setCreateWorkflowRunErrorMessage(null);
       setConnectionVerificationErrorMessage(null);
       setDiscoverGraphErrorMessage(null);
       setStartCopilotErrorMessage(null);
@@ -376,6 +385,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setCreateConnectionErrorMessage(null);
           setShowCreateConnectionProfile(true);
         }}
+        onRequestCreateWorkflowRun={() => {
+          setCreateWorkflowRunErrorMessage(null);
+          setShowCreateWorkflowRun(true);
+        }}
         onExportWorkspace={() => {
           setExportMessage(null);
           setExportErrorMessage(null);
@@ -478,6 +491,34 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {showCreateWorkflowRun ? (
+        <CreateWorkflowRunOverlay
+          isCreating={isCreatingWorkflowRun}
+          errorMessage={createWorkflowRunErrorMessage}
+          onCancel={() => setShowCreateWorkflowRun(false)}
+          onSubmit={async (input) => {
+            setCreateWorkflowRunErrorMessage(null);
+            setIsCreatingWorkflowRun(true);
+            try {
+              const result = await createWorkflowRun(input);
+              setSelectedAsset({
+                id: result.workflowRun.runId,
+                kind: "run",
+                label: `Run ${result.workflowRun.runId}`,
+                description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
+              });
+              setSelectedStep(null);
+              setShowCreateWorkflowRun(false);
+            } catch (error) {
+              setCreateWorkflowRunErrorMessage(
+                error instanceof Error ? error.message : "Failed to create workflow run"
+              );
+            } finally {
+              setIsCreatingWorkflowRun(false);
+            }
+          }}
+        />
+      ) : null}
       {runActionMessage || runActionErrorMessage || startingRunId || updatingStepId ? (
         <FloatingDetailPanel
           title="Workflow Run"
