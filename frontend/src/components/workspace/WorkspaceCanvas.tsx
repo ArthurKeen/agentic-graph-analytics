@@ -50,6 +50,7 @@ interface WorkspaceCanvasProps {
   approvedRequirementVersion: RequirementVersion | null;
   showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
+  onRetryWorkflowStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onRequestCreateConnectionProfile: () => void;
@@ -98,6 +99,7 @@ export function WorkspaceCanvas({
   approvedRequirementVersion,
   showHelp,
   onSelectStep,
+  onRetryWorkflowStep,
   onClearAssetSelection,
   onClearSelection,
   onRequestCreateConnectionProfile,
@@ -235,7 +237,7 @@ export function WorkspaceCanvas({
                           node.errorCount > 0 ? `${node.errorCount} errors` : "No errors"
                         ),
                       onViewRunResults: () => onSelectStep(node),
-                      onRetryRun: () => onSelectStep(node)
+                      onRetryRun: () => onRetryWorkflowStep(node)
                     })
                   });
                 }}

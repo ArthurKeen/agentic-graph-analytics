@@ -18,6 +18,7 @@ import type {
   RawSourceDocumentSummary,
   RawWorkflowDAGView,
   RawWorkflowRunSummary,
+  RawWorkflowStepUpdateResult,
   RawWorkspaceBundle,
   RawWorkspaceHealth,
   RawWorkspaceImportResult,
@@ -34,6 +35,8 @@ import type {
   WorkflowDAGView,
   WorkflowRecoveryActions,
   WorkflowRunSummary,
+  WorkflowStepStatus,
+  WorkflowStepUpdateResult,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -197,6 +200,18 @@ export function createProductAPIClient(
           {}
         )
       );
+    },
+    async updateWorkflowStep(
+      runId: string,
+      stepId: string,
+      status: WorkflowStepStatus
+    ): Promise<WorkflowStepUpdateResult> {
+      return mapWorkflowStepUpdateResult(
+        await patchJSON<RawWorkflowStepUpdateResult>(
+          `${normalizedBaseUrl}/api/runs/${runId}/steps/${stepId}`,
+          { status }
+        )
+      );
     }
   };
 }
@@ -208,6 +223,13 @@ export async function getJSON<T>(url: string): Promise<T> {
 export async function postJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {
   return requestJSON<T>(url, {
     method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+export async function patchJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  return requestJSON<T>(url, {
+    method: "PATCH",
     body: JSON.stringify(body)
   });
 }
@@ -379,6 +401,15 @@ export function mapWorkflowRunSummary(raw: RawWorkflowRunSummary): WorkflowRunSu
     status: raw.status,
     startedAt: raw.started_at,
     completedAt: raw.completed_at
+  };
+}
+
+export function mapWorkflowStepUpdateResult(
+  raw: RawWorkflowStepUpdateResult
+): WorkflowStepUpdateResult {
+  return {
+    workflowRun: mapWorkflowRunSummary(raw.workflow_run),
+    dagView: mapWorkflowDAGView(raw.dag_view)
   };
 }
 

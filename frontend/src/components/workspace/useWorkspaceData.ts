@@ -27,6 +27,8 @@ import type {
   WorkflowDAGView,
   WorkflowRecoveryActions,
   WorkflowRunSummary,
+  WorkflowStepStatus,
+  WorkflowStepUpdateResult,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -87,6 +89,11 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
   startWorkflowRun: (runId: string) => Promise<WorkflowRunSummary>;
+  updateWorkflowStep: (
+    runId: string,
+    stepId: string,
+    status: WorkflowStepStatus
+  ) => Promise<WorkflowStepUpdateResult>;
 }
 
 export function useWorkspaceData({
@@ -425,6 +432,38 @@ export function useWorkspaceData({
     return workflowRun;
   };
 
+  const updateWorkflowStep = async (
+    runId: string,
+    stepId: string,
+    status: WorkflowStepStatus
+  ): Promise<WorkflowStepUpdateResult> => {
+    const result = initialWorkspaceId
+      ? await apiClient.updateWorkflowStep(runId, stepId, status)
+      : statefulDemoUpdateWorkflowStep(runId, stepId, status);
+
+    setState((current) => ({
+      ...current,
+      assets: current.assets.map((asset) =>
+        asset.id === runId
+          ? {
+              ...asset,
+              description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
+            }
+          : asset
+      ),
+      dagByRunId: {
+        ...current.dagByRunId,
+        [runId]: result.dagView
+      },
+      recoveryActionsByRunId: {
+        ...current.recoveryActionsByRunId,
+        [runId]: demoRecoveryActions(result.dagView)
+      }
+    }));
+
+    return result;
+  };
+
   return {
     ...state,
     publishReport,
@@ -437,7 +476,8 @@ export function useWorkspaceData({
     approveRequirementsCopilotDraft,
     exportWorkspaceBundle,
     importWorkspaceBundle,
-    startWorkflowRun
+    startWorkflowRun,
+    updateWorkflowStep
   };
 }
 
@@ -700,5 +740,34 @@ function statefulDemoStartWorkflowRun(runId: string): WorkflowRunSummary {
     status: "running",
     startedAt: new Date().toISOString(),
     completedAt: null
+  };
+}
+
+function statefulDemoUpdateWorkflowStep(
+  runId: string,
+  stepId: string,
+  status: WorkflowStepStatus
+): WorkflowStepUpdateResult {
+  const currentDag = demoDag.runId === runId ? demoDag : { ...demoDag, runId };
+  const dagView = {
+    ...currentDag,
+    status: status === "running" ? "running" : currentDag.status,
+    nodes: currentDag.nodes.map((node) =>
+      node.id === stepId
+        ? {
+            ...node,
+            status
+          }
+        : node
+    )
+  };
+  return {
+    workflowRun: {
+      runId,
+      workspaceId: currentDag.workspaceId,
+      workflowMode: currentDag.workflowMode,
+      status: dagView.status
+    },
+    dagView
   };
 }

@@ -712,4 +712,55 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("updates workflow steps through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workflow_run: {
+          run_id: "run-1",
+          workspace_id: "workspace-1",
+          workflow_mode: "agentic",
+          status: "running"
+        },
+        dag_view: {
+          run_id: "run-1",
+          workspace_id: "workspace-1",
+          status: "running",
+          workflow_mode: "agentic",
+          nodes: [
+            {
+              id: "step-1",
+              label: "Retry",
+              status: "running",
+              artifact_count: 0,
+              warning_count: 0,
+              error_count: 0
+            }
+          ],
+          edges: [],
+          warnings: [],
+          errors: []
+        }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient("http://api.example").updateWorkflowStep(
+      "run-1",
+      "step-1",
+      "running"
+    );
+
+    expect(result.dagView.nodes[0].status).toBe("running");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs/run-1/steps/step-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "running" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

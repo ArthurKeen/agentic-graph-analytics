@@ -173,6 +173,11 @@ export interface WorkflowRunSummary {
   completedAt?: string | null;
 }
 
+export interface WorkflowStepUpdateResult {
+  workflowRun: WorkflowRunSummary;
+  dagView: WorkflowDAGView;
+}
+
 export interface WorkspaceOverview {
   workspace: {
     workspace_id: string;
@@ -301,6 +306,11 @@ export interface ProductAPIClient {
   importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult>;
   getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions>;
   startWorkflowRun(runId: string): Promise<WorkflowRunSummary>;
+  updateWorkflowStep(
+    runId: string,
+    stepId: string,
+    status: WorkflowStepStatus
+  ): Promise<WorkflowStepUpdateResult>;
 }
 
 export interface RawWorkspaceOverview {
@@ -437,6 +447,11 @@ export interface RawWorkflowRunSummary {
   status: string;
   started_at?: string | null;
   completed_at?: string | null;
+}
+
+export interface RawWorkflowStepUpdateResult {
+  workflow_run: RawWorkflowRunSummary;
+  dag_view: RawWorkflowDAGView;
 }
 
 export interface RawWorkspaceHealth {

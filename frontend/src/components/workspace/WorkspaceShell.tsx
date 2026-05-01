@@ -48,7 +48,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     publishReport,
     exportWorkspaceBundle,
     importWorkspaceBundle,
-    startWorkflowRun
+    startWorkflowRun,
+    updateWorkflowStep
   } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
@@ -96,6 +97,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [startingRunId, setStartingRunId] = useState<string | null>(null);
+  const [updatingStepId, setUpdatingStepId] = useState<string | null>(null);
   const [runActionMessage, setRunActionMessage] = useState<string | null>(null);
   const [runActionErrorMessage, setRunActionErrorMessage] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
@@ -340,6 +342,31 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         approvedRequirementVersion={approvedRequirementVersion}
         showHelp={showHelp}
         onSelectStep={setSelectedStep}
+        onRetryWorkflowStep={(step) => {
+          if (selectedAsset?.kind !== "run") {
+            return;
+          }
+          setRunActionMessage(null);
+          setRunActionErrorMessage(null);
+          setUpdatingStepId(step.id);
+          void updateWorkflowStep(selectedAsset.id, step.id, "running")
+            .then((result) => {
+              setSelectedStep(
+                result.dagView.nodes.find((node) => node.id === step.id) ?? null
+              );
+              setSelectedAsset({
+                ...selectedAsset,
+                description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
+              });
+              setRunActionMessage(`Retried step ${step.label}.`);
+            })
+            .catch((error) =>
+              setRunActionErrorMessage(
+                error instanceof Error ? error.message : "Failed to retry workflow step"
+              )
+            )
+            .finally(() => setUpdatingStepId(null));
+        }}
         onClearAssetSelection={() => {
           setSelectedAsset(null);
           setSelectedStep(null);
@@ -451,7 +478,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
-      {runActionMessage || runActionErrorMessage || startingRunId ? (
+      {runActionMessage || runActionErrorMessage || startingRunId || updatingStepId ? (
         <FloatingDetailPanel
           title="Workflow Run"
           stackIndex={2}
@@ -461,6 +488,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           }}
         >
           {startingRunId ? <p className="muted">Starting run {startingRunId}...</p> : null}
+          {updatingStepId ? <p className="muted">Updating step {updatingStepId}...</p> : null}
           {runActionMessage ? <p className="success-text">{runActionMessage}</p> : null}
           {runActionErrorMessage ? <p className="error-text">{runActionErrorMessage}</p> : null}
         </FloatingDetailPanel>
