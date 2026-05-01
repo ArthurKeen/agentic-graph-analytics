@@ -26,6 +26,12 @@ from graph_analytics_ai.product import (
 )
 from graph_analytics_ai.product.exceptions import ValidationError
 from graph_analytics_ai.product.models import DeploymentMode, DocumentStorageMode
+from graph_analytics_ai.ai.schema.models import (
+    CollectionSchema,
+    CollectionType,
+    GraphSchema,
+    Relationship,
+)
 
 
 class FakeProductRepository:
@@ -671,3 +677,125 @@ def test_verify_connection_profile_requires_password_secret_ref():
         assert "password" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for missing password secret ref")
+
+
+def test_discover_graph_profile_persists_schema_summary():
+    """Graph discovery persists a profile from extracted schema metadata."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+    connector_calls = []
+
+    class FakeExtractor:
+        def __init__(self, db, sample_size=100, max_samples_per_collection=3):
+            self.db = db
+            self.sample_size = sample_size
+            self.max_samples_per_collection = max_samples_per_collection
+
+        def extract(self):
+            schema = GraphSchema(database_name="customer_graph")
+            schema.graph_names = ["CustomerGraph"]
+            schema.vertex_collections = {
+                "Device": CollectionSchema(
+                    name="Device",
+                    type=CollectionType.VERTEX,
+                    document_count=10,
+                ),
+                "IP": CollectionSchema(
+                    name="IP",
+                    type=CollectionType.VERTEX,
+                    document_count=5,
+                ),
+            }
+            schema.edge_collections = {
+                "connects_to": CollectionSchema(
+                    name="connects_to",
+                    type=CollectionType.EDGE,
+                    document_count=20,
+                )
+            }
+            schema.relationships = [
+                Relationship(
+                    edge_collection="connects_to",
+                    from_collection="Device",
+                    to_collection="IP",
+                    edge_count=20,
+                )
+            ]
+            return schema
+
+    def fake_connector(**kwargs):
+        connector_calls.append(kwargs)
+        return object()
+
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=fake_connector,
+        schema_extractor_factory=FakeExtractor,
+    ).discover_graph_profile(
+        connection_profile_id=profile.connection_profile_id,
+        graph_name="CustomerGraph",
+        created_by="analyst@example.com",
+        sample_size=25,
+    )
+
+    persisted_profile = repository.graph_profiles[0]
+    assert result.graph_profile["graph_name"] == "CustomerGraph"
+    assert result.schema_summary["statistics"]["total_documents"] == 35
+    assert persisted_profile.connection_profile_id == profile.connection_profile_id
+    assert persisted_profile.vertex_collections == ["Device", "IP"]
+    assert persisted_profile.edge_collections == ["connects_to"]
+    assert persisted_profile.edge_definitions[0]["edge_collection"] == "connects_to"
+    assert persisted_profile.counts["total_edges"] == 20
+    assert persisted_profile.created_by == "analyst@example.com"
+    assert connector_calls[0]["password"] == "resolved-secret"
+
+
+def test_discover_graph_profile_rejects_unknown_requested_graph():
+    """Graph discovery validates explicit graph names when named graphs exist."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+
+    class FakeExtractor:
+        def __init__(self, db, sample_size=100, max_samples_per_collection=3):
+            self.db = db
+
+        def extract(self):
+            schema = GraphSchema(database_name="customer_graph")
+            schema.graph_names = ["CustomerGraph"]
+            return schema
+
+    try:
+        ProductService(
+            repository,
+            secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+            db_connector=lambda **kwargs: object(),
+            schema_extractor_factory=FakeExtractor,
+        ).discover_graph_profile(
+            connection_profile_id=profile.connection_profile_id,
+            graph_name="MissingGraph",
+        )
+    except ValidationError as exc:
+        assert "MissingGraph" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError for unknown graph name")

@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from ..ai.schema.extractor import SchemaExtractor
+from ..ai.schema.models import GraphSchema
 from ..db_connection import connect_arango_database
 from .constants import PRODUCT_SCHEMA_VERSION
 from .exceptions import ValidationError
@@ -30,6 +32,7 @@ from .models import (
     WorkflowRun,
     WorkflowStep,
     create_audit_event,
+    create_graph_profile,
     create_published_snapshot,
     current_timestamp,
 )
@@ -181,6 +184,22 @@ class ConnectionVerificationResult:
         }
 
 
+@dataclass
+class GraphDiscoveryResult:
+    """Result of discovering and persisting a graph profile."""
+
+    graph_profile: Dict[str, Any]
+    schema_summary: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert discovery result to an API-friendly dictionary."""
+
+        return {
+            "graph_profile": self.graph_profile,
+            "schema_summary": self.schema_summary,
+        }
+
+
 class ProductService:
     """Use-case oriented product operations for the future UI API."""
 
@@ -189,12 +208,14 @@ class ProductService:
         repository: ProductRepository,
         secret_resolver: Optional[SecretResolver] = None,
         db_connector: Optional[Callable[..., Any]] = None,
+        schema_extractor_factory: Optional[Callable[..., Any]] = None,
     ):
         """Initialize service."""
 
         self.repository = repository
         self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
         self.db_connector = db_connector or connect_arango_database
+        self.schema_extractor_factory = schema_extractor_factory or SchemaExtractor
 
     def get_workspace_overview(
         self,
@@ -310,6 +331,72 @@ class ProductService:
             verified_at=verified_at.isoformat(),
             endpoint=profile.endpoint,
             database=profile.database,
+        )
+
+    def discover_graph_profile(
+        self,
+        connection_profile_id: str,
+        graph_name: Optional[str] = None,
+        created_by: Optional[str] = None,
+        password_secret_key: str = "password",
+        sample_size: int = 100,
+        max_samples_per_collection: int = 3,
+        verify_system: bool = True,
+    ) -> GraphDiscoveryResult:
+        """Discover graph schema from a connection profile and persist it."""
+
+        profile = self.repository.get_connection_profile(connection_profile_id)
+        password_ref = profile.secret_refs.get(password_secret_key)
+        if not password_ref:
+            raise ValidationError(
+                f"Connection profile is missing secret ref: {password_secret_key}"
+            )
+
+        password = self.secret_resolver.resolve(password_ref)
+        db = self.db_connector(
+            endpoint=profile.endpoint,
+            username=profile.username,
+            password=password,
+            database=profile.database,
+            verify_ssl=profile.verify_ssl,
+            verify_system=verify_system,
+        )
+        extractor = self.schema_extractor_factory(
+            db,
+            sample_size=sample_size,
+            max_samples_per_collection=max_samples_per_collection,
+        )
+        schema = extractor.extract()
+
+        selected_graph_name = self._select_graph_name(schema, graph_name, profile.database)
+        graph_profile = create_graph_profile(
+            workspace_id=profile.workspace_id,
+            connection_profile_id=profile.connection_profile_id,
+            graph_name=selected_graph_name,
+            vertex_collections=sorted(schema.vertex_collections.keys()),
+            edge_collections=sorted(schema.edge_collections.keys()),
+            edge_definitions=self._schema_edge_definitions(schema),
+            counts={
+                "vertex_collections": len(schema.vertex_collections),
+                "edge_collections": len(schema.edge_collections),
+                "document_collections": len(schema.document_collections),
+                "total_documents": schema.total_documents,
+                "total_edges": schema.total_edges,
+                "relationships": len(schema.relationships),
+            },
+            created_by=created_by,
+            metadata={
+                "database": schema.database_name,
+                "available_graphs": schema.graph_names,
+                "schema_summary": schema.to_summary_dict(),
+                "discovered_at": current_timestamp().isoformat(),
+            },
+        )
+        self.repository.create_graph_profile(graph_profile)
+
+        return GraphDiscoveryResult(
+            graph_profile=graph_profile.to_dict(),
+            schema_summary=schema.to_summary_dict(),
         )
 
     def export_workspace_bundle(
@@ -613,6 +700,36 @@ class ProductService:
         if not secret_value:
             return message
         return message.replace(secret_value, "***MASKED***")
+
+    def _select_graph_name(
+        self,
+        schema: GraphSchema,
+        requested_graph_name: Optional[str],
+        fallback_name: str,
+    ) -> str:
+        if requested_graph_name:
+            if schema.graph_names and requested_graph_name not in schema.graph_names:
+                raise ValidationError(
+                    f"Graph '{requested_graph_name}' was not found in database"
+                )
+            return requested_graph_name
+        if schema.graph_names:
+            return schema.graph_names[0]
+        return fallback_name
+
+    def _schema_edge_definitions(self, schema: GraphSchema) -> List[Dict[str, Any]]:
+        definitions = []
+        for relationship in schema.relationships:
+            definitions.append(
+                {
+                    "edge_collection": relationship.edge_collection,
+                    "from_vertex_collections": [relationship.from_collection],
+                    "to_vertex_collections": [relationship.to_collection],
+                    "edge_count": relationship.edge_count,
+                    "relationship_type": relationship.relationship_type,
+                }
+            )
+        return definitions
 
     def _content_hash(self, payload: Dict[str, Any]) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(

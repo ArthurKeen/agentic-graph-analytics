@@ -45,6 +45,7 @@ from .repository import ProductRepository
 from .secrets import EnvironmentSecretResolver, MappingSecretResolver
 from .service import (
     ConnectionVerificationResult,
+    GraphDiscoveryResult,
     ProductService,
     ReportBundle,
     WorkflowDAGView,
@@ -65,6 +66,7 @@ __all__ = [
     "DocumentStorageMode",
     "EnvironmentSecretResolver",
     "GraphProfile",
+    "GraphDiscoveryResult",
     "GraphProfileStatus",
     "MappingSecretResolver",
     "ProductArangoStorage",
