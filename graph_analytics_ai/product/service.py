@@ -25,7 +25,9 @@ from .models import (
     ReportSection,
     ReportStatus,
     RequirementInterview,
+    RequirementInterviewStatus,
     RequirementVersion,
+    RequirementVersionStatus,
     SourceDocument,
     Workspace,
     WorkflowDAGEdge,
@@ -34,6 +36,8 @@ from .models import (
     create_audit_event,
     create_graph_profile,
     create_published_snapshot,
+    create_requirement_interview,
+    create_requirement_version,
     current_timestamp,
 )
 from .repository import ProductRepository
@@ -197,6 +201,24 @@ class GraphDiscoveryResult:
         return {
             "graph_profile": self.graph_profile,
             "schema_summary": self.schema_summary,
+        }
+
+
+@dataclass
+class RequirementsDraftResult:
+    """Result of generating a Requirements Copilot draft."""
+
+    requirement_interview: Dict[str, Any]
+    draft_brd: str
+    provenance_labels: List[Dict[str, Any]]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert draft result to an API-friendly dictionary."""
+
+        return {
+            "requirement_interview": self.requirement_interview,
+            "draft_brd": self.draft_brd,
+            "provenance_labels": self.provenance_labels,
         }
 
 
@@ -398,6 +420,127 @@ class ProductService:
             graph_profile=graph_profile.to_dict(),
             schema_summary=schema.to_summary_dict(),
         )
+
+    def start_requirements_copilot(
+        self,
+        graph_profile_id: str,
+        domain: Optional[str] = None,
+        created_by: Optional[str] = None,
+    ) -> RequirementInterview:
+        """Start a schema-aware Requirements Copilot interview."""
+
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        schema_observations = self._schema_observations_from_graph_profile(graph_profile)
+        interview = create_requirement_interview(
+            workspace_id=graph_profile.workspace_id,
+            graph_profile_id=graph_profile.graph_profile_id,
+            domain=domain,
+            questions=self._requirements_copilot_questions(schema_observations),
+            schema_observations=schema_observations,
+            metadata={"created_by": created_by} if created_by else {},
+        )
+        self.repository.create_requirement_interview(interview)
+        return interview
+
+    def answer_requirements_copilot_question(
+        self,
+        requirement_interview_id: str,
+        question_id: str,
+        answer: str,
+        actor: Optional[str] = None,
+    ) -> RequirementInterview:
+        """Record or replace an answer in a Requirements Copilot session."""
+
+        interview = self.repository.get_requirement_interview(requirement_interview_id)
+        answers = [
+            existing
+            for existing in interview.answers
+            if existing.get("question_id") != question_id
+        ]
+        answers.append(
+            {
+                "question_id": question_id,
+                "answer": answer,
+                "actor": actor,
+                "answered_at": current_timestamp().isoformat(),
+            }
+        )
+        interview.answers = answers
+        self.repository.update_requirement_interview(interview)
+        return interview
+
+    def generate_requirements_copilot_draft(
+        self,
+        requirement_interview_id: str,
+    ) -> RequirementsDraftResult:
+        """Generate a deterministic BRD draft from schema observations and answers."""
+
+        interview = self.repository.get_requirement_interview(requirement_interview_id)
+        answer_map = {
+            answer["question_id"]: answer.get("answer", "")
+            for answer in interview.answers
+        }
+        draft_brd = self._build_requirements_draft(interview, answer_map)
+        provenance_labels = self._build_requirements_provenance(interview, answer_map)
+
+        interview.draft_brd = draft_brd
+        interview.provenance_labels = provenance_labels
+        interview.status = RequirementInterviewStatus.READY_FOR_REVIEW
+        self.repository.update_requirement_interview(interview)
+
+        return RequirementsDraftResult(
+            requirement_interview=interview.to_dict(),
+            draft_brd=draft_brd,
+            provenance_labels=provenance_labels,
+        )
+
+    def approve_requirements_copilot_draft(
+        self,
+        requirement_interview_id: str,
+        version: int,
+        approved_by: Optional[str] = None,
+    ) -> RequirementVersion:
+        """Approve a generated BRD draft into a requirement version."""
+
+        interview = self.repository.get_requirement_interview(requirement_interview_id)
+        if not interview.draft_brd:
+            raise ValidationError("Requirements Copilot draft must be generated first")
+
+        requirement_version = create_requirement_version(
+            workspace_id=interview.workspace_id,
+            version=version,
+            status=RequirementVersionStatus.APPROVED,
+            requirement_interview_id=interview.requirement_interview_id,
+            summary=self._answer_for_question(interview, "business_goal")
+            or "Requirements Copilot approved draft",
+            objectives=self._requirement_items_from_answer(
+                interview,
+                "business_goal",
+                prefix="OBJ",
+            ),
+            requirements=self._requirement_items_from_answer(
+                interview,
+                "analytics_questions",
+                prefix="REQ",
+            ),
+            constraints=self._requirement_items_from_answer(
+                interview,
+                "constraints",
+                prefix="CON",
+            ),
+            approved_at=current_timestamp(),
+            metadata={
+                "approved_by": approved_by,
+                "source": "requirements_copilot",
+                "draft_brd": interview.draft_brd,
+                "provenance_labels": interview.provenance_labels,
+            },
+        )
+        self.repository.create_requirement_version(requirement_version)
+
+        interview.status = RequirementInterviewStatus.APPROVED
+        self.repository.update_requirement_interview(interview)
+        return requirement_version
 
     def export_workspace_bundle(
         self,
@@ -730,6 +873,144 @@ class ProductService:
                 }
             )
         return definitions
+
+    def _schema_observations_from_graph_profile(
+        self,
+        graph_profile: GraphProfile,
+    ) -> Dict[str, Any]:
+        return {
+            "graph_name": graph_profile.graph_name,
+            "vertex_collections": graph_profile.vertex_collections,
+            "edge_collections": graph_profile.edge_collections,
+            "edge_definitions": graph_profile.edge_definitions,
+            "collection_roles": graph_profile.collection_roles,
+            "counts": graph_profile.counts,
+            "schema_summary": graph_profile.metadata.get("schema_summary", {}),
+        }
+
+    def _requirements_copilot_questions(
+        self,
+        schema_observations: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        graph_name = schema_observations.get("graph_name", "the graph")
+        return [
+            {
+                "id": "business_goal",
+                "text": f"What business decision should {graph_name} support?",
+                "provenance": "user_provided",
+            },
+            {
+                "id": "analytics_questions",
+                "text": "What graph analytics questions should the system answer?",
+                "provenance": "user_provided",
+            },
+            {
+                "id": "audience",
+                "text": "Who will consume the report and what level of detail do they need?",
+                "provenance": "user_provided",
+            },
+            {
+                "id": "constraints",
+                "text": "What runtime, cost, freshness, sensitivity, or evidence constraints apply?",
+                "provenance": "user_provided",
+            },
+        ]
+
+    def _build_requirements_draft(
+        self,
+        interview: RequirementInterview,
+        answer_map: Dict[str, str],
+    ) -> str:
+        observations = interview.schema_observations
+        vertex_collections = ", ".join(observations.get("vertex_collections", [])) or "None observed"
+        edge_collections = ", ".join(observations.get("edge_collections", [])) or "None observed"
+        domain = interview.domain or "Unspecified domain"
+
+        return "\n".join(
+            [
+                "# Business Requirements Draft",
+                "",
+                f"## Domain",
+                domain,
+                "",
+                "## Observed Graph Schema",
+                f"- Graph: {observations.get('graph_name', interview.graph_profile_id)}",
+                f"- Vertex collections: {vertex_collections}",
+                f"- Edge collections: {edge_collections}",
+                f"- Counts: {json.dumps(observations.get('counts', {}), sort_keys=True)}",
+                "",
+                "## Business Goal",
+                answer_map.get("business_goal", "[Needs user input]"),
+                "",
+                "## Analytics Questions",
+                answer_map.get("analytics_questions", "[Needs user input]"),
+                "",
+                "## Reporting Audience",
+                answer_map.get("audience", "[Needs user input]"),
+                "",
+                "## Constraints",
+                answer_map.get("constraints", "[Needs user input]"),
+                "",
+                "## Assumptions To Confirm",
+                "- Generated requirements should be reviewed before use-case or template generation.",
+                "- Graph schema observations may need business terminology refinement.",
+            ]
+        )
+
+    def _build_requirements_provenance(
+        self,
+        interview: RequirementInterview,
+        answer_map: Dict[str, str],
+    ) -> List[Dict[str, Any]]:
+        labels = [
+            {"path": "observed_schema.graph_name", "label": "observed_from_schema"},
+            {"path": "observed_schema.vertex_collections", "label": "observed_from_schema"},
+            {"path": "observed_schema.edge_collections", "label": "observed_from_schema"},
+            {"path": "assumptions.review_required", "label": "assumption"},
+        ]
+        for question_id in sorted(answer_map):
+            labels.append(
+                {
+                    "path": f"answers.{question_id}",
+                    "label": "user_provided",
+                }
+            )
+        if interview.domain:
+            labels.append({"path": "domain", "label": "user_provided"})
+        return labels
+
+    def _answer_for_question(
+        self,
+        interview: RequirementInterview,
+        question_id: str,
+    ) -> str:
+        for answer in interview.answers:
+            if answer.get("question_id") == question_id:
+                return answer.get("answer", "")
+        return ""
+
+    def _requirement_items_from_answer(
+        self,
+        interview: RequirementInterview,
+        question_id: str,
+        prefix: str,
+    ) -> List[Dict[str, Any]]:
+        answer = self._answer_for_question(interview, question_id)
+        if not answer:
+            return []
+        items = [
+            item.strip(" -")
+            for item in answer.replace(";", "\n").split("\n")
+            if item.strip(" -")
+        ]
+        return [
+            {
+                "id": f"{prefix}-{index}",
+                "text": item,
+                "source": "requirements_copilot",
+            }
+            for index, item in enumerate(items, start=1)
+        ]
 
     def _content_hash(self, payload: Dict[str, Any]) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(

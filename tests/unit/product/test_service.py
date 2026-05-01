@@ -5,6 +5,8 @@ from graph_analytics_ai.product import (
     ConnectionVerificationStatus,
     MappingSecretResolver,
     ProductService,
+    RequirementInterviewStatus,
+    RequirementVersionStatus,
     ReportSectionType,
     ReportStatus,
     WorkflowDAGEdge,
@@ -91,6 +93,12 @@ class FakeProductRepository:
         self.graph_profiles.append(profile)
         return profile.graph_profile_id
 
+    def get_graph_profile(self, graph_profile_id):
+        for profile in self.graph_profiles:
+            if profile.graph_profile_id == graph_profile_id:
+                return profile
+        raise KeyError(graph_profile_id)
+
     def list_source_documents(self, workspace_id):
         return [
             document
@@ -123,6 +131,19 @@ class FakeProductRepository:
     def create_requirement_interview(self, interview):
         self.requirement_interviews.append(interview)
         return interview.requirement_interview_id
+
+    def get_requirement_interview(self, requirement_interview_id):
+        for interview in self.requirement_interviews:
+            if interview.requirement_interview_id == requirement_interview_id:
+                return interview
+        raise KeyError(requirement_interview_id)
+
+    def update_requirement_interview(self, interview):
+        for index, existing in enumerate(self.requirement_interviews):
+            if existing.requirement_interview_id == interview.requirement_interview_id:
+                self.requirement_interviews[index] = interview
+                return interview.requirement_interview_id
+        raise KeyError(interview.requirement_interview_id)
 
     def list_workflow_runs(self, workspace_id):
         return [
@@ -799,3 +820,106 @@ def test_discover_graph_profile_rejects_unknown_requested_graph():
         assert "MissingGraph" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for unknown graph name")
+
+
+def test_requirements_copilot_generates_and_approves_draft():
+    """Requirements Copilot creates a schema-aware draft and approved version."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="CustomerGraph",
+        vertex_collections=["Device", "IP"],
+        edge_collections=["connects_to"],
+        counts={"total_documents": 35, "total_edges": 20},
+        metadata={
+            "schema_summary": {
+                "statistics": {"total_documents": 35},
+                "graphs": ["CustomerGraph"],
+            }
+        },
+    )
+    repository.graph_profiles.append(graph_profile)
+    service = ProductService(repository)
+
+    interview = service.start_requirements_copilot(
+        graph_profile_id=graph_profile.graph_profile_id,
+        domain="AdTech",
+        created_by="analyst@example.com",
+    )
+    assert interview.domain == "AdTech"
+    assert interview.schema_observations["vertex_collections"] == ["Device", "IP"]
+    assert interview.questions[0]["id"] == "business_goal"
+
+    service.answer_requirements_copilot_question(
+        interview.requirement_interview_id,
+        question_id="business_goal",
+        answer="Improve audience planning",
+        actor="analyst@example.com",
+    )
+    service.answer_requirements_copilot_question(
+        interview.requirement_interview_id,
+        question_id="analytics_questions",
+        answer="Rank identity clusters\nFind high-risk devices",
+        actor="analyst@example.com",
+    )
+    service.answer_requirements_copilot_question(
+        interview.requirement_interview_id,
+        question_id="constraints",
+        answer="Finish in 15 minutes; include evidence",
+        actor="analyst@example.com",
+    )
+
+    draft = service.generate_requirements_copilot_draft(
+        interview.requirement_interview_id
+    )
+    updated_interview = repository.get_requirement_interview(
+        interview.requirement_interview_id
+    )
+    assert updated_interview.status == RequirementInterviewStatus.READY_FOR_REVIEW
+    assert "Observed Graph Schema" in draft.draft_brd
+    assert "Improve audience planning" in draft.draft_brd
+    assert any(label["label"] == "observed_from_schema" for label in draft.provenance_labels)
+    assert any(label["label"] == "user_provided" for label in draft.provenance_labels)
+
+    version = service.approve_requirements_copilot_draft(
+        interview.requirement_interview_id,
+        version=1,
+        approved_by="approver@example.com",
+    )
+    approved_interview = repository.get_requirement_interview(
+        interview.requirement_interview_id
+    )
+    assert approved_interview.status == RequirementInterviewStatus.APPROVED
+    assert version.status == RequirementVersionStatus.APPROVED
+    assert version.requirement_interview_id == interview.requirement_interview_id
+    assert version.objectives[0]["text"] == "Improve audience planning"
+    assert version.requirements[0]["text"] == "Rank identity clusters"
+    assert version.constraints[0]["text"] == "Finish in 15 minutes"
+    assert version.metadata["approved_by"] == "approver@example.com"
+
+
+def test_requirements_copilot_approval_requires_draft():
+    """Requirements Copilot approval requires generated draft content."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="CustomerGraph",
+    )
+    repository.graph_profiles.append(graph_profile)
+    interview = ProductService(repository).start_requirements_copilot(
+        graph_profile.graph_profile_id
+    )
+
+    try:
+        ProductService(repository).approve_requirements_copilot_draft(
+            interview.requirement_interview_id,
+            version=1,
+        )
+    except ValidationError as exc:
+        assert "draft" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError for missing draft")
