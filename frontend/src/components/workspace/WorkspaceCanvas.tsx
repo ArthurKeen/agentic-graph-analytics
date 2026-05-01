@@ -4,6 +4,7 @@ import { CanvasLensLegend } from "./CanvasLensLegend";
 import { DynamicReportCanvas } from "./DynamicReportCanvas";
 import { EmptyCanvasState } from "./EmptyCanvasState";
 import { GraphProfileCanvas } from "./GraphProfileCanvas";
+import { SourceDocumentCanvas } from "./SourceDocumentCanvas";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { WorkspaceHelpOverlay } from "./WorkspaceHelpOverlay";
@@ -13,6 +14,7 @@ import type { ContextMenuState } from "./contextMenus/types";
 import type {
   ReportBundle,
   GraphProfileSummary,
+  SourceDocumentSummary,
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkspaceAsset
@@ -23,6 +25,7 @@ interface WorkspaceCanvasProps {
   selectedStep: WorkflowDAGNode | null;
   dagView: WorkflowDAGView | null;
   graphProfile: GraphProfileSummary | null;
+  sourceDocument: SourceDocumentSummary | null;
   reportBundle: ReportBundle | null;
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
@@ -40,6 +43,7 @@ export function WorkspaceCanvas({
   selectedStep,
   dagView,
   graphProfile,
+  sourceDocument,
   reportBundle,
   dataStatus,
   dataErrorMessage,
@@ -56,7 +60,9 @@ export function WorkspaceCanvas({
       ? "Dynamic Report"
       : selectedAsset?.kind === "graph-profile"
         ? "Graph Profile"
-        : "Operational DAG";
+        : selectedAsset?.kind === "document"
+          ? "Source Document"
+          : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onFitAll: () => undefined,
@@ -121,7 +127,9 @@ export function WorkspaceCanvas({
         {dataErrorMessage ? ` (${dataErrorMessage})` : ""}
       </p>
 
-      {graphProfile && selectedAsset.kind === "graph-profile" ? (
+      {sourceDocument && selectedAsset.kind === "document" ? (
+        <SourceDocumentCanvas document={sourceDocument} />
+      ) : graphProfile && selectedAsset.kind === "graph-profile" ? (
         <GraphProfileCanvas graphProfile={graphProfile} />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section className="pipeline-dag" aria-label="Workflow DAG">

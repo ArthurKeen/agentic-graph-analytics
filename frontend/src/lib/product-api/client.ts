@@ -4,11 +4,13 @@ import type {
   ProductAPIClient,
   RawGraphProfileSummary,
   RawReportBundle,
+  RawSourceDocumentSummary,
   RawWorkflowDAGView,
   RawWorkspaceHealth,
   RawWorkspaceOverview,
   ReportBundle,
   ReportSection,
+  SourceDocumentSummary,
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -97,7 +99,7 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
     workspace: raw.workspace,
     counts: raw.counts,
     latestGraphProfiles: (raw.latest_graph_profiles ?? []).map(mapGraphProfileSummary),
-    latestSourceDocuments: raw.latest_source_documents ?? [],
+    latestSourceDocuments: (raw.latest_source_documents ?? []).map(mapSourceDocumentSummary),
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
@@ -117,6 +119,21 @@ export function mapGraphProfileSummary(raw: RawGraphProfileSummary): GraphProfil
     edgeDefinitions: raw.edge_definitions ?? [],
     collectionRoles: raw.collection_roles ?? {},
     counts: raw.counts ?? {}
+  };
+}
+
+export function mapSourceDocumentSummary(raw: RawSourceDocumentSummary): SourceDocumentSummary {
+  return {
+    documentId: raw.document_id,
+    workspaceId: raw.workspace_id,
+    filename: raw.filename,
+    mimeType: raw.mime_type,
+    sha256: raw.sha256 ?? "",
+    storageMode: raw.storage_mode ?? "unknown",
+    storageUri: raw.storage_uri,
+    extractedText: raw.extracted_text,
+    uploadedAt: raw.uploaded_at,
+    metadata: raw.metadata ?? {}
   };
 }
 
@@ -174,10 +191,10 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     description: `Graph profile (${profile.status})`
   }));
   const documentAssets = overview.latestSourceDocuments.map((document) => ({
-    id: document.document_id,
+    id: document.documentId,
     kind: "document" as const,
     label: document.filename,
-    description: document.mime_type
+    description: document.mimeType
   }));
   const runAssets = overview.latestWorkflowRuns.map((run) => ({
     id: run.run_id,

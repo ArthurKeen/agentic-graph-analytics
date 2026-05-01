@@ -1,6 +1,7 @@
 import type {
   GraphProfileSummary,
   ReportBundle,
+  SourceDocumentSummary,
   WorkflowDAGView,
   WorkspaceAsset
 } from "./types";
@@ -17,6 +18,12 @@ export const demoAssets: WorkspaceAsset[] = [
     kind: "graph-profile",
     label: "Customer Graph Profile",
     description: "Discovered graph schema"
+  },
+  {
+    id: "document-demo",
+    kind: "document",
+    label: "requirements.md",
+    description: "text/markdown"
   },
   {
     id: "report-demo",
@@ -104,6 +111,23 @@ export const demoGraphProfile: GraphProfileSummary = {
     accounts: 1250,
     devices: 780,
     transactions: 6240
+  }
+};
+
+export const demoSourceDocument: SourceDocumentSummary = {
+  documentId: "document-demo",
+  workspaceId: "workspace-demo",
+  filename: "requirements.md",
+  mimeType: "text/markdown",
+  sha256: "demo-sha256",
+  storageMode: "inline_text",
+  storageUri: null,
+  extractedText:
+    "Analyze the customer graph for entity risk, workflow status, and report-ready findings.",
+  uploadedAt: "2026-01-01T00:00:00Z",
+  metadata: {
+    source: "demo",
+    vertical: "example"
   }
 };
 

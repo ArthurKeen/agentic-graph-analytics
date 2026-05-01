@@ -346,6 +346,52 @@ button {
   padding: 12px;
 }
 
+.source-document-canvas {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+  max-width: 980px;
+  padding-bottom: 180px;
+}
+
+.source-document-canvas > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--aga-border);
+  border-radius: 14px;
+  background: var(--aga-panel-soft);
+  padding: 16px;
+}
+
+.source-document-canvas h3,
+.source-document-canvas h4,
+.source-document-canvas p {
+  margin: 0;
+}
+
+.source-document-canvas > header span {
+  color: var(--aga-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.source-document-card {
+  border: 1px solid var(--aga-border);
+  border-radius: 14px;
+  background: var(--aga-panel-soft);
+  padding: 16px;
+}
+
+.source-document-card pre {
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--aga-bg);
+  margin: 10px 0 0;
+  padding: 12px;
+}
+
 .legend {
   position: absolute;
   left: 20px;

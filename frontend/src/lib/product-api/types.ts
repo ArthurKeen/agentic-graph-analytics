@@ -29,6 +29,19 @@ export interface GraphProfileSummary {
   counts: Record<string, number>;
 }
 
+export interface SourceDocumentSummary {
+  documentId: string;
+  workspaceId: string;
+  filename: string;
+  mimeType: string;
+  sha256: string;
+  storageMode: string;
+  storageUri?: string | null;
+  extractedText?: string | null;
+  uploadedAt?: string;
+  metadata: Record<string, unknown>;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -66,11 +79,7 @@ export interface WorkspaceOverview {
   };
   counts: Record<string, number>;
   latestGraphProfiles: GraphProfileSummary[];
-  latestSourceDocuments: Array<{
-    document_id: string;
-    filename: string;
-    mime_type: string;
-  }>;
+  latestSourceDocuments: SourceDocumentSummary[];
   latestWorkflowRuns: Array<{
     run_id: string;
     status: string;
@@ -145,10 +154,23 @@ export interface RawWorkspaceOverview {
   workspace: WorkspaceOverview["workspace"];
   counts: Record<string, number>;
   latest_graph_profiles?: RawGraphProfileSummary[];
-  latest_source_documents?: WorkspaceOverview["latestSourceDocuments"];
+  latest_source_documents?: RawSourceDocumentSummary[];
   latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
   latest_reports: WorkspaceOverview["latestReports"];
   latest_audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawSourceDocumentSummary {
+  document_id: string;
+  workspace_id: string;
+  filename: string;
+  mime_type: string;
+  sha256?: string;
+  storage_mode?: string;
+  storage_uri?: string | null;
+  extracted_text?: string | null;
+  uploaded_at?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RawGraphProfileSummary {

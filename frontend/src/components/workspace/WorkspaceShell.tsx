@@ -19,6 +19,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const {
     assets,
     graphProfileById,
+    documentById,
     dagByRunId,
     reportById,
     health,
@@ -80,6 +81,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         : null,
     [graphProfileById, selectedAsset]
   );
+  const sourceDocument = useMemo(
+    () =>
+      selectedAsset?.kind === "document"
+        ? documentById[selectedAsset.id] ?? null
+        : null,
+    [documentById, selectedAsset]
+  );
 
   useEffect(() => {
     function closePanels(event: KeyboardEvent) {
@@ -106,6 +114,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onSelectAsset={(asset) => {
           setSelectedAsset(asset);
           setSelectedStep(null);
+        }}
+        onOpenDocument={(documentId) => {
+          const documentAsset = visibleAssets.find((asset) => asset.id === documentId);
+          if (documentAsset) {
+            setSelectedAsset(documentAsset);
+            setSelectedStep(null);
+          }
         }}
         onOpenGraphProfile={(graphProfileId) => {
           const graphProfileAsset = visibleAssets.find((asset) => asset.id === graphProfileId);
@@ -137,6 +152,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         selectedStep={selectedStep}
         dagView={dagView}
         graphProfile={graphProfile}
+        sourceDocument={sourceDocument}
         reportBundle={reportBundle}
         dataStatus={status}
         dataErrorMessage={errorMessage}

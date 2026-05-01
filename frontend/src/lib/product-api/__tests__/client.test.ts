@@ -35,8 +35,13 @@ describe("product API client mappers", () => {
       latest_source_documents: [
         {
           document_id: "document-1",
+          workspace_id: "workspace-1",
           filename: "requirements.md",
-          mime_type: "text/markdown"
+          mime_type: "text/markdown",
+          sha256: "abc123",
+          storage_mode: "inline_text",
+          extracted_text: "Requirements content",
+          metadata: { source: "upload" }
         }
       ],
       latest_workflow_runs: [
@@ -61,6 +66,12 @@ describe("product API client mappers", () => {
       graphName: "CustomerGraph",
       vertexCollections: ["customers"],
       counts: { customers: 10 }
+    });
+    expect(overview.latestSourceDocuments[0]).toMatchObject({
+      documentId: "document-1",
+      filename: "requirements.md",
+      storageMode: "inline_text",
+      metadata: { source: "upload" }
     });
     expect(workspaceAssetsFromOverview(overview)).toEqual([
       {

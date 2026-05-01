@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildAssetContextMenu } from "../contextMenus/asset";
 import { buildCanvasContextMenu } from "../contextMenus/canvas";
+import { buildDocumentContextMenu } from "../contextMenus/document";
 import { buildGraphProfileContextMenu } from "../contextMenus/graphProfile";
 import { buildPipelineStepContextMenu } from "../contextMenus/pipelineStep";
 import { buildReportContextMenu } from "../contextMenus/report";
@@ -39,6 +40,20 @@ describe("workspace context menu builders", () => {
 
   it("builds graph profile actions for canvas inspection", () => {
     const items = buildGraphProfileContextMenu({
+      onOpenInCanvas: noop,
+      onViewInfo: noop,
+      onCopyId: noop
+    });
+
+    expect(items.map((item) => item.id)).toEqual([
+      "open-in-canvas",
+      "view-info",
+      "copy-id"
+    ]);
+  });
+
+  it("builds document actions for canvas inspection", () => {
+    const items = buildDocumentContextMenu({
       onOpenInCanvas: noop,
       onViewInfo: noop,
       onCopyId: noop
