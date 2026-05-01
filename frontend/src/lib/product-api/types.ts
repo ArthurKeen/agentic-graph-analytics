@@ -235,6 +235,19 @@ export interface ReportBundle {
   snapshots: Array<Record<string, unknown>>;
 }
 
+export interface WorkspaceBundle {
+  schemaVersion: string;
+  workspace: Record<string, unknown>;
+  connectionProfiles: Array<Record<string, unknown>>;
+  graphProfiles: Array<Record<string, unknown>>;
+  sourceDocuments: Array<Record<string, unknown>>;
+  requirementInterviews: Array<Record<string, unknown>>;
+  requirementVersions: Array<Record<string, unknown>>;
+  workflowRuns: Array<Record<string, unknown>>;
+  reports: Array<Record<string, unknown>>;
+  auditEvents: Array<Record<string, unknown>>;
+}
+
 export interface ProductAPIClient {
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
@@ -268,6 +281,7 @@ export interface ProductAPIClient {
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
+  exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle>;
 }
 
 export interface RawWorkspaceOverview {
@@ -436,4 +450,17 @@ export interface RawReportBundle {
     encoding?: Record<string, unknown>;
   }>;
   snapshots: Array<Record<string, unknown>>;
+}
+
+export interface RawWorkspaceBundle {
+  schema_version: string;
+  workspace: Record<string, unknown>;
+  connection_profiles?: Array<Record<string, unknown>>;
+  graph_profiles?: Array<Record<string, unknown>>;
+  source_documents?: Array<Record<string, unknown>>;
+  requirement_interviews?: Array<Record<string, unknown>>;
+  requirement_versions?: Array<Record<string, unknown>>;
+  workflow_runs?: Array<Record<string, unknown>>;
+  reports?: Array<Record<string, unknown>>;
+  audit_events?: Array<Record<string, unknown>>;
 }

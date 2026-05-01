@@ -52,6 +52,7 @@ interface WorkspaceCanvasProps {
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onRequestCreateConnectionProfile: () => void;
+  onExportWorkspace: () => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onRequestDiscoverGraph: (connectionProfileId: string) => void;
   onRequestStartRequirementsCopilot: (graphProfileId: string) => void;
@@ -97,6 +98,7 @@ export function WorkspaceCanvas({
   onClearAssetSelection,
   onClearSelection,
   onRequestCreateConnectionProfile,
+  onExportWorkspace,
   onVerifyConnectionProfile,
   onRequestDiscoverGraph,
   onRequestStartRequirementsCopilot,
@@ -121,6 +123,7 @@ export function WorkspaceCanvas({
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateConnectionProfile: onRequestCreateConnectionProfile,
+      onExportWorkspace,
       onFitAll: () => undefined,
       onCenterView: () => undefined,
       onViewAsOperational: () => undefined,

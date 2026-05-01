@@ -563,4 +563,42 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("exports workspace bundles through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema_version: "1",
+        workspace: {
+          workspace_id: "workspace-1",
+          project_name: "Graph Analytics"
+        },
+        connection_profiles: [{ connection_profile_id: "connection-1" }],
+        graph_profiles: [],
+        source_documents: [],
+        requirement_interviews: [],
+        requirement_versions: [],
+        workflow_runs: [],
+        reports: [],
+        audit_events: []
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const bundle = await createProductAPIClient("http://api.example").exportWorkspaceBundle(
+      "workspace-1"
+    );
+
+    expect(bundle).toMatchObject({
+      schemaVersion: "1",
+      workspace: { workspace_id: "workspace-1" },
+      connectionProfiles: [{ connection_profile_id: "connection-1" }]
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/export",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

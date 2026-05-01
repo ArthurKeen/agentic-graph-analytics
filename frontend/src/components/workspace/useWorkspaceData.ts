@@ -26,6 +26,7 @@ import type {
   StartRequirementsCopilotInput,
   WorkflowDAGView,
   WorkspaceAsset,
+  WorkspaceBundle,
   WorkspaceHealth,
   WorkspaceOverview
 } from "@/lib/product-api/types";
@@ -79,6 +80,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     version: number,
     approvedBy?: string
   ) => Promise<RequirementVersion>;
+  exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
 }
 
 export function useWorkspaceData({
@@ -364,6 +366,12 @@ export function useWorkspaceData({
       : statefulDemoApproveRequirementsCopilotDraft(requirementInterviewId, version, approvedBy);
   };
 
+  const exportWorkspaceBundle = async (): Promise<WorkspaceBundle> => {
+    return initialWorkspaceId
+      ? apiClient.exportWorkspaceBundle(initialWorkspaceId)
+      : statefulDemoExportWorkspaceBundle(state);
+  };
+
   return {
     ...state,
     publishReport,
@@ -373,7 +381,8 @@ export function useWorkspaceData({
     startRequirementsCopilot,
     answerRequirementsCopilotQuestion,
     generateRequirementsCopilotDraft,
-    approveRequirementsCopilotDraft
+    approveRequirementsCopilotDraft,
+    exportWorkspaceBundle
   };
 }
 
@@ -575,4 +584,28 @@ function statefulDemoApproveRequirementsCopilotDraft(
       source: "requirements_copilot"
     }
   };
+}
+
+function statefulDemoExportWorkspaceBundle(state: WorkspaceDataState): WorkspaceBundle {
+  return {
+    schemaVersion: "demo",
+    workspace: {
+      workspace_id: state.overview?.workspace.workspace_id ?? "workspace-demo",
+      customer_name: state.overview?.workspace.customer_name ?? "Demo Customer",
+      project_name: state.overview?.workspace.project_name ?? "Graph Analytics",
+      environment: state.overview?.workspace.environment ?? "demo"
+    },
+    connectionProfiles: toRecordArray(Object.values(state.connectionProfileById)),
+    graphProfiles: toRecordArray(Object.values(state.graphProfileById)),
+    sourceDocuments: toRecordArray(Object.values(state.documentById)),
+    requirementInterviews: demoRequirementInterview ? toRecordArray([demoRequirementInterview]) : [],
+    requirementVersions: [],
+    workflowRuns: toRecordArray(Object.values(state.dagByRunId)),
+    reports: toRecordArray(Object.values(state.reportById)),
+    auditEvents: []
+  };
+}
+
+function toRecordArray<T>(items: T[]): Array<Record<string, unknown>> {
+  return items.map((item) => ({ ...(item as object) }));
 }

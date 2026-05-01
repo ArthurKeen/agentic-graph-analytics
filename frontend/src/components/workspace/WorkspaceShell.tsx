@@ -6,6 +6,7 @@ import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
+import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
@@ -42,7 +43,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     generateRequirementsCopilotDraft,
     approveRequirementsCopilotDraft,
     verifyConnectionProfile,
-    publishReport
+    publishReport,
+    exportWorkspaceBundle
   } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
@@ -89,6 +91,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     useState<RequirementVersion | null>(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
   const [publishedReportIds, setPublishedReportIds] = useState<Set<string>>(() => new Set());
   const visibleAssets = useMemo(
@@ -166,6 +170,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setStartCopilotErrorMessage(null);
       setRequirementsCopilotErrorMessage(null);
       setPublishErrorMessage(null);
+      setExportMessage(null);
+      setExportErrorMessage(null);
     }
 
     window.addEventListener("keydown", closePanels);
@@ -299,6 +305,24 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setCreateConnectionErrorMessage(null);
           setShowCreateConnectionProfile(true);
         }}
+        onExportWorkspace={() => {
+          setExportMessage(null);
+          setExportErrorMessage(null);
+          void exportWorkspaceBundle()
+            .then((bundle) => {
+              const workspaceId = String(
+                bundle.workspace.workspace_id ?? bundle.workspace._key ?? "workspace"
+              );
+              const filename = `${workspaceId}-aga-workspace-bundle.json`;
+              downloadJSON(filename, bundle);
+              setExportMessage(`Exported ${filename}`);
+            })
+            .catch((error) =>
+              setExportErrorMessage(
+                error instanceof Error ? error.message : "Failed to export workspace bundle"
+              )
+            );
+        }}
         onVerifyConnectionProfile={verifySelectedConnectionProfile}
         onRequestDiscoverGraph={(connectionProfileId) => {
           const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
@@ -378,6 +402,16 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {exportMessage || exportErrorMessage ? (
+        <FloatingExportStatusPanel
+          message={exportMessage}
+          errorMessage={exportErrorMessage}
+          onClose={() => {
+            setExportMessage(null);
+            setExportErrorMessage(null);
+          }}
+        />
+      ) : null}
       {showCreateConnectionProfile ? (
         <CreateConnectionProfileOverlay
           isCreating={isCreatingConnectionProfile}
@@ -508,4 +542,38 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       ) : null}
     </div>
   );
+}
+
+function FloatingExportStatusPanel({
+  message,
+  errorMessage,
+  onClose
+}: {
+  message: string | null;
+  errorMessage: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <FloatingDetailPanel title="Workspace Export" stackIndex={2} onClose={onClose}>
+      {message ? <p className="success-text">{message}</p> : null}
+      {errorMessage ? <p className="error-text">{errorMessage}</p> : null}
+      <p className="muted">
+        Exports include product metadata only. Runtime secrets remain referenced, not resolved.
+      </p>
+    </FloatingDetailPanel>
+  );
+}
+
+function downloadJSON(filename: string, data: unknown) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json"
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }

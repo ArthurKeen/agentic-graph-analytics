@@ -17,6 +17,7 @@ import type {
   RawReportBundle,
   RawSourceDocumentSummary,
   RawWorkflowDAGView,
+  RawWorkspaceBundle,
   RawWorkspaceHealth,
   RawWorkspaceOverview,
   ReportBundle,
@@ -30,6 +31,7 @@ import type {
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkspaceAsset,
+  WorkspaceBundle,
   WorkspaceHealth,
   WorkspaceOverview
 } from "./types";
@@ -160,6 +162,13 @@ export function createProductAPIClient(
         await postJSON<RawReportBundle>(
           `${normalizedBaseUrl}/api/reports/${reportId}/publish`,
           { actor }
+        )
+      );
+    },
+    async exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle> {
+      return mapWorkspaceBundle(
+        await getJSON<RawWorkspaceBundle>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/export`
         )
       );
     }
@@ -366,6 +375,21 @@ export function mapReportBundle(raw: RawReportBundle): ReportBundle {
       .sort((left, right) => left.order - right.order),
     charts: raw.charts.map(mapChartSpec),
     snapshots: raw.snapshots
+  };
+}
+
+export function mapWorkspaceBundle(raw: RawWorkspaceBundle): WorkspaceBundle {
+  return {
+    schemaVersion: raw.schema_version,
+    workspace: raw.workspace,
+    connectionProfiles: raw.connection_profiles ?? [],
+    graphProfiles: raw.graph_profiles ?? [],
+    sourceDocuments: raw.source_documents ?? [],
+    requirementInterviews: raw.requirement_interviews ?? [],
+    requirementVersions: raw.requirement_versions ?? [],
+    workflowRuns: raw.workflow_runs ?? [],
+    reports: raw.reports ?? [],
+    auditEvents: raw.audit_events ?? []
   };
 }
 
