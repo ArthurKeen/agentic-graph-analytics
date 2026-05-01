@@ -679,4 +679,37 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("starts workflow runs through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        run_id: "run-1",
+        workspace_id: "workspace-1",
+        workflow_mode: "agentic",
+        status: "running",
+        started_at: "2026-01-01T00:00:00Z"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const workflowRun = await createProductAPIClient("http://api.example").startWorkflowRun(
+      "run-1"
+    );
+
+    expect(workflowRun).toMatchObject({
+      runId: "run-1",
+      workflowMode: "agentic",
+      status: "running"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs/run-1/start",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({})
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

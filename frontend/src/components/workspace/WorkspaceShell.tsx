@@ -47,7 +47,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     verifyConnectionProfile,
     publishReport,
     exportWorkspaceBundle,
-    importWorkspaceBundle
+    importWorkspaceBundle,
+    startWorkflowRun
   } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
@@ -94,6 +95,9 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     useState<RequirementVersion | null>(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
+  const [startingRunId, setStartingRunId] = useState<string | null>(null);
+  const [runActionMessage, setRunActionMessage] = useState<string | null>(null);
+  const [runActionErrorMessage, setRunActionErrorMessage] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
   const [showImportWorkspaceBundle, setShowImportWorkspaceBundle] = useState(false);
@@ -185,6 +189,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setStartCopilotErrorMessage(null);
       setRequirementsCopilotErrorMessage(null);
       setPublishErrorMessage(null);
+      setRunActionMessage(null);
+      setRunActionErrorMessage(null);
       setExportMessage(null);
       setExportErrorMessage(null);
       setShowImportWorkspaceBundle(false);
@@ -266,6 +272,25 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             setSelectedAsset(run);
             setSelectedStep(null);
           }
+        }}
+        onStartRun={(asset) => {
+          setRunActionMessage(null);
+          setRunActionErrorMessage(null);
+          setStartingRunId(asset.id);
+          void startWorkflowRun(asset.id)
+            .then((workflowRun) => {
+              setSelectedAsset({
+                ...asset,
+                description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
+              });
+              setRunActionMessage(`Started run ${workflowRun.runId}.`);
+            })
+            .catch((error) =>
+              setRunActionErrorMessage(
+                error instanceof Error ? error.message : "Failed to start workflow run"
+              )
+            )
+            .finally(() => setStartingRunId(null));
         }}
         onOpenReport={(reportId) => {
           const report = visibleAssets.find((asset) => asset.id === reportId);
@@ -426,6 +451,20 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {runActionMessage || runActionErrorMessage || startingRunId ? (
+        <FloatingDetailPanel
+          title="Workflow Run"
+          stackIndex={2}
+          onClose={() => {
+            setRunActionMessage(null);
+            setRunActionErrorMessage(null);
+          }}
+        >
+          {startingRunId ? <p className="muted">Starting run {startingRunId}...</p> : null}
+          {runActionMessage ? <p className="success-text">{runActionMessage}</p> : null}
+          {runActionErrorMessage ? <p className="error-text">{runActionErrorMessage}</p> : null}
+        </FloatingDetailPanel>
+      ) : null}
       {exportMessage || exportErrorMessage ? (
         <FloatingExportStatusPanel
           message={exportMessage}

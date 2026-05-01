@@ -26,6 +26,7 @@ import type {
   StartRequirementsCopilotInput,
   WorkflowDAGView,
   WorkflowRecoveryActions,
+  WorkflowRunSummary,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -85,6 +86,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   ) => Promise<RequirementVersion>;
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
+  startWorkflowRun: (runId: string) => Promise<WorkflowRunSummary>;
 }
 
 export function useWorkspaceData({
@@ -394,6 +396,35 @@ export function useWorkspaceData({
       : statefulDemoImportWorkspaceBundle(bundle);
   };
 
+  const startWorkflowRun = async (runId: string): Promise<WorkflowRunSummary> => {
+    const workflowRun = initialWorkspaceId
+      ? await apiClient.startWorkflowRun(runId)
+      : statefulDemoStartWorkflowRun(runId);
+
+    setState((current) => ({
+      ...current,
+      assets: current.assets.map((asset) =>
+        asset.id === runId
+          ? {
+              ...asset,
+              description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
+            }
+          : asset
+      ),
+      dagByRunId: current.dagByRunId[runId]
+        ? {
+            ...current.dagByRunId,
+            [runId]: {
+              ...current.dagByRunId[runId],
+              status: workflowRun.status
+            }
+          }
+        : current.dagByRunId
+    }));
+
+    return workflowRun;
+  };
+
   return {
     ...state,
     publishReport,
@@ -405,7 +436,8 @@ export function useWorkspaceData({
     generateRequirementsCopilotDraft,
     approveRequirementsCopilotDraft,
     exportWorkspaceBundle,
-    importWorkspaceBundle
+    importWorkspaceBundle,
+    startWorkflowRun
   };
 }
 
@@ -657,5 +689,16 @@ function statefulDemoImportWorkspaceBundle(bundle: WorkspaceBundle): WorkspaceIm
       workflow_runs: bundle.workflowRuns.length,
       reports: bundle.reports.length
     }
+  };
+}
+
+function statefulDemoStartWorkflowRun(runId: string): WorkflowRunSummary {
+  return {
+    runId,
+    workspaceId: demoDag.workspaceId,
+    workflowMode: demoDag.workflowMode,
+    status: "running",
+    startedAt: new Date().toISOString(),
+    completedAt: null
   };
 }

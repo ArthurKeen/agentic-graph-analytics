@@ -17,6 +17,7 @@ import type {
   RawReportBundle,
   RawSourceDocumentSummary,
   RawWorkflowDAGView,
+  RawWorkflowRunSummary,
   RawWorkspaceBundle,
   RawWorkspaceHealth,
   RawWorkspaceImportResult,
@@ -32,6 +33,7 @@ import type {
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkflowRecoveryActions,
+  WorkflowRunSummary,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -186,6 +188,14 @@ export function createProductAPIClient(
     async getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions> {
       return getJSON<WorkflowRecoveryActions>(
         `${normalizedBaseUrl}/api/runs/${runId}/recovery-actions`
+      );
+    },
+    async startWorkflowRun(runId: string): Promise<WorkflowRunSummary> {
+      return mapWorkflowRunSummary(
+        await postJSON<RawWorkflowRunSummary>(
+          `${normalizedBaseUrl}/api/runs/${runId}/start`,
+          {}
+        )
       );
     }
   };
@@ -358,6 +368,17 @@ export function mapWorkflowDAGView(raw: RawWorkflowDAGView): WorkflowDAGView {
     edges: raw.edges.map(mapWorkflowEdge),
     warnings: raw.warnings,
     errors: raw.errors
+  };
+}
+
+export function mapWorkflowRunSummary(raw: RawWorkflowRunSummary): WorkflowRunSummary {
+  return {
+    runId: raw.run_id,
+    workspaceId: raw.workspace_id,
+    workflowMode: raw.workflow_mode,
+    status: raw.status,
+    startedAt: raw.started_at,
+    completedAt: raw.completed_at
   };
 }
 

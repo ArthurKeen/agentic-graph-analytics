@@ -20,6 +20,7 @@ interface AssetExplorerProps {
   onOpenGraphProfile: (graphProfileId: string) => void;
   onRequestStartRequirementsCopilot: (asset: WorkspaceAsset) => void;
   onOpenRun: (runId: string) => void;
+  onStartRun: (asset: WorkspaceAsset) => void;
   onOpenReport: (reportId: string) => void;
   onRequestPublishReport: (asset: WorkspaceAsset) => void;
   onRequestDeleteRun: (asset: WorkspaceAsset) => void;
@@ -37,6 +38,7 @@ export function AssetExplorer({
   onOpenGraphProfile,
   onRequestStartRequirementsCopilot,
   onOpenRun,
+  onStartRun,
   onOpenReport,
   onRequestPublishReport,
   onRequestDeleteRun,
@@ -129,6 +131,7 @@ export function AssetExplorer({
                   items: buildRunContextMenu({
                     onViewPipeline: () => onOpenRun(asset.id),
                     onCopyRunId: baseArgs.onCopyId,
+                    onStartRun: () => onStartRun(asset),
                     onRetryRun: () => onOpenRun(asset.id),
                     onDeleteRun: () => onRequestDeleteRun(asset)
                   })

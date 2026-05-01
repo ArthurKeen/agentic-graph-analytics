@@ -97,10 +97,12 @@ describe("workspace context menu builders", () => {
     const items = buildRunContextMenu({
       onViewPipeline: noop,
       onCopyRunId: noop,
+      onStartRun: noop,
       onRetryRun: noop,
       onDeleteRun: noop
     });
 
+    expect(items.find((item) => item.id === "start-run")).toBeDefined();
     expect(items.find((item) => item.id === "retry-run")).toBeDefined();
     expect(items.find((item) => item.id === "delete-run")?.danger).toBe(true);
   });

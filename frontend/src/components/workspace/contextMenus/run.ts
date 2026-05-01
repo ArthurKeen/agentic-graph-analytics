@@ -3,6 +3,7 @@ import type { ContextMenuItem } from "./types";
 interface BuildRunContextMenuArgs {
   onViewPipeline: () => void;
   onCopyRunId: () => void;
+  onStartRun: () => void;
   onRetryRun: () => void;
   onDeleteRun: () => void;
 }
@@ -10,6 +11,7 @@ interface BuildRunContextMenuArgs {
 export function buildRunContextMenu({
   onViewPipeline,
   onCopyRunId,
+  onStartRun,
   onRetryRun,
   onDeleteRun
 }: BuildRunContextMenuArgs): ContextMenuItem[] {
@@ -25,6 +27,12 @@ export function buildRunContextMenu({
       label: "Copy Run ID",
       icon: "📋",
       onSelect: onCopyRunId
+    },
+    {
+      id: "start-run",
+      label: "Start Run",
+      icon: "▶",
+      onSelect: onStartRun
     },
     {
       id: "retry-run",
