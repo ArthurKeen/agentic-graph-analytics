@@ -55,6 +55,65 @@ button {
   margin-top: 24px;
 }
 
+.health-card {
+  border: 1px solid var(--aga-border);
+  border-radius: 12px;
+  background: var(--aga-panel-soft);
+  margin-top: 18px;
+  padding: 12px;
+}
+
+.health-card[data-status="healthy"] {
+  border-color: var(--aga-success);
+}
+
+.health-card[data-status="needs_attention"] {
+  border-color: var(--aga-warning);
+}
+
+.health-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.health-card-header span {
+  color: var(--aga-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.health-card p {
+  margin: 8px 0 0;
+}
+
+.health-card ul {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding-left: 16px;
+}
+
+.health-card li {
+  color: var(--aga-muted);
+  font-size: 13px;
+}
+
+.health-card li span {
+  color: var(--aga-text);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.health-card li span[data-severity="error"] {
+  color: var(--aga-danger);
+}
+
+.health-card li span[data-severity="warning"] {
+  color: var(--aga-warning);
+}
+
 .asset-list {
   display: grid;
   gap: 8px;

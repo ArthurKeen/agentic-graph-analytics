@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   mapWorkflowDAGView,
+  mapWorkspaceHealth,
   mapWorkspaceOverview,
   workspaceAssetsFromOverview
 } from "../client";
@@ -78,5 +79,29 @@ describe("product API client mappers", () => {
       artifactCount: 2
     });
     expect(dag.edges[0]).toEqual({ id: "edge-1", from: "step-1", to: "step-2" });
+  });
+
+  it("maps workspace health payloads into explorer-ready shape", () => {
+    const health = mapWorkspaceHealth({
+      workspace_id: "workspace-1",
+      status: "needs_attention",
+      counts: { connection_profiles: 0 },
+      issues: [
+        {
+          severity: "warning",
+          code: "missing_connection_profile",
+          message: "Workspace has no connection profiles.",
+          entity_ids: ["connection-1"]
+        }
+      ]
+    });
+
+    expect(health.workspaceId).toBe("workspace-1");
+    expect(health.issues[0]).toEqual({
+      severity: "warning",
+      code: "missing_connection_profile",
+      message: "Workspace has no connection profiles.",
+      entityIds: ["connection-1"]
+    });
   });
 });

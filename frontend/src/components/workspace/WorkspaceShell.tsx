@@ -15,7 +15,7 @@ interface WorkspaceShellProps {
 }
 
 export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceShellProps) {
-  const { assets, dagByRunId, status, errorMessage } = useWorkspaceData({
+  const { assets, dagByRunId, health, status, errorMessage } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
   });
@@ -69,6 +69,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     <div className="workspace-shell" onClick={() => setMenu(null)}>
       <AssetExplorer
         assets={visibleAssets}
+        health={health}
         onSelectAsset={(asset) => {
           setSelectedAsset(asset);
           setSelectedStep(null);

@@ -7,6 +7,7 @@ import type {
   ProductAPIClient,
   WorkflowDAGView,
   WorkspaceAsset,
+  WorkspaceHealth,
   WorkspaceOverview
 } from "@/lib/product-api/types";
 
@@ -20,6 +21,7 @@ interface WorkspaceDataState {
   assets: WorkspaceAsset[];
   dagByRunId: Record<string, WorkflowDAGView>;
   overview: WorkspaceOverview | null;
+  health: WorkspaceHealth | null;
   status: "demo" | "loading" | "ready" | "error";
   errorMessage?: string;
 }
@@ -34,6 +36,7 @@ export function useWorkspaceData({
     assets: demoAssets,
     dagByRunId: { [demoDag.runId]: demoDag },
     overview: null,
+    health: null,
     status: "demo"
   });
 
@@ -48,7 +51,10 @@ export function useWorkspaceData({
 
     async function loadWorkspace() {
       try {
-        const overview = await apiClient.getWorkspaceOverview(workspaceId);
+        const [overview, health] = await Promise.all([
+          apiClient.getWorkspaceOverview(workspaceId),
+          apiClient.getWorkspaceHealth(workspaceId)
+        ]);
         const assets = workspaceAssetsFromOverview(overview);
         const firstRunId =
           initialRunId ??
@@ -63,6 +69,7 @@ export function useWorkspaceData({
           assets: assets.length > 0 ? assets : demoAssets,
           dagByRunId: dag ? { [dag.runId]: dag } : { [demoDag.runId]: demoDag },
           overview,
+          health,
           status: "ready"
         });
       } catch (error) {

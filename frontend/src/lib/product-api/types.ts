@@ -64,8 +64,23 @@ export interface WorkspaceOverview {
   latestAuditEvents: Array<Record<string, unknown>>;
 }
 
+export interface WorkspaceHealthIssue {
+  severity: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  entityIds: string[];
+}
+
+export interface WorkspaceHealth {
+  workspaceId: string;
+  status: "healthy" | "needs_attention" | string;
+  counts: Record<string, number>;
+  issues: WorkspaceHealthIssue[];
+}
+
 export interface ProductAPIClient {
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
+  getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
 }
 
@@ -99,4 +114,16 @@ export interface RawWorkflowDAGView {
   }>;
   warnings: string[];
   errors: string[];
+}
+
+export interface RawWorkspaceHealth {
+  workspace_id: string;
+  status: string;
+  counts: Record<string, number>;
+  issues: Array<{
+    severity: "info" | "warning" | "error";
+    code: string;
+    message: string;
+    entity_ids?: string[];
+  }>;
 }

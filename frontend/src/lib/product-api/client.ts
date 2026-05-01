@@ -1,11 +1,13 @@
 import type {
   ProductAPIClient,
   RawWorkflowDAGView,
+  RawWorkspaceHealth,
   RawWorkspaceOverview,
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkspaceAsset,
+  WorkspaceHealth,
   WorkspaceOverview
 } from "./types";
 
@@ -21,6 +23,13 @@ export function createProductAPIClient(
       return mapWorkspaceOverview(
         await getJSON<RawWorkspaceOverview>(
           `${normalizedBaseUrl}/api/workspaces/${workspaceId}/overview`
+        )
+      );
+    },
+    async getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth> {
+      return mapWorkspaceHealth(
+        await getJSON<RawWorkspaceHealth>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/health`
         )
       );
     },
@@ -68,6 +77,20 @@ export function mapWorkflowDAGView(raw: RawWorkflowDAGView): WorkflowDAGView {
     edges: raw.edges.map(mapWorkflowEdge),
     warnings: raw.warnings,
     errors: raw.errors
+  };
+}
+
+export function mapWorkspaceHealth(raw: RawWorkspaceHealth): WorkspaceHealth {
+  return {
+    workspaceId: raw.workspace_id,
+    status: raw.status,
+    counts: raw.counts,
+    issues: raw.issues.map((issue) => ({
+      severity: issue.severity,
+      code: issue.code,
+      message: issue.message,
+      entityIds: issue.entity_ids ?? []
+    }))
   };
 }
 
