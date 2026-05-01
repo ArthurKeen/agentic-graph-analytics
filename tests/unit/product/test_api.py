@@ -1,6 +1,10 @@
 """Unit tests for product API contract definitions."""
 
-from graph_analytics_ai.product import PRODUCT_API_ENDPOINTS, list_product_api_endpoints
+from graph_analytics_ai.product import (
+    PRODUCT_API_ENDPOINTS,
+    ProductAPIDispatcher,
+    list_product_api_endpoints,
+)
 
 
 def test_product_api_contract_includes_core_ui_routes():
@@ -35,3 +39,44 @@ def test_product_api_contract_maps_to_service_methods():
     assert "update_workflow_step" in service_methods
     assert "publish_report" in service_methods
     assert all(endpoint.service_method for endpoint in PRODUCT_API_ENDPOINTS)
+
+
+def test_product_api_dispatcher_calls_service_method_and_serializes_response():
+    """Dispatcher maps endpoint contracts to service calls."""
+
+    class Response:
+        def to_dict(self):
+            return {"workspace_id": "workspace-1", "ok": True}
+
+    class Service:
+        def __init__(self):
+            self.calls = []
+
+        def get_workspace_overview(self, **kwargs):
+            self.calls.append(kwargs)
+            return Response()
+
+    service = Service()
+    response = ProductAPIDispatcher(service).dispatch(
+        method="GET",
+        path="/api/workspaces/{workspace_id}/overview",
+        path_params={"workspace_id": "workspace-1"},
+        query={"recent_limit": 3},
+    )
+
+    assert response == {"workspace_id": "workspace-1", "ok": True}
+    assert service.calls == [{"workspace_id": "workspace-1", "recent_limit": 3}]
+
+
+def test_product_api_dispatcher_rejects_unknown_endpoint():
+    """Dispatcher fails clearly when no endpoint contract matches."""
+
+    try:
+        ProductAPIDispatcher(service=object()).dispatch(
+            method="GET",
+            path="/api/unknown",
+        )
+    except KeyError as exc:
+        assert "/api/unknown" in str(exc)
+    else:
+        raise AssertionError("Expected KeyError for unknown endpoint")

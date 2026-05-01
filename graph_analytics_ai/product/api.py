@@ -179,3 +179,57 @@ def list_product_api_endpoints() -> List[Dict[str, Any]]:
     """List product API endpoint contracts."""
 
     return [endpoint.to_dict() for endpoint in PRODUCT_API_ENDPOINTS]
+
+
+class ProductAPIDispatcher:
+    """Framework-neutral dispatcher from API contract to service methods."""
+
+    def __init__(
+        self,
+        service: Any,
+        endpoints: Optional[List[ProductAPIEndpoint]] = None,
+    ):
+        """Initialize dispatcher."""
+
+        self.service = service
+        self.endpoints = endpoints or PRODUCT_API_ENDPOINTS
+
+    def dispatch(
+        self,
+        method: str,
+        path: str,
+        path_params: Optional[Dict[str, Any]] = None,
+        query: Optional[Dict[str, Any]] = None,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """Dispatch a request-shaped call to the matching service method."""
+
+        endpoint = self.get_endpoint(method, path)
+        kwargs: Dict[str, Any] = {}
+        kwargs.update(path_params or {})
+        kwargs.update(query or {})
+        kwargs.update(body or {})
+
+        service_method = getattr(self.service, endpoint.service_method)
+        return self._serialize_response(service_method(**kwargs))
+
+    def get_endpoint(self, method: str, path: str) -> ProductAPIEndpoint:
+        """Find an API endpoint by method and path template."""
+
+        normalized_method = method.upper()
+        for endpoint in self.endpoints:
+            if endpoint.method == normalized_method and endpoint.path == path:
+                return endpoint
+        raise KeyError(f"Product API endpoint not found: {normalized_method} {path}")
+
+    def _serialize_response(self, value: Any) -> Any:
+        if hasattr(value, "to_dict"):
+            return value.to_dict()
+        if isinstance(value, list):
+            return [self._serialize_response(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: self._serialize_response(item)
+                for key, item in value.items()
+            }
+        return value

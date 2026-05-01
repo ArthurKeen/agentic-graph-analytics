@@ -1,6 +1,11 @@
 """Product metadata support for the Agentic Graph Analytics UI."""
 
-from .api import PRODUCT_API_ENDPOINTS, ProductAPIEndpoint, list_product_api_endpoints
+from .api import (
+    PRODUCT_API_ENDPOINTS,
+    ProductAPIDispatcher,
+    ProductAPIEndpoint,
+    list_product_api_endpoints,
+)
 from .models import (
     AuditEvent,
     ChartSpec,
@@ -73,6 +78,7 @@ __all__ = [
     "GraphProfileStatus",
     "MappingSecretResolver",
     "ProductArangoStorage",
+    "ProductAPIDispatcher",
     "ProductAPIEndpoint",
     "PRODUCT_API_ENDPOINTS",
     "ProductRepository",
