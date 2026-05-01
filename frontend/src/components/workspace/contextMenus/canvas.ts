@@ -4,12 +4,14 @@ interface BuildCanvasContextMenuArgs {
   onFitAll: () => void;
   onCenterView: () => void;
   onViewAsOperational: () => void;
+  onShowHelp: () => void;
 }
 
 export function buildCanvasContextMenu({
   onFitAll,
   onCenterView,
-  onViewAsOperational
+  onViewAsOperational,
+  onShowHelp
 }: BuildCanvasContextMenuArgs): ContextMenuItem[] {
   return [
     {
@@ -29,6 +31,12 @@ export function buildCanvasContextMenu({
       label: "Center View",
       icon: "🎯",
       onSelect: onCenterView
+    },
+    {
+      id: "show-help",
+      label: "Show Workspace Help",
+      icon: "?",
+      onSelect: onShowHelp
     }
   ];
 }

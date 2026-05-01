@@ -21,6 +21,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [selectedAsset, setSelectedAsset] = useState<WorkspaceAsset | null>(null);
   const [selectedStep, setSelectedStep] = useState<WorkflowDAGNode | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     if (selectedAsset && assets.some((asset) => asset.id === selectedAsset.id)) {
@@ -40,6 +41,20 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     () => (selectedAsset?.kind === "run" ? dagByRunId[selectedAsset.id] ?? null : null),
     [dagByRunId, selectedAsset]
   );
+
+  useEffect(() => {
+    function closePanels(event: KeyboardEvent) {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setMenu(null);
+      setShowHelp(false);
+      setSelectedStep(null);
+    }
+
+    window.addEventListener("keydown", closePanels);
+    return () => window.removeEventListener("keydown", closePanels);
+  }, []);
 
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
@@ -64,12 +79,15 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         dagView={dagView}
         dataStatus={status}
         dataErrorMessage={errorMessage}
+        showHelp={showHelp}
         onSelectStep={setSelectedStep}
         onClearAssetSelection={() => {
           setSelectedAsset(null);
           setSelectedStep(null);
         }}
         onClearSelection={() => setSelectedStep(null)}
+        onShowHelp={() => setShowHelp(true)}
+        onCloseHelp={() => setShowHelp(false)}
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />

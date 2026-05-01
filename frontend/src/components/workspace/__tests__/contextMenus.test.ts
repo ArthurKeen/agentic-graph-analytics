@@ -14,13 +14,15 @@ describe("workspace context menu builders", () => {
     const items = buildCanvasContextMenu({
       onFitAll: noop,
       onCenterView: noop,
-      onViewAsOperational: noop
+      onViewAsOperational: noop,
+      onShowHelp: noop
     });
 
     expect(items.map((item) => item.id)).toEqual([
       "view-operational",
       "fit-all",
-      "center-view"
+      "center-view",
+      "show-help"
     ]);
   });
 

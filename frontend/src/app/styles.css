@@ -91,6 +91,12 @@ button {
   gap: 16px;
 }
 
+.workspace-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .workspace-header h2 {
   margin: 0 0 4px;
 }
@@ -98,6 +104,22 @@ button {
 .lens-indicator {
   color: var(--aga-muted);
   font-size: 14px;
+}
+
+.help-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--aga-border);
+  border-radius: 999px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  cursor: pointer;
+}
+
+.help-button:hover,
+.help-button:focus-visible {
+  border-color: var(--aga-accent);
+  outline: none;
 }
 
 .pipeline-dag {
@@ -211,6 +233,20 @@ button {
 .detail-list dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.help-content {
+  display: grid;
+  gap: 14px;
+}
+
+.help-content p {
+  margin: 0;
+  color: var(--aga-muted);
+}
+
+.help-content code {
+  color: var(--aga-text);
 }
 
 .context-menu {

@@ -4,6 +4,7 @@ import { CanvasLensLegend } from "./CanvasLensLegend";
 import { EmptyCanvasState } from "./EmptyCanvasState";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
+import { WorkspaceHelpOverlay } from "./WorkspaceHelpOverlay";
 import { buildCanvasContextMenu } from "./contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -15,9 +16,12 @@ interface WorkspaceCanvasProps {
   dagView: WorkflowDAGView | null;
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
+  showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
+  onShowHelp: () => void;
+  onCloseHelp: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
 }
 
@@ -27,11 +31,22 @@ export function WorkspaceCanvas({
   dagView,
   dataStatus,
   dataErrorMessage,
+  showHelp,
   onSelectStep,
   onClearAssetSelection,
   onClearSelection,
+  onShowHelp,
+  onCloseHelp,
   onOpenMenu
 }: WorkspaceCanvasProps) {
+  const canvasMenuItems = () =>
+    buildCanvasContextMenu({
+      onFitAll: () => undefined,
+      onCenterView: () => undefined,
+      onViewAsOperational: () => undefined,
+      onShowHelp
+    });
+
   if (!selectedAsset) {
     return (
       <main
@@ -41,15 +56,12 @@ export function WorkspaceCanvas({
           onOpenMenu({
             x: event.clientX,
             y: event.clientY,
-            items: buildCanvasContextMenu({
-              onFitAll: () => undefined,
-              onCenterView: () => undefined,
-              onViewAsOperational: () => undefined
-            })
+            items: canvasMenuItems()
           });
         }}
       >
         <EmptyCanvasState />
+        {showHelp ? <WorkspaceHelpOverlay onClose={onCloseHelp} /> : null}
       </main>
     );
   }
@@ -62,11 +74,7 @@ export function WorkspaceCanvas({
         onOpenMenu({
           x: event.clientX,
           y: event.clientY,
-          items: buildCanvasContextMenu({
-            onFitAll: () => undefined,
-            onCenterView: () => undefined,
-            onViewAsOperational: () => undefined
-          })
+          items: canvasMenuItems()
         });
       }}
     >
@@ -75,7 +83,20 @@ export function WorkspaceCanvas({
           <h2>{selectedAsset.label}</h2>
           <div className="lens-indicator">(Operational DAG view)</div>
         </div>
-        <p className="muted">Right-click steps or canvas for actions.</p>
+        <div className="workspace-header-actions">
+          <p className="muted">Right-click steps or canvas for actions.</p>
+          <button
+            className="help-button"
+            type="button"
+            aria-label="Show workspace help"
+            onClick={(event) => {
+              event.stopPropagation();
+              onShowHelp();
+            }}
+          >
+            ?
+          </button>
+        </div>
       </header>
       <p className="muted">
         Data source: {dataStatus}
@@ -136,6 +157,8 @@ export function WorkspaceCanvas({
           <p>Errors: {selectedStep.errorCount}</p>
         </FloatingDetailPanel>
       ) : null}
+
+      {showHelp ? <WorkspaceHelpOverlay onClose={onCloseHelp} /> : null}
     </main>
   );
 }
