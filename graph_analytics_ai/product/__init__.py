@@ -47,6 +47,7 @@ from .service import (
     ReportBundle,
     WorkflowDAGView,
     WorkspaceBundle,
+    WorkspaceImportResult,
     WorkspaceOverview,
 )
 from .storage import ProductArangoStorage
@@ -77,6 +78,7 @@ __all__ = [
     "SourceDocument",
     "Workspace",
     "WorkspaceBundle",
+    "WorkspaceImportResult",
     "WorkspaceOverview",
     "WorkspaceStatus",
     "WorkflowDAGEdge",

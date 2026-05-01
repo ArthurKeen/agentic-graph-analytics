@@ -10,14 +10,22 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
 from .constants import PRODUCT_SCHEMA_VERSION
+from .exceptions import ValidationError
 from .models import (
-    ConnectionProfile,
+    AuditEvent,
     ChartSpec,
+    ConnectionProfile,
+    GraphProfile,
     PublishedSnapshot,
     ReportManifest,
     ReportSection,
     ReportStatus,
+    RequirementInterview,
+    RequirementVersion,
+    SourceDocument,
+    Workspace,
     WorkflowDAGEdge,
+    WorkflowRun,
     WorkflowStep,
     create_audit_event,
     create_published_snapshot,
@@ -124,6 +132,22 @@ class WorkspaceBundle:
             "workflow_runs": self.workflow_runs,
             "reports": self.reports,
             "audit_events": self.audit_events,
+        }
+
+
+@dataclass
+class WorkspaceImportResult:
+    """Result summary for a workspace bundle import."""
+
+    workspace_id: str
+    counts: Dict[str, int]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert import result to an API-friendly dictionary."""
+
+        return {
+            "workspace_id": self.workspace_id,
+            "counts": self.counts,
         }
 
 
@@ -251,6 +275,101 @@ class ProductService:
             audit_events=audit_events,
         )
 
+    def import_workspace_bundle(
+        self,
+        bundle: WorkspaceBundle | Dict[str, Any],
+        include_audit_events: bool = False,
+    ) -> WorkspaceImportResult:
+        """Import a workspace bundle after validating shape and secret handling."""
+
+        bundle_doc = bundle.to_dict() if isinstance(bundle, WorkspaceBundle) else bundle
+        self._validate_workspace_bundle(bundle_doc)
+
+        workspace = Workspace.from_dict(bundle_doc["workspace"])
+        self.repository.create_workspace(workspace)
+
+        connection_profiles = [
+            ConnectionProfile.from_dict(profile)
+            for profile in bundle_doc.get("connection_profiles", [])
+        ]
+        graph_profiles = [
+            GraphProfile.from_dict(profile)
+            for profile in bundle_doc.get("graph_profiles", [])
+        ]
+        source_documents = [
+            SourceDocument.from_dict(document)
+            for document in bundle_doc.get("source_documents", [])
+        ]
+        requirement_interviews = [
+            RequirementInterview.from_dict(interview)
+            for interview in bundle_doc.get("requirement_interviews", [])
+        ]
+        requirement_versions = [
+            RequirementVersion.from_dict(version)
+            for version in bundle_doc.get("requirement_versions", [])
+        ]
+        workflow_runs = [
+            WorkflowRun.from_dict(run)
+            for run in bundle_doc.get("workflow_runs", [])
+        ]
+
+        for profile in connection_profiles:
+            self.repository.create_connection_profile(profile)
+        for profile in graph_profiles:
+            self.repository.create_graph_profile(profile)
+        for document in source_documents:
+            self.repository.create_source_document(document)
+        for interview in requirement_interviews:
+            self.repository.create_requirement_interview(interview)
+        for version in requirement_versions:
+            self.repository.create_requirement_version(version)
+        for run in workflow_runs:
+            self.repository.create_workflow_run(run)
+
+        report_count = 0
+        section_count = 0
+        chart_count = 0
+        snapshot_count = 0
+        for report_doc in bundle_doc.get("reports", []):
+            manifest = ReportManifest.from_dict(report_doc["manifest"])
+            self.repository.create_report_manifest(manifest)
+            report_count += 1
+
+            for section_doc in report_doc.get("sections", []):
+                self.repository.create_report_section(ReportSection.from_dict(section_doc))
+                section_count += 1
+            for chart_doc in report_doc.get("charts", []):
+                self.repository.create_chart_spec(ChartSpec.from_dict(chart_doc))
+                chart_count += 1
+            for snapshot_doc in report_doc.get("snapshots", []):
+                self.repository.create_published_snapshot(
+                    PublishedSnapshot.from_dict(snapshot_doc)
+                )
+                snapshot_count += 1
+
+        audit_count = 0
+        if include_audit_events:
+            for event_doc in bundle_doc.get("audit_events", []):
+                self.repository.create_audit_event(AuditEvent.from_dict(event_doc))
+                audit_count += 1
+
+        return WorkspaceImportResult(
+            workspace_id=workspace.workspace_id,
+            counts={
+                "connection_profiles": len(connection_profiles),
+                "graph_profiles": len(graph_profiles),
+                "source_documents": len(source_documents),
+                "requirement_interviews": len(requirement_interviews),
+                "requirement_versions": len(requirement_versions),
+                "workflow_runs": len(workflow_runs),
+                "reports": report_count,
+                "report_sections": section_count,
+                "chart_specs": chart_count,
+                "published_snapshots": snapshot_count,
+                "audit_events": audit_count,
+            },
+        )
+
     def publish_report(self, report_id: str, actor: str) -> ReportBundle:
         """Publish a report and record an immutable snapshot plus audit event."""
 
@@ -325,6 +444,80 @@ class ProductService:
         doc.pop("secret_refs", None)
         doc["secret_ref_keys"] = secret_ref_keys
         return doc
+
+    def _validate_workspace_bundle(self, bundle_doc: Dict[str, Any]) -> None:
+        required_keys = {
+            "schema_version",
+            "workspace",
+            "connection_profiles",
+            "graph_profiles",
+            "source_documents",
+            "requirement_interviews",
+            "requirement_versions",
+            "workflow_runs",
+            "reports",
+        }
+        missing = sorted(required_keys - set(bundle_doc.keys()))
+        if missing:
+            raise ValidationError(
+                f"Workspace bundle is missing required keys: {', '.join(missing)}"
+            )
+
+        if bundle_doc["schema_version"] != PRODUCT_SCHEMA_VERSION:
+            raise ValidationError(
+                "Unsupported workspace bundle schema version: "
+                f"{bundle_doc['schema_version']}"
+            )
+
+        workspace_id = bundle_doc["workspace"].get("workspace_id") or bundle_doc[
+            "workspace"
+        ].get("_key")
+        if not workspace_id:
+            raise ValidationError("Workspace bundle is missing workspace_id")
+
+        for profile in bundle_doc.get("connection_profiles", []):
+            if "secret_refs" in profile:
+                raise ValidationError(
+                    "Workspace bundle imports must not include connection secret_refs"
+                )
+
+        for collection_name in [
+            "connection_profiles",
+            "graph_profiles",
+            "source_documents",
+            "requirement_interviews",
+            "requirement_versions",
+            "workflow_runs",
+        ]:
+            for item in bundle_doc.get(collection_name, []):
+                self._validate_workspace_id(collection_name, item, workspace_id)
+
+        for report in bundle_doc.get("reports", []):
+            if "manifest" not in report:
+                raise ValidationError("Workspace bundle report is missing manifest")
+            self._validate_workspace_id("reports.manifest", report["manifest"], workspace_id)
+            for section in report.get("sections", []):
+                self._validate_workspace_id("reports.sections", section, workspace_id)
+            for chart in report.get("charts", []):
+                self._validate_workspace_id("reports.charts", chart, workspace_id)
+            for snapshot in report.get("snapshots", []):
+                self._validate_workspace_id("reports.snapshots", snapshot, workspace_id)
+
+        for event in bundle_doc.get("audit_events", []):
+            self._validate_workspace_id("audit_events", event, workspace_id)
+
+    def _validate_workspace_id(
+        self,
+        collection_name: str,
+        item: Dict[str, Any],
+        workspace_id: str,
+    ) -> None:
+        item_workspace_id = item.get("workspace_id")
+        if item_workspace_id != workspace_id:
+            raise ValidationError(
+                f"Workspace bundle item in {collection_name} has mismatched "
+                f"workspace_id: {item_workspace_id}"
+            )
 
     def _content_hash(self, payload: Dict[str, Any]) -> str:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
