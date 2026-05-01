@@ -11,6 +11,7 @@ import type {
   RawConnectionVerificationResult,
   RawGraphDiscoveryResult,
   RawGraphProfileSummary,
+  RawRequirementInterview,
   RawReportBundle,
   RawSourceDocumentSummary,
   RawWorkflowDAGView,
@@ -18,7 +19,9 @@ import type {
   RawWorkspaceOverview,
   ReportBundle,
   ReportSection,
+  RequirementInterview,
   SourceDocumentSummary,
+  StartRequirementsCopilotInput,
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -78,6 +81,17 @@ export function createProductAPIClient(
         await postJSON<RawGraphDiscoveryResult>(
           `${normalizedBaseUrl}/api/connection-profiles/${connectionProfileId}/discover-graph`,
           discoverGraphProfilePayload(input)
+        )
+      );
+    },
+    async startRequirementsCopilot(
+      graphProfileId: string,
+      input: StartRequirementsCopilotInput
+    ): Promise<RequirementInterview> {
+      return mapRequirementInterview(
+        await postJSON<RawRequirementInterview>(
+          `${normalizedBaseUrl}/api/graph-profiles/${graphProfileId}/requirements-copilot/sessions`,
+          startRequirementsCopilotPayload(input)
         )
       );
     },
@@ -153,6 +167,23 @@ export function mapGraphDiscoveryResult(raw: RawGraphDiscoveryResult): GraphDisc
   return {
     graphProfile: mapGraphProfileSummary(raw.graph_profile),
     schemaSummary: raw.schema_summary
+  };
+}
+
+export function mapRequirementInterview(raw: RawRequirementInterview): RequirementInterview {
+  return {
+    requirementInterviewId: raw.requirement_interview_id,
+    workspaceId: raw.workspace_id,
+    graphProfileId: raw.graph_profile_id,
+    status: raw.status,
+    domain: raw.domain,
+    questions: raw.questions ?? [],
+    answers: raw.answers ?? [],
+    schemaObservations: raw.schema_observations ?? {},
+    inferences: raw.inferences ?? [],
+    assumptions: raw.assumptions ?? [],
+    draftBrd: raw.draft_brd,
+    provenanceLabels: raw.provenance_labels ?? []
   };
 }
 
@@ -333,6 +364,17 @@ function discoverGraphProfilePayload(input: DiscoverGraphProfileInput): Record<s
     sample_size: input.sampleSize,
     max_samples_per_collection: input.maxSamplesPerCollection,
     verify_system: input.verifySystem
+  };
+}
+
+function startRequirementsCopilotPayload(
+  input: StartRequirementsCopilotInput
+): Record<string, unknown> {
+  const domain = input.domain?.trim() ?? "";
+  const createdBy = input.createdBy?.trim() ?? "";
+  return {
+    ...(domain ? { domain } : {}),
+    ...(createdBy ? { created_by: createdBy } : {})
   };
 }
 

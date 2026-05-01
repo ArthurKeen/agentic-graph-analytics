@@ -17,6 +17,7 @@ import type {
   ConnectionVerificationResult,
   ReportBundle,
   GraphProfileSummary,
+  RequirementInterview,
   SourceDocumentSummary,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -36,7 +37,9 @@ interface WorkspaceCanvasProps {
   dataErrorMessage?: string;
   isVerifyingConnection: boolean;
   isDiscoveringGraph: boolean;
+  isStartingRequirementsCopilot: boolean;
   connectionVerificationErrorMessage: string | null;
+  activeRequirementInterview: RequirementInterview | null;
   showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
@@ -44,6 +47,8 @@ interface WorkspaceCanvasProps {
   onRequestCreateConnectionProfile: () => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onRequestDiscoverGraph: (connectionProfileId: string) => void;
+  onRequestStartRequirementsCopilot: (graphProfileId: string) => void;
+  onCloseRequirementsCopilot: () => void;
   onShowHelp: () => void;
   onCloseHelp: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
@@ -62,7 +67,9 @@ export function WorkspaceCanvas({
   dataErrorMessage,
   isVerifyingConnection,
   isDiscoveringGraph,
+  isStartingRequirementsCopilot,
   connectionVerificationErrorMessage,
+  activeRequirementInterview,
   showHelp,
   onSelectStep,
   onClearAssetSelection,
@@ -70,6 +77,8 @@ export function WorkspaceCanvas({
   onRequestCreateConnectionProfile,
   onVerifyConnectionProfile,
   onRequestDiscoverGraph,
+  onRequestStartRequirementsCopilot,
+  onCloseRequirementsCopilot,
   onShowHelp,
   onCloseHelp,
   onOpenMenu
@@ -162,7 +171,11 @@ export function WorkspaceCanvas({
       ) : sourceDocument && selectedAsset.kind === "document" ? (
         <SourceDocumentCanvas document={sourceDocument} />
       ) : graphProfile && selectedAsset.kind === "graph-profile" ? (
-        <GraphProfileCanvas graphProfile={graphProfile} />
+        <GraphProfileCanvas
+          graphProfile={graphProfile}
+          isStartingRequirementsCopilot={isStartingRequirementsCopilot}
+          onStartRequirementsCopilot={onRequestStartRequirementsCopilot}
+        />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section className="pipeline-dag" aria-label="Workflow DAG">
           {dagView.nodes.map((node, index) => (
@@ -217,6 +230,25 @@ export function WorkspaceCanvas({
           <p>Artifacts: {selectedStep.artifactCount}</p>
           <p>Warnings: {selectedStep.warningCount}</p>
           <p>Errors: {selectedStep.errorCount}</p>
+        </FloatingDetailPanel>
+      ) : null}
+
+      {activeRequirementInterview ? (
+        <FloatingDetailPanel
+          title="Requirements Copilot"
+          stackIndex={selectedStep ? 1 : 0}
+          onClose={onCloseRequirementsCopilot}
+        >
+          <p>Status: {activeRequirementInterview.status}</p>
+          <p>Domain: {activeRequirementInterview.domain ?? "Not specified"}</p>
+          <h4>Starter Questions</h4>
+          <ol className="copilot-question-list">
+            {activeRequirementInterview.questions.map((question, index) => (
+              <li key={String(question.id ?? index)}>
+                {String(question.text ?? "Question")}
+              </li>
+            ))}
+          </ol>
         </FloatingDetailPanel>
       ) : null}
 

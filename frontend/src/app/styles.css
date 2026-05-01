@@ -371,6 +371,12 @@ button {
   text-transform: uppercase;
 }
 
+.graph-profile-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .graph-profile-grid {
   display: grid;
   gap: 12px;
@@ -501,6 +507,13 @@ button {
 
 .floating-panel section {
   padding: 14px;
+}
+
+.copilot-question-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .detail-list {

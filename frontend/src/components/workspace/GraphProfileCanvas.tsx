@@ -4,9 +4,15 @@ import type { GraphProfileSummary } from "@/lib/product-api/types";
 
 interface GraphProfileCanvasProps {
   graphProfile: GraphProfileSummary;
+  isStartingRequirementsCopilot: boolean;
+  onStartRequirementsCopilot: (graphProfileId: string) => void;
 }
 
-export function GraphProfileCanvas({ graphProfile }: GraphProfileCanvasProps) {
+export function GraphProfileCanvas({
+  graphProfile,
+  isStartingRequirementsCopilot,
+  onStartRequirementsCopilot
+}: GraphProfileCanvasProps) {
   return (
     <section className="graph-profile-canvas" aria-label="Graph profile">
       <header>
@@ -14,7 +20,17 @@ export function GraphProfileCanvas({ graphProfile }: GraphProfileCanvasProps) {
           <p className="muted">Version {graphProfile.version}</p>
           <h3>{graphProfile.graphName}</h3>
         </div>
-        <span>{graphProfile.status}</span>
+        <div className="graph-profile-header-actions">
+          <span>{graphProfile.status}</span>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={isStartingRequirementsCopilot}
+            onClick={() => onStartRequirementsCopilot(graphProfile.graphProfileId)}
+          >
+            {isStartingRequirementsCopilot ? "Starting..." : "Start Requirements Copilot"}
+          </button>
+        </div>
       </header>
 
       <div className="graph-profile-grid">

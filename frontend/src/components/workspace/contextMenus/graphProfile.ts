@@ -2,12 +2,14 @@ import type { ContextMenuItem } from "./types";
 
 interface BuildGraphProfileContextMenuArgs {
   onOpenInCanvas: () => void;
+  onStartRequirementsCopilot: () => void;
   onViewInfo: () => void;
   onCopyId: () => void;
 }
 
 export function buildGraphProfileContextMenu({
   onOpenInCanvas,
+  onStartRequirementsCopilot,
   onViewInfo,
   onCopyId
 }: BuildGraphProfileContextMenuArgs): ContextMenuItem[] {
@@ -17,6 +19,12 @@ export function buildGraphProfileContextMenu({
       label: "Open in Canvas",
       icon: "G",
       onSelect: onOpenInCanvas
+    },
+    {
+      id: "start-requirements-copilot",
+      label: "Start Requirements Copilot",
+      icon: "R",
+      onSelect: onStartRequirementsCopilot
     },
     {
       id: "view-info",

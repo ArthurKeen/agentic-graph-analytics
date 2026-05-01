@@ -94,6 +94,26 @@ export interface GraphDiscoveryResult {
   schemaSummary: Record<string, unknown>;
 }
 
+export interface StartRequirementsCopilotInput {
+  domain?: string;
+  createdBy?: string;
+}
+
+export interface RequirementInterview {
+  requirementInterviewId: string;
+  workspaceId: string;
+  graphProfileId: string;
+  status: string;
+  domain?: string | null;
+  questions: Array<Record<string, unknown>>;
+  answers: Array<Record<string, unknown>>;
+  schemaObservations: Record<string, unknown>;
+  inferences: Array<Record<string, unknown>>;
+  assumptions: Array<Record<string, unknown>>;
+  draftBrd?: string | null;
+  provenanceLabels: Array<Record<string, unknown>>;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -207,6 +227,10 @@ export interface ProductAPIClient {
     connectionProfileId: string,
     input: DiscoverGraphProfileInput
   ): Promise<GraphDiscoveryResult>;
+  startRequirementsCopilot(
+    graphProfileId: string,
+    input: StartRequirementsCopilotInput
+  ): Promise<RequirementInterview>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
@@ -251,6 +275,21 @@ export interface RawConnectionVerificationResult {
 export interface RawGraphDiscoveryResult {
   graph_profile: RawGraphProfileSummary;
   schema_summary: Record<string, unknown>;
+}
+
+export interface RawRequirementInterview {
+  requirement_interview_id: string;
+  workspace_id: string;
+  graph_profile_id: string;
+  status: string;
+  domain?: string | null;
+  questions?: Array<Record<string, unknown>>;
+  answers?: Array<Record<string, unknown>>;
+  schema_observations?: Record<string, unknown>;
+  inferences?: Array<Record<string, unknown>>;
+  assumptions?: Array<Record<string, unknown>>;
+  draft_brd?: string | null;
+  provenance_labels?: Array<Record<string, unknown>>;
 }
 
 export interface RawSourceDocumentSummary {

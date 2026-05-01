@@ -62,12 +62,14 @@ describe("workspace context menu builders", () => {
   it("builds graph profile actions for canvas inspection", () => {
     const items = buildGraphProfileContextMenu({
       onOpenInCanvas: noop,
+      onStartRequirementsCopilot: noop,
       onViewInfo: noop,
       onCopyId: noop
     });
 
     expect(items.map((item) => item.id)).toEqual([
       "open-in-canvas",
+      "start-requirements-copilot",
       "view-info",
       "copy-id"
     ]);

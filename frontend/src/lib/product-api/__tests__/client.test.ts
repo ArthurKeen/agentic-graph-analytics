@@ -395,4 +395,53 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("starts Requirements Copilot sessions from graph profiles", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requirement_interview_id: "interview-1",
+        workspace_id: "workspace-1",
+        graph_profile_id: "graph-profile-1",
+        status: "draft",
+        domain: "Clinical trials",
+        questions: [
+          {
+            id: "business_goal",
+            text: "What business decision should CustomerGraph support?"
+          }
+        ],
+        schema_observations: {
+          graph_name: "CustomerGraph"
+        }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const interview = await createProductAPIClient(
+      "http://api.example"
+    ).startRequirementsCopilot("graph-profile-1", {
+      domain: "Clinical trials",
+      createdBy: "analyst@example.com"
+    });
+
+    expect(interview).toMatchObject({
+      requirementInterviewId: "interview-1",
+      graphProfileId: "graph-profile-1",
+      domain: "Clinical trials"
+    });
+    expect(interview.questions[0]).toMatchObject({ id: "business_goal" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/graph-profiles/graph-profile-1/requirements-copilot/sessions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          domain: "Clinical trials",
+          created_by: "analyst@example.com"
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

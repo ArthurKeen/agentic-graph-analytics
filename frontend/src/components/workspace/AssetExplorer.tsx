@@ -18,6 +18,7 @@ interface AssetExplorerProps {
   onRequestDiscoverGraph: (asset: WorkspaceAsset) => void;
   onOpenDocument: (documentId: string) => void;
   onOpenGraphProfile: (graphProfileId: string) => void;
+  onRequestStartRequirementsCopilot: (asset: WorkspaceAsset) => void;
   onOpenRun: (runId: string) => void;
   onOpenReport: (reportId: string) => void;
   onRequestPublishReport: (asset: WorkspaceAsset) => void;
@@ -34,6 +35,7 @@ export function AssetExplorer({
   onRequestDiscoverGraph,
   onOpenDocument,
   onOpenGraphProfile,
+  onRequestStartRequirementsCopilot,
   onOpenRun,
   onOpenReport,
   onRequestPublishReport,
@@ -94,6 +96,8 @@ export function AssetExplorer({
                       y: event.clientY,
                       items: buildGraphProfileContextMenu({
                         onOpenInCanvas: () => onOpenGraphProfile(asset.id),
+                        onStartRequirementsCopilot: () =>
+                          onRequestStartRequirementsCopilot(asset),
                         onViewInfo: () => onSelectAsset(asset),
                         onCopyId: baseArgs.onCopyId
                       })

@@ -7,11 +7,13 @@ import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
+import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
 import type {
   ConnectionVerificationResult,
+  RequirementInterview,
   WorkflowDAGNode,
   WorkspaceAsset
 } from "@/lib/product-api/types";
@@ -34,6 +36,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     errorMessage,
     createConnectionProfile,
     discoverGraphProfile,
+    startRequirementsCopilot,
     verifyConnectionProfile,
     publishReport
   } = useWorkspaceData({
@@ -47,6 +50,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
+  const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
     null
@@ -65,6 +69,12 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [discoveringGraphConnectionProfileId, setDiscoveringGraphConnectionProfileId] = useState<
     string | null
   >(null);
+  const [startingCopilotGraphProfileId, setStartingCopilotGraphProfileId] = useState<string | null>(
+    null
+  );
+  const [startCopilotErrorMessage, setStartCopilotErrorMessage] = useState<string | null>(null);
+  const [activeRequirementInterview, setActiveRequirementInterview] =
+    useState<RequirementInterview | null>(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
@@ -136,10 +146,12 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setPendingDeleteRun(null);
       setPendingPublishReport(null);
       setPendingDiscoverGraph(null);
+      setPendingStartCopilot(null);
       setShowCreateConnectionProfile(false);
       setCreateConnectionErrorMessage(null);
       setConnectionVerificationErrorMessage(null);
       setDiscoverGraphErrorMessage(null);
+      setStartCopilotErrorMessage(null);
       setPublishErrorMessage(null);
     }
 
@@ -207,6 +219,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             setSelectedStep(null);
           }
         }}
+        onRequestStartRequirementsCopilot={(asset) => {
+          setStartCopilotErrorMessage(null);
+          setPendingStartCopilot(asset);
+        }}
         onOpenRun={(runId) => {
           const run = visibleAssets.find((asset) => asset.id === runId);
           if (run) {
@@ -248,7 +264,12 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           selectedAsset?.kind === "connection-profile" &&
           discoveringGraphConnectionProfileId === selectedAsset.id
         }
+        isStartingRequirementsCopilot={
+          selectedAsset?.kind === "graph-profile" &&
+          startingCopilotGraphProfileId === selectedAsset.id
+        }
         connectionVerificationErrorMessage={connectionVerificationErrorMessage}
+        activeRequirementInterview={activeRequirementInterview}
         showHelp={showHelp}
         onSelectStep={setSelectedStep}
         onClearAssetSelection={() => {
@@ -268,6 +289,14 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             setPendingDiscoverGraph(connectionAsset);
           }
         }}
+        onRequestStartRequirementsCopilot={(graphProfileId) => {
+          const graphProfileAsset = visibleAssets.find((asset) => asset.id === graphProfileId);
+          if (graphProfileAsset) {
+            setStartCopilotErrorMessage(null);
+            setPendingStartCopilot(graphProfileAsset);
+          }
+        }}
+        onCloseRequirementsCopilot={() => setActiveRequirementInterview(null)}
         onShowHelp={() => setShowHelp(true)}
         onCloseHelp={() => setShowHelp(false)}
         onOpenMenu={setMenu}
@@ -326,6 +355,33 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
               );
             } finally {
               setDiscoveringGraphConnectionProfileId(null);
+            }
+          }}
+        />
+      ) : null}
+      {pendingStartCopilot ? (
+        <StartRequirementsCopilotOverlay
+          graphProfile={pendingStartCopilot}
+          isStarting={startingCopilotGraphProfileId === pendingStartCopilot.id}
+          errorMessage={startCopilotErrorMessage}
+          onCancel={() => setPendingStartCopilot(null)}
+          onSubmit={async (input) => {
+            setStartCopilotErrorMessage(null);
+            setStartingCopilotGraphProfileId(pendingStartCopilot.id);
+            try {
+              const interview = await startRequirementsCopilot(pendingStartCopilot.id, input);
+              setActiveRequirementInterview(interview);
+              setSelectedAsset(pendingStartCopilot);
+              setSelectedStep(null);
+              setPendingStartCopilot(null);
+            } catch (error) {
+              setStartCopilotErrorMessage(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to start Requirements Copilot"
+              );
+            } finally {
+              setStartingCopilotGraphProfileId(null);
             }
           }}
         />

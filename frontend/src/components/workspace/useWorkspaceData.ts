@@ -18,8 +18,10 @@ import type {
   GraphDiscoveryResult,
   GraphProfileSummary,
   ProductAPIClient,
+  RequirementInterview,
   ReportBundle,
   SourceDocumentSummary,
+  StartRequirementsCopilotInput,
   WorkflowDAGView,
   WorkspaceAsset,
   WorkspaceHealth,
@@ -55,6 +57,10 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     connectionProfileId: string,
     input: DiscoverGraphProfileInput
   ) => Promise<GraphDiscoveryResult>;
+  startRequirementsCopilot: (
+    graphProfileId: string,
+    input: StartRequirementsCopilotInput
+  ) => Promise<RequirementInterview>;
 }
 
 export function useWorkspaceData({
@@ -292,12 +298,22 @@ export function useWorkspaceData({
     return discovery;
   };
 
+  const startRequirementsCopilot = async (
+    graphProfileId: string,
+    input: StartRequirementsCopilotInput
+  ): Promise<RequirementInterview> => {
+    return initialWorkspaceId
+      ? apiClient.startRequirementsCopilot(graphProfileId, input)
+      : statefulDemoStartRequirementsCopilot(graphProfileId, input);
+  };
+
   return {
     ...state,
     publishReport,
     createConnectionProfile,
     verifyConnectionProfile,
-    discoverGraphProfile
+    discoverGraphProfile,
+    startRequirementsCopilot
   };
 }
 
@@ -365,5 +381,54 @@ function statefulDemoDiscoverGraphProfile(
       graph_names: [graphProfile.graphName],
       sample_size: input.sampleSize
     }
+  };
+}
+
+function statefulDemoStartRequirementsCopilot(
+  graphProfileId: string,
+  input: StartRequirementsCopilotInput
+): RequirementInterview {
+  const graphProfile = demoGraphProfile.graphProfileId === graphProfileId
+    ? demoGraphProfile
+    : { ...demoGraphProfile, graphProfileId };
+  return {
+    requirementInterviewId: `requirement-interview-${Date.now()}`,
+    workspaceId: graphProfile.workspaceId,
+    graphProfileId,
+    status: "draft",
+    domain: input.domain?.trim() || null,
+    questions: [
+      {
+        id: "business_goal",
+        text: `What business decision should ${graphProfile.graphName} support?`,
+        provenance: "user_provided"
+      },
+      {
+        id: "analytics_questions",
+        text: "What graph analytics questions should the system answer?",
+        provenance: "user_provided"
+      },
+      {
+        id: "audience",
+        text: "Who will consume the report and what level of detail do they need?",
+        provenance: "user_provided"
+      },
+      {
+        id: "constraints",
+        text: "What runtime, cost, freshness, sensitivity, or evidence constraints apply?",
+        provenance: "user_provided"
+      }
+    ],
+    answers: [],
+    schemaObservations: {
+      graph_name: graphProfile.graphName,
+      vertex_collections: graphProfile.vertexCollections,
+      edge_collections: graphProfile.edgeCollections,
+      counts: graphProfile.counts
+    },
+    inferences: [],
+    assumptions: [],
+    draftBrd: null,
+    provenanceLabels: []
   };
 }
