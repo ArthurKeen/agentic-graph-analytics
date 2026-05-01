@@ -242,6 +242,26 @@ class WorkflowStepUpdateResult:
         }
 
 
+@dataclass
+class WorkspaceHealthResult:
+    """Workspace product metadata health summary."""
+
+    workspace_id: str
+    status: str
+    counts: Dict[str, int]
+    issues: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert health result to an API-friendly dictionary."""
+
+        return {
+            "workspace_id": self.workspace_id,
+            "status": self.status,
+            "counts": self.counts,
+            "issues": self.issues,
+        }
+
+
 class ProductService:
     """Use-case oriented product operations for the future UI API."""
 
@@ -295,6 +315,43 @@ class ProductService:
             ],
             latest_reports=[report.to_dict() for report in reports[:recent_limit]],
             latest_audit_events=[event.to_dict() for event in audit_events],
+        )
+
+    def check_workspace_health(self, workspace_id: str) -> WorkspaceHealthResult:
+        """Check workspace metadata readiness for admin and setup views."""
+
+        self.repository.get_workspace(workspace_id)
+        connection_profiles = self.repository.list_connection_profiles(workspace_id)
+        graph_profiles = self.repository.list_graph_profiles(workspace_id)
+        source_documents = self.repository.list_source_documents(workspace_id)
+        requirement_interviews = self.repository.list_requirement_interviews(workspace_id)
+        requirement_versions = self.repository.list_requirement_versions(workspace_id)
+        workflow_runs = self.repository.list_workflow_runs(workspace_id)
+        reports = self.repository.list_report_manifests(workspace_id)
+
+        counts = {
+            "connection_profiles": len(connection_profiles),
+            "graph_profiles": len(graph_profiles),
+            "source_documents": len(source_documents),
+            "requirement_interviews": len(requirement_interviews),
+            "requirement_versions": len(requirement_versions),
+            "workflow_runs": len(workflow_runs),
+            "reports": len(reports),
+        }
+        issues = self._workspace_health_issues(
+            connection_profiles=connection_profiles,
+            graph_profiles=graph_profiles,
+            requirement_versions=requirement_versions,
+            workflow_runs=workflow_runs,
+            reports=reports,
+        )
+        status = "healthy" if not issues else "needs_attention"
+
+        return WorkspaceHealthResult(
+            workspace_id=workspace_id,
+            status=status,
+            counts=counts,
+            issues=issues,
         )
 
     def get_workflow_dag_view(self, run_id: str) -> WorkflowDAGView:
@@ -1037,6 +1094,86 @@ class ProductService:
                 }
             )
         return definitions
+
+    def _workspace_health_issues(
+        self,
+        connection_profiles: List[ConnectionProfile],
+        graph_profiles: List[GraphProfile],
+        requirement_versions: List[RequirementVersion],
+        workflow_runs: List[WorkflowRun],
+        reports: List[ReportManifest],
+    ) -> List[Dict[str, Any]]:
+        issues: List[Dict[str, Any]] = []
+        if not connection_profiles:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "missing_connection_profile",
+                    "message": "Workspace has no connection profiles.",
+                }
+            )
+        if not graph_profiles:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "missing_graph_profile",
+                    "message": "Workspace has no discovered graph profiles.",
+                }
+            )
+        if not requirement_versions:
+            issues.append(
+                {
+                    "severity": "info",
+                    "code": "missing_requirement_version",
+                    "message": "Workspace has no approved or draft requirement versions.",
+                }
+            )
+
+        failed_connections = [
+            profile.connection_profile_id
+            for profile in connection_profiles
+            if profile.last_verification_status == ConnectionVerificationStatus.FAILED
+        ]
+        if failed_connections:
+            issues.append(
+                {
+                    "severity": "error",
+                    "code": "failed_connection_verification",
+                    "message": "One or more connection profiles failed verification.",
+                    "entity_ids": failed_connections,
+                }
+            )
+
+        failed_runs = [
+            run.run_id
+            for run in workflow_runs
+            if run.status == WorkflowRunStatus.FAILED
+        ]
+        if failed_runs:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "code": "failed_workflow_runs",
+                    "message": "One or more workflow runs failed.",
+                    "entity_ids": failed_runs,
+                }
+            )
+
+        draft_reports = [
+            report.report_id
+            for report in reports
+            if report.status == ReportStatus.DRAFT
+        ]
+        if draft_reports:
+            issues.append(
+                {
+                    "severity": "info",
+                    "code": "draft_reports",
+                    "message": "Workspace has draft reports that are not published.",
+                    "entity_ids": draft_reports,
+                }
+            )
+        return issues
 
     def _schema_observations_from_graph_profile(
         self,

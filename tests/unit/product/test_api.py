@@ -14,6 +14,7 @@ def test_product_api_contract_includes_core_ui_routes():
     route_keys = {(endpoint["method"], endpoint["path"]) for endpoint in endpoints}
 
     assert ("GET", "/api/workspaces/{workspace_id}/overview") in route_keys
+    assert ("GET", "/api/workspaces/{workspace_id}/health") in route_keys
     assert (
         "POST",
         "/api/connection-profiles/{connection_profile_id}/verify",

@@ -45,6 +45,14 @@ PRODUCT_API_ENDPOINTS = [
         response_model="WorkspaceOverview",
     ),
     ProductAPIEndpoint(
+        method="GET",
+        path="/api/workspaces/{workspace_id}/health",
+        service_method="check_workspace_health",
+        summary="Check workspace product metadata health",
+        tags=["workspaces", "administration"],
+        response_model="WorkspaceHealthResult",
+    ),
+    ProductAPIEndpoint(
         method="POST",
         path="/api/connection-profiles/{connection_profile_id}/verify",
         service_method="verify_connection_profile",

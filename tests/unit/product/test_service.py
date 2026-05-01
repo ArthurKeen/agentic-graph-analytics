@@ -279,6 +279,81 @@ def test_workspace_overview_counts_and_recent_items():
     assert overview.latest_audit_events[0]["action"] == "create_report"
 
 
+def test_workspace_health_identifies_missing_and_failed_metadata():
+    """Workspace health reports setup gaps and failed product entities."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    profile = create_connection_profile(
+        workspace_id=workspace.workspace_id,
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        last_verification_status=ConnectionVerificationStatus.FAILED,
+    )
+    repository.connection_profiles.append(profile)
+    failed_run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=WorkflowRunStatus.FAILED,
+    )
+    repository.workflow_runs[failed_run.run_id] = failed_run
+
+    health = ProductService(repository).check_workspace_health(workspace.workspace_id)
+    issue_codes = {issue["code"] for issue in health.issues}
+
+    assert health.status == "needs_attention"
+    assert health.counts["connection_profiles"] == 1
+    assert "missing_graph_profile" in issue_codes
+    assert "missing_requirement_version" in issue_codes
+    assert "failed_connection_verification" in issue_codes
+    assert "failed_workflow_runs" in issue_codes
+
+
+def test_workspace_health_is_healthy_when_core_metadata_exists():
+    """Workspace health is healthy when required product metadata is present."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    profile = create_connection_profile(
+        workspace_id=workspace.workspace_id,
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        last_verification_status=ConnectionVerificationStatus.SUCCESS,
+    )
+    repository.connection_profiles.append(profile)
+    repository.graph_profiles.append(
+        create_graph_profile(
+            workspace_id=workspace.workspace_id,
+            connection_profile_id=profile.connection_profile_id,
+            graph_name="CustomerGraph",
+        )
+    )
+    repository.requirement_versions.append(
+        create_requirement_version(workspace_id=workspace.workspace_id, version=1)
+    )
+
+    health = ProductService(repository).check_workspace_health(workspace.workspace_id)
+
+    assert health.status == "healthy"
+    assert health.issues == []
+
+
 def test_workflow_dag_view_is_visualizer_ready():
     """Workflow DAG view exposes node and edge fields expected by a UI."""
 
