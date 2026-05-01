@@ -1,5 +1,6 @@
 """Product metadata support for the Agentic Graph Analytics UI."""
 
+from .api import PRODUCT_API_ENDPOINTS, ProductAPIEndpoint, list_product_api_endpoints
 from .models import (
     AuditEvent,
     ChartSpec,
@@ -72,6 +73,8 @@ __all__ = [
     "GraphProfileStatus",
     "MappingSecretResolver",
     "ProductArangoStorage",
+    "ProductAPIEndpoint",
+    "PRODUCT_API_ENDPOINTS",
     "ProductRepository",
     "ProductService",
     "PublishedSnapshot",
@@ -111,5 +114,6 @@ __all__ = [
     "create_source_document",
     "create_workflow_run",
     "create_workspace",
+    "list_product_api_endpoints",
 ]
 
