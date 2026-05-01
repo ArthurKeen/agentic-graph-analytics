@@ -47,6 +47,7 @@ setup(
         "console_scripts": [
             "gaai=graph_analytics_ai.ai.cli:main",
             "gaai-mcp=graph_analytics_ai.mcp.server:main",
+            "gaai-product-api=graph_analytics_ai.product.cli:main",
         ],
     },
     classifiers=[
