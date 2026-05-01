@@ -1,6 +1,8 @@
 import type {
   ChartSpec,
+  GraphProfileSummary,
   ProductAPIClient,
+  RawGraphProfileSummary,
   RawReportBundle,
   RawWorkflowDAGView,
   RawWorkspaceHealth,
@@ -94,11 +96,27 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
   return {
     workspace: raw.workspace,
     counts: raw.counts,
-    latestGraphProfiles: raw.latest_graph_profiles ?? [],
+    latestGraphProfiles: (raw.latest_graph_profiles ?? []).map(mapGraphProfileSummary),
     latestSourceDocuments: raw.latest_source_documents ?? [],
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
+  };
+}
+
+export function mapGraphProfileSummary(raw: RawGraphProfileSummary): GraphProfileSummary {
+  return {
+    graphProfileId: raw.graph_profile_id,
+    workspaceId: raw.workspace_id,
+    connectionProfileId: raw.connection_profile_id,
+    graphName: raw.graph_name,
+    status: raw.status,
+    version: raw.version ?? 1,
+    vertexCollections: raw.vertex_collections ?? [],
+    edgeCollections: raw.edge_collections ?? [],
+    edgeDefinitions: raw.edge_definitions ?? [],
+    collectionRoles: raw.collection_roles ?? {},
+    counts: raw.counts ?? {}
   };
 }
 
@@ -150,9 +168,9 @@ export function mapReportBundle(raw: RawReportBundle): ReportBundle {
 
 export function workspaceAssetsFromOverview(overview: WorkspaceOverview): WorkspaceAsset[] {
   const graphProfileAssets = overview.latestGraphProfiles.map((profile) => ({
-    id: profile.graph_profile_id,
+    id: profile.graphProfileId,
     kind: "graph-profile" as const,
-    label: profile.graph_name,
+    label: profile.graphName,
     description: `Graph profile (${profile.status})`
   }));
   const documentAssets = overview.latestSourceDocuments.map((document) => ({

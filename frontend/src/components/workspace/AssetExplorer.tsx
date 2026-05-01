@@ -2,6 +2,7 @@
 
 import type { WorkspaceAsset, WorkspaceHealth } from "@/lib/product-api/types";
 import { buildAssetContextMenu } from "./contextMenus/asset";
+import { buildGraphProfileContextMenu } from "./contextMenus/graphProfile";
 import { buildReportContextMenu } from "./contextMenus/report";
 import { buildRunContextMenu } from "./contextMenus/run";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -10,6 +11,7 @@ interface AssetExplorerProps {
   assets: WorkspaceAsset[];
   health: WorkspaceHealth | null;
   onSelectAsset: (asset: WorkspaceAsset) => void;
+  onOpenGraphProfile: (graphProfileId: string) => void;
   onOpenRun: (runId: string) => void;
   onOpenReport: (reportId: string) => void;
   onRequestPublishReport: (asset: WorkspaceAsset) => void;
@@ -21,6 +23,7 @@ export function AssetExplorer({
   assets,
   health,
   onSelectAsset,
+  onOpenGraphProfile,
   onOpenRun,
   onOpenReport,
   onRequestPublishReport,
@@ -49,6 +52,18 @@ export function AssetExplorer({
                   onCopyId: () => void navigator.clipboard?.writeText(asset.id)
                 };
                 if (asset.kind !== "run") {
+                  if (asset.kind === "graph-profile") {
+                    onOpenMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      items: buildGraphProfileContextMenu({
+                        onOpenInCanvas: () => onOpenGraphProfile(asset.id),
+                        onViewInfo: () => onSelectAsset(asset),
+                        onCopyId: baseArgs.onCopyId
+                      })
+                    });
+                    return;
+                  }
                   if (asset.kind === "report") {
                     onOpenMenu({
                       x: event.clientX,

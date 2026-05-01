@@ -15,6 +15,20 @@ export interface WorkspaceAsset {
   description?: string;
 }
 
+export interface GraphProfileSummary {
+  graphProfileId: string;
+  workspaceId: string;
+  connectionProfileId: string;
+  graphName: string;
+  status: string;
+  version: number;
+  vertexCollections: string[];
+  edgeCollections: string[];
+  edgeDefinitions: Array<Record<string, unknown>>;
+  collectionRoles: Record<string, string[]>;
+  counts: Record<string, number>;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -51,11 +65,7 @@ export interface WorkspaceOverview {
     environment: string;
   };
   counts: Record<string, number>;
-  latestGraphProfiles: Array<{
-    graph_profile_id: string;
-    graph_name: string;
-    status: string;
-  }>;
+  latestGraphProfiles: GraphProfileSummary[];
   latestSourceDocuments: Array<{
     document_id: string;
     filename: string;
@@ -134,11 +144,25 @@ export interface ProductAPIClient {
 export interface RawWorkspaceOverview {
   workspace: WorkspaceOverview["workspace"];
   counts: Record<string, number>;
-  latest_graph_profiles?: WorkspaceOverview["latestGraphProfiles"];
+  latest_graph_profiles?: RawGraphProfileSummary[];
   latest_source_documents?: WorkspaceOverview["latestSourceDocuments"];
   latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
   latest_reports: WorkspaceOverview["latestReports"];
   latest_audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawGraphProfileSummary {
+  graph_profile_id: string;
+  workspace_id: string;
+  connection_profile_id: string;
+  graph_name: string;
+  status: string;
+  version?: number;
+  vertex_collections?: string[];
+  edge_collections?: string[];
+  edge_definitions?: Array<Record<string, unknown>>;
+  collection_roles?: Record<string, string[]>;
+  counts?: Record<string, number>;
 }
 
 export interface RawWorkflowDAGView {

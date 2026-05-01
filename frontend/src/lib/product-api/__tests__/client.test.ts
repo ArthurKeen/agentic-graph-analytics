@@ -22,8 +22,14 @@ describe("product API client mappers", () => {
       latest_graph_profiles: [
         {
           graph_profile_id: "graph-profile-1",
+          workspace_id: "workspace-1",
+          connection_profile_id: "connection-1",
           graph_name: "CustomerGraph",
-          status: "active"
+          status: "active",
+          version: 2,
+          vertex_collections: ["customers"],
+          edge_collections: ["transactions"],
+          counts: { customers: 10 }
         }
       ],
       latest_source_documents: [
@@ -50,6 +56,12 @@ describe("product API client mappers", () => {
     });
 
     expect(overview.latestWorkflowRuns[0].run_id).toBe("run-1");
+    expect(overview.latestGraphProfiles[0]).toMatchObject({
+      graphProfileId: "graph-profile-1",
+      graphName: "CustomerGraph",
+      vertexCollections: ["customers"],
+      counts: { customers: 10 }
+    });
     expect(workspaceAssetsFromOverview(overview)).toEqual([
       {
         id: "graph-profile-1",

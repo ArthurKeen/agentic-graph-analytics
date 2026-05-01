@@ -18,6 +18,7 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceShellProps) {
   const {
     assets,
+    graphProfileById,
     dagByRunId,
     reportById,
     health,
@@ -72,6 +73,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     () => (selectedAsset?.kind === "report" ? reportById[selectedAsset.id] ?? null : null),
     [reportById, selectedAsset]
   );
+  const graphProfile = useMemo(
+    () =>
+      selectedAsset?.kind === "graph-profile"
+        ? graphProfileById[selectedAsset.id] ?? null
+        : null,
+    [graphProfileById, selectedAsset]
+  );
 
   useEffect(() => {
     function closePanels(event: KeyboardEvent) {
@@ -99,6 +107,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setSelectedAsset(asset);
           setSelectedStep(null);
         }}
+        onOpenGraphProfile={(graphProfileId) => {
+          const graphProfileAsset = visibleAssets.find((asset) => asset.id === graphProfileId);
+          if (graphProfileAsset) {
+            setSelectedAsset(graphProfileAsset);
+            setSelectedStep(null);
+          }
+        }}
         onOpenRun={(runId) => {
           const run = visibleAssets.find((asset) => asset.id === runId);
           if (run) {
@@ -121,6 +136,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         selectedAsset={selectedAsset}
         selectedStep={selectedStep}
         dagView={dagView}
+        graphProfile={graphProfile}
         reportBundle={reportBundle}
         dataStatus={status}
         dataErrorMessage={errorMessage}

@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createProductAPIClient, workspaceAssetsFromOverview } from "@/lib/product-api/client";
-import { demoAssets, demoDag, demoReport } from "@/lib/product-api/demoData";
+import {
+  demoAssets,
+  demoDag,
+  demoGraphProfile,
+  demoReport
+} from "@/lib/product-api/demoData";
 import type {
+  GraphProfileSummary,
   ProductAPIClient,
   ReportBundle,
   WorkflowDAGView,
@@ -20,6 +26,7 @@ interface UseWorkspaceDataArgs {
 
 interface WorkspaceDataState {
   assets: WorkspaceAsset[];
+  graphProfileById: Record<string, GraphProfileSummary>;
   dagByRunId: Record<string, WorkflowDAGView>;
   reportById: Record<string, ReportBundle>;
   overview: WorkspaceOverview | null;
@@ -40,6 +47,7 @@ export function useWorkspaceData({
   const apiClient = useMemo(() => client ?? createProductAPIClient(), [client]);
   const [state, setState] = useState<WorkspaceDataState>({
     assets: demoAssets,
+    graphProfileById: { [demoGraphProfile.graphProfileId]: demoGraphProfile },
     dagByRunId: { [demoDag.runId]: demoDag },
     reportById: { [demoReport.manifest.reportId]: demoReport },
     overview: null,
@@ -82,6 +90,15 @@ export function useWorkspaceData({
 
         setState({
           assets: assets.length > 0 ? assets : demoAssets,
+          graphProfileById:
+            overview.latestGraphProfiles.length > 0
+              ? Object.fromEntries(
+                  overview.latestGraphProfiles.map((profile) => [
+                    profile.graphProfileId,
+                    profile
+                  ])
+                )
+              : { [demoGraphProfile.graphProfileId]: demoGraphProfile },
           dagByRunId: dag ? { [dag.runId]: dag } : { [demoDag.runId]: demoDag },
           reportById:
             Object.keys(reportById).length > 0

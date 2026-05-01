@@ -3,6 +3,7 @@
 import { CanvasLensLegend } from "./CanvasLensLegend";
 import { DynamicReportCanvas } from "./DynamicReportCanvas";
 import { EmptyCanvasState } from "./EmptyCanvasState";
+import { GraphProfileCanvas } from "./GraphProfileCanvas";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { WorkspaceHelpOverlay } from "./WorkspaceHelpOverlay";
@@ -11,6 +12,7 @@ import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
 import type {
   ReportBundle,
+  GraphProfileSummary,
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkspaceAsset
@@ -20,6 +22,7 @@ interface WorkspaceCanvasProps {
   selectedAsset: WorkspaceAsset | null;
   selectedStep: WorkflowDAGNode | null;
   dagView: WorkflowDAGView | null;
+  graphProfile: GraphProfileSummary | null;
   reportBundle: ReportBundle | null;
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
@@ -36,6 +39,7 @@ export function WorkspaceCanvas({
   selectedAsset,
   selectedStep,
   dagView,
+  graphProfile,
   reportBundle,
   dataStatus,
   dataErrorMessage,
@@ -47,6 +51,12 @@ export function WorkspaceCanvas({
   onCloseHelp,
   onOpenMenu
 }: WorkspaceCanvasProps) {
+  const lensName =
+    selectedAsset?.kind === "report"
+      ? "Dynamic Report"
+      : selectedAsset?.kind === "graph-profile"
+        ? "Graph Profile"
+        : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onFitAll: () => undefined,
@@ -89,7 +99,7 @@ export function WorkspaceCanvas({
       <header className="workspace-header">
         <div>
           <h2>{selectedAsset.label}</h2>
-          <div className="lens-indicator">(Operational DAG view)</div>
+          <div className="lens-indicator">({lensName} view)</div>
         </div>
         <div className="workspace-header-actions">
           <p className="muted">Right-click steps or canvas for actions.</p>
@@ -111,7 +121,9 @@ export function WorkspaceCanvas({
         {dataErrorMessage ? ` (${dataErrorMessage})` : ""}
       </p>
 
-      {dagView && selectedAsset.kind === "run" ? (
+      {graphProfile && selectedAsset.kind === "graph-profile" ? (
+        <GraphProfileCanvas graphProfile={graphProfile} />
+      ) : dagView && selectedAsset.kind === "run" ? (
         <section className="pipeline-dag" aria-label="Workflow DAG">
           {dagView.nodes.map((node, index) => (
             <div key={node.id} style={{ display: "contents" }}>
@@ -155,9 +167,7 @@ export function WorkspaceCanvas({
         <EmptyCanvasState />
       )}
 
-      <CanvasLensLegend
-        lensName={selectedAsset.kind === "report" ? "Dynamic Report" : "Operational DAG"}
-      />
+      <CanvasLensLegend lensName={lensName} />
 
       <AssetInfoPanel asset={selectedAsset} onClose={onClearAssetSelection} />
 

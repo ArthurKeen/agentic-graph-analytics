@@ -1,4 +1,9 @@
-import type { ReportBundle, WorkflowDAGView, WorkspaceAsset } from "./types";
+import type {
+  GraphProfileSummary,
+  ReportBundle,
+  WorkflowDAGView,
+  WorkspaceAsset
+} from "./types";
 
 export const demoAssets: WorkspaceAsset[] = [
   {
@@ -67,6 +72,39 @@ export const demoDag: WorkflowDAGView = {
   ],
   warnings: [],
   errors: []
+};
+
+export const demoGraphProfile: GraphProfileSummary = {
+  graphProfileId: "graph-profile-demo",
+  workspaceId: "workspace-demo",
+  connectionProfileId: "connection-demo",
+  graphName: "Customer Graph Profile",
+  status: "discovered",
+  version: 1,
+  vertexCollections: ["accounts", "devices", "transactions"],
+  edgeCollections: ["uses_device", "sent_transaction"],
+  edgeDefinitions: [
+    {
+      edge_collection: "uses_device",
+      from_vertex_collections: ["accounts"],
+      to_vertex_collections: ["devices"]
+    },
+    {
+      edge_collection: "sent_transaction",
+      from_vertex_collections: ["accounts"],
+      to_vertex_collections: ["transactions"]
+    }
+  ],
+  collectionRoles: {
+    accounts: ["entity"],
+    devices: ["entity"],
+    transactions: ["event"]
+  },
+  counts: {
+    accounts: 1250,
+    devices: 780,
+    transactions: 6240
+  }
 };
 
 export const demoReport: ReportBundle = {
