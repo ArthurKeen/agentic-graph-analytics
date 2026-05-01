@@ -12,6 +12,7 @@ import type {
   RawGraphDiscoveryResult,
   RawGraphProfileSummary,
   RawRequirementInterview,
+  RawRequirementsDraftResult,
   RawReportBundle,
   RawSourceDocumentSummary,
   RawWorkflowDAGView,
@@ -20,6 +21,7 @@ import type {
   ReportBundle,
   ReportSection,
   RequirementInterview,
+  RequirementsDraftResult,
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
   WorkflowDAGEdge,
@@ -92,6 +94,33 @@ export function createProductAPIClient(
         await postJSON<RawRequirementInterview>(
           `${normalizedBaseUrl}/api/graph-profiles/${graphProfileId}/requirements-copilot/sessions`,
           startRequirementsCopilotPayload(input)
+        )
+      );
+    },
+    async answerRequirementsCopilotQuestion(
+      requirementInterviewId: string,
+      questionId: string,
+      answer: string,
+      actor = "workspace-ui"
+    ): Promise<RequirementInterview> {
+      return mapRequirementInterview(
+        await postJSON<RawRequirementInterview>(
+          `${normalizedBaseUrl}/api/requirements-copilot/sessions/${requirementInterviewId}/answer`,
+          {
+            question_id: questionId,
+            answer,
+            actor
+          }
+        )
+      );
+    },
+    async generateRequirementsCopilotDraft(
+      requirementInterviewId: string
+    ): Promise<RequirementsDraftResult> {
+      return mapRequirementsDraftResult(
+        await postJSON<RawRequirementsDraftResult>(
+          `${normalizedBaseUrl}/api/requirements-copilot/sessions/${requirementInterviewId}/generate-draft`,
+          {}
         )
       );
     },
@@ -182,6 +211,16 @@ export function mapRequirementInterview(raw: RawRequirementInterview): Requireme
     schemaObservations: raw.schema_observations ?? {},
     inferences: raw.inferences ?? [],
     assumptions: raw.assumptions ?? [],
+    draftBrd: raw.draft_brd,
+    provenanceLabels: raw.provenance_labels ?? []
+  };
+}
+
+export function mapRequirementsDraftResult(
+  raw: RawRequirementsDraftResult
+): RequirementsDraftResult {
+  return {
+    requirementInterview: mapRequirementInterview(raw.requirement_interview),
     draftBrd: raw.draft_brd,
     provenanceLabels: raw.provenance_labels ?? []
   };

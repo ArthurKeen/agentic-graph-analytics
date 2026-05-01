@@ -114,6 +114,12 @@ export interface RequirementInterview {
   provenanceLabels: Array<Record<string, unknown>>;
 }
 
+export interface RequirementsDraftResult {
+  requirementInterview: RequirementInterview;
+  draftBrd: string;
+  provenanceLabels: Array<Record<string, unknown>>;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -231,6 +237,15 @@ export interface ProductAPIClient {
     graphProfileId: string,
     input: StartRequirementsCopilotInput
   ): Promise<RequirementInterview>;
+  answerRequirementsCopilotQuestion(
+    requirementInterviewId: string,
+    questionId: string,
+    answer: string,
+    actor?: string
+  ): Promise<RequirementInterview>;
+  generateRequirementsCopilotDraft(
+    requirementInterviewId: string
+  ): Promise<RequirementsDraftResult>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
@@ -289,6 +304,12 @@ export interface RawRequirementInterview {
   inferences?: Array<Record<string, unknown>>;
   assumptions?: Array<Record<string, unknown>>;
   draft_brd?: string | null;
+  provenance_labels?: Array<Record<string, unknown>>;
+}
+
+export interface RawRequirementsDraftResult {
+  requirement_interview: RawRequirementInterview;
+  draft_brd: string;
   provenance_labels?: Array<Record<string, unknown>>;
 }
 

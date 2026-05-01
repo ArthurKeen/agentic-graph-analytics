@@ -513,7 +513,37 @@ button {
   display: grid;
   gap: 8px;
   margin: 0;
-  padding-left: 18px;
+  padding-left: 0;
+}
+
+.copilot-question {
+  display: grid;
+  gap: 8px;
+}
+
+.copilot-question span {
+  color: var(--aga-muted);
+  font-size: 13px;
+}
+
+.copilot-question textarea {
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--aga-border);
+  border-radius: 10px;
+  background: var(--aga-bg);
+  color: var(--aga-text);
+  padding: 10px 12px;
+}
+
+.copilot-draft-preview pre {
+  max-height: 260px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--aga-bg);
+  margin: 0;
+  padding: 12px;
+  white-space: pre-wrap;
 }
 
 .detail-list {

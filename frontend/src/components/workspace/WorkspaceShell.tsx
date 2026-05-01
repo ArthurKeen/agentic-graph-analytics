@@ -37,6 +37,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     createConnectionProfile,
     discoverGraphProfile,
     startRequirementsCopilot,
+    answerRequirementsCopilotQuestion,
+    generateRequirementsCopilotDraft,
     verifyConnectionProfile,
     publishReport
   } = useWorkspaceData({
@@ -73,6 +75,11 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     null
   );
   const [startCopilotErrorMessage, setStartCopilotErrorMessage] = useState<string | null>(null);
+  const [requirementsCopilotErrorMessage, setRequirementsCopilotErrorMessage] = useState<
+    string | null
+  >(null);
+  const [isSavingCopilotAnswer, setIsSavingCopilotAnswer] = useState(false);
+  const [isGeneratingRequirementsDraft, setIsGeneratingRequirementsDraft] = useState(false);
   const [activeRequirementInterview, setActiveRequirementInterview] =
     useState<RequirementInterview | null>(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
@@ -152,6 +159,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setConnectionVerificationErrorMessage(null);
       setDiscoverGraphErrorMessage(null);
       setStartCopilotErrorMessage(null);
+      setRequirementsCopilotErrorMessage(null);
       setPublishErrorMessage(null);
     }
 
@@ -268,7 +276,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           selectedAsset?.kind === "graph-profile" &&
           startingCopilotGraphProfileId === selectedAsset.id
         }
+        isSavingCopilotAnswer={isSavingCopilotAnswer}
+        isGeneratingRequirementsDraft={isGeneratingRequirementsDraft}
         connectionVerificationErrorMessage={connectionVerificationErrorMessage}
+        requirementsCopilotErrorMessage={requirementsCopilotErrorMessage}
         activeRequirementInterview={activeRequirementInterview}
         showHelp={showHelp}
         onSelectStep={setSelectedStep}
@@ -294,6 +305,42 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           if (graphProfileAsset) {
             setStartCopilotErrorMessage(null);
             setPendingStartCopilot(graphProfileAsset);
+          }
+        }}
+        onAnswerRequirementsCopilotQuestion={async (
+          requirementInterviewId,
+          questionId,
+          answer
+        ) => {
+          setRequirementsCopilotErrorMessage(null);
+          setIsSavingCopilotAnswer(true);
+          try {
+            const interview = await answerRequirementsCopilotQuestion(
+              requirementInterviewId,
+              questionId,
+              answer
+            );
+            setActiveRequirementInterview(interview);
+          } catch (error) {
+            setRequirementsCopilotErrorMessage(
+              error instanceof Error ? error.message : "Failed to save Copilot answer"
+            );
+          } finally {
+            setIsSavingCopilotAnswer(false);
+          }
+        }}
+        onGenerateRequirementsDraft={async (requirementInterviewId) => {
+          setRequirementsCopilotErrorMessage(null);
+          setIsGeneratingRequirementsDraft(true);
+          try {
+            const result = await generateRequirementsCopilotDraft(requirementInterviewId);
+            setActiveRequirementInterview(result.requirementInterview);
+          } catch (error) {
+            setRequirementsCopilotErrorMessage(
+              error instanceof Error ? error.message : "Failed to generate requirements draft"
+            );
+          } finally {
+            setIsGeneratingRequirementsDraft(false);
           }
         }}
         onCloseRequirementsCopilot={() => setActiveRequirementInterview(null)}

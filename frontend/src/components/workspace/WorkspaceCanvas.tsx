@@ -5,6 +5,7 @@ import { ConnectionProfileCanvas } from "./ConnectionProfileCanvas";
 import { DynamicReportCanvas } from "./DynamicReportCanvas";
 import { EmptyCanvasState } from "./EmptyCanvasState";
 import { GraphProfileCanvas } from "./GraphProfileCanvas";
+import { RequirementsCopilotPanel } from "./RequirementsCopilotPanel";
 import { SourceDocumentCanvas } from "./SourceDocumentCanvas";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
@@ -38,7 +39,10 @@ interface WorkspaceCanvasProps {
   isVerifyingConnection: boolean;
   isDiscoveringGraph: boolean;
   isStartingRequirementsCopilot: boolean;
+  isSavingCopilotAnswer: boolean;
+  isGeneratingRequirementsDraft: boolean;
   connectionVerificationErrorMessage: string | null;
+  requirementsCopilotErrorMessage: string | null;
   activeRequirementInterview: RequirementInterview | null;
   showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
@@ -48,6 +52,12 @@ interface WorkspaceCanvasProps {
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onRequestDiscoverGraph: (connectionProfileId: string) => void;
   onRequestStartRequirementsCopilot: (graphProfileId: string) => void;
+  onAnswerRequirementsCopilotQuestion: (
+    requirementInterviewId: string,
+    questionId: string,
+    answer: string
+  ) => Promise<void>;
+  onGenerateRequirementsDraft: (requirementInterviewId: string) => Promise<void>;
   onCloseRequirementsCopilot: () => void;
   onShowHelp: () => void;
   onCloseHelp: () => void;
@@ -68,7 +78,10 @@ export function WorkspaceCanvas({
   isVerifyingConnection,
   isDiscoveringGraph,
   isStartingRequirementsCopilot,
+  isSavingCopilotAnswer,
+  isGeneratingRequirementsDraft,
   connectionVerificationErrorMessage,
+  requirementsCopilotErrorMessage,
   activeRequirementInterview,
   showHelp,
   onSelectStep,
@@ -78,6 +91,8 @@ export function WorkspaceCanvas({
   onVerifyConnectionProfile,
   onRequestDiscoverGraph,
   onRequestStartRequirementsCopilot,
+  onAnswerRequirementsCopilotQuestion,
+  onGenerateRequirementsDraft,
   onCloseRequirementsCopilot,
   onShowHelp,
   onCloseHelp,
@@ -234,22 +249,24 @@ export function WorkspaceCanvas({
       ) : null}
 
       {activeRequirementInterview ? (
-        <FloatingDetailPanel
-          title="Requirements Copilot"
+        <RequirementsCopilotPanel
+          interview={activeRequirementInterview}
           stackIndex={selectedStep ? 1 : 0}
+          isSavingAnswer={isSavingCopilotAnswer}
+          isGeneratingDraft={isGeneratingRequirementsDraft}
+          errorMessage={requirementsCopilotErrorMessage}
+          onAnswerQuestion={(questionId, answer) =>
+            onAnswerRequirementsCopilotQuestion(
+              activeRequirementInterview.requirementInterviewId,
+              questionId,
+              answer
+            )
+          }
+          onGenerateDraft={() =>
+            onGenerateRequirementsDraft(activeRequirementInterview.requirementInterviewId)
+          }
           onClose={onCloseRequirementsCopilot}
-        >
-          <p>Status: {activeRequirementInterview.status}</p>
-          <p>Domain: {activeRequirementInterview.domain ?? "Not specified"}</p>
-          <h4>Starter Questions</h4>
-          <ol className="copilot-question-list">
-            {activeRequirementInterview.questions.map((question, index) => (
-              <li key={String(question.id ?? index)}>
-                {String(question.text ?? "Question")}
-              </li>
-            ))}
-          </ol>
-        </FloatingDetailPanel>
+        />
       ) : null}
 
       {showHelp ? <WorkspaceHelpOverlay onClose={onCloseHelp} /> : null}

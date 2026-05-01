@@ -444,4 +444,84 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("answers Requirements Copilot questions through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requirement_interview_id: "interview-1",
+        workspace_id: "workspace-1",
+        graph_profile_id: "graph-profile-1",
+        status: "draft",
+        answers: [
+          {
+            question_id: "business_goal",
+            answer: "Prioritize trial sites"
+          }
+        ]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const interview = await createProductAPIClient(
+      "http://api.example"
+    ).answerRequirementsCopilotQuestion(
+      "interview-1",
+      "business_goal",
+      "Prioritize trial sites",
+      "analyst@example.com"
+    );
+
+    expect(interview.answers[0]).toMatchObject({
+      question_id: "business_goal",
+      answer: "Prioritize trial sites"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/requirements-copilot/sessions/interview-1/answer",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          question_id: "business_goal",
+          answer: "Prioritize trial sites",
+          actor: "analyst@example.com"
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("generates Requirements Copilot drafts through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requirement_interview: {
+          requirement_interview_id: "interview-1",
+          workspace_id: "workspace-1",
+          graph_profile_id: "graph-profile-1",
+          status: "ready_for_review",
+          draft_brd: "# Draft"
+        },
+        draft_brd: "# Draft",
+        provenance_labels: [{ path: "answers", label: "user_provided" }]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const draft = await createProductAPIClient(
+      "http://api.example"
+    ).generateRequirementsCopilotDraft("interview-1");
+
+    expect(draft.requirementInterview.status).toBe("ready_for_review");
+    expect(draft.draftBrd).toBe("# Draft");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/requirements-copilot/sessions/interview-1/generate-draft",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({})
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

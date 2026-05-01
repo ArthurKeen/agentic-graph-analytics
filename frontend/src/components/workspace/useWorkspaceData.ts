@@ -19,6 +19,7 @@ import type {
   GraphProfileSummary,
   ProductAPIClient,
   RequirementInterview,
+  RequirementsDraftResult,
   ReportBundle,
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
@@ -27,6 +28,8 @@ import type {
   WorkspaceHealth,
   WorkspaceOverview
 } from "@/lib/product-api/types";
+
+let demoRequirementInterview: RequirementInterview | null = null;
 
 interface UseWorkspaceDataArgs {
   initialWorkspaceId?: string;
@@ -61,6 +64,15 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     graphProfileId: string,
     input: StartRequirementsCopilotInput
   ) => Promise<RequirementInterview>;
+  answerRequirementsCopilotQuestion: (
+    requirementInterviewId: string,
+    questionId: string,
+    answer: string,
+    actor?: string
+  ) => Promise<RequirementInterview>;
+  generateRequirementsCopilotDraft: (
+    requirementInterviewId: string
+  ) => Promise<RequirementsDraftResult>;
 }
 
 export function useWorkspaceData({
@@ -307,13 +319,44 @@ export function useWorkspaceData({
       : statefulDemoStartRequirementsCopilot(graphProfileId, input);
   };
 
+  const answerRequirementsCopilotQuestion = async (
+    requirementInterviewId: string,
+    questionId: string,
+    answer: string,
+    actor = "workspace-ui"
+  ): Promise<RequirementInterview> => {
+    return initialWorkspaceId
+      ? apiClient.answerRequirementsCopilotQuestion(
+          requirementInterviewId,
+          questionId,
+          answer,
+          actor
+        )
+      : statefulDemoAnswerRequirementsCopilotQuestion(
+          requirementInterviewId,
+          questionId,
+          answer,
+          actor
+        );
+  };
+
+  const generateRequirementsCopilotDraft = async (
+    requirementInterviewId: string
+  ): Promise<RequirementsDraftResult> => {
+    return initialWorkspaceId
+      ? apiClient.generateRequirementsCopilotDraft(requirementInterviewId)
+      : statefulDemoGenerateRequirementsCopilotDraft(requirementInterviewId);
+  };
+
   return {
     ...state,
     publishReport,
     createConnectionProfile,
     verifyConnectionProfile,
     discoverGraphProfile,
-    startRequirementsCopilot
+    startRequirementsCopilot,
+    answerRequirementsCopilotQuestion,
+    generateRequirementsCopilotDraft
   };
 }
 
@@ -391,7 +434,7 @@ function statefulDemoStartRequirementsCopilot(
   const graphProfile = demoGraphProfile.graphProfileId === graphProfileId
     ? demoGraphProfile
     : { ...demoGraphProfile, graphProfileId };
-  return {
+  demoRequirementInterview = {
     requirementInterviewId: `requirement-interview-${Date.now()}`,
     workspaceId: graphProfile.workspaceId,
     graphProfileId,
@@ -430,5 +473,58 @@ function statefulDemoStartRequirementsCopilot(
     assumptions: [],
     draftBrd: null,
     provenanceLabels: []
+  };
+  return demoRequirementInterview;
+}
+
+function statefulDemoAnswerRequirementsCopilotQuestion(
+  requirementInterviewId: string,
+  questionId: string,
+  answer: string,
+  actor: string
+): RequirementInterview {
+  const interview =
+    demoRequirementInterview?.requirementInterviewId === requirementInterviewId
+      ? demoRequirementInterview
+      : statefulDemoStartRequirementsCopilot(demoGraphProfile.graphProfileId, {});
+  const answers = [
+    ...interview.answers.filter((existing) => existing.question_id !== questionId),
+    {
+      question_id: questionId,
+      answer,
+      actor,
+      answered_at: new Date().toISOString()
+    }
+  ];
+  demoRequirementInterview = {
+    ...interview,
+    requirementInterviewId,
+    answers
+  };
+  return demoRequirementInterview;
+}
+
+function statefulDemoGenerateRequirementsCopilotDraft(
+  requirementInterviewId: string
+): RequirementsDraftResult {
+  const currentInterview =
+    demoRequirementInterview?.requirementInterviewId === requirementInterviewId
+      ? demoRequirementInterview
+      : statefulDemoStartRequirementsCopilot(demoGraphProfile.graphProfileId, {});
+  const requirementInterview = {
+    ...currentInterview,
+    requirementInterviewId,
+    status: "ready_for_review",
+    draftBrd:
+      "# Business Requirements Draft\n\nThis draft was generated from demo schema observations and saved interview answers."
+  };
+  demoRequirementInterview = requirementInterview;
+  return {
+    requirementInterview,
+    draftBrd: requirementInterview.draftBrd ?? "",
+    provenanceLabels: [
+      { path: "observed_schema.graph_name", label: "observed_from_schema" },
+      { path: "answers", label: "user_provided" }
+    ]
   };
 }
