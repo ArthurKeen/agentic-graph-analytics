@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
+import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -24,11 +25,19 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
+  const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
+  const [publishedReportIds, setPublishedReportIds] = useState<Set<string>>(() => new Set());
   const visibleAssets = useMemo(
     () =>
-      assets.filter((asset) => asset.kind !== "run" || !deletedRunIds.has(asset.id)),
-    [assets, deletedRunIds]
+      assets
+        .filter((asset) => asset.kind !== "run" || !deletedRunIds.has(asset.id))
+        .map((asset) =>
+          asset.kind === "report" && publishedReportIds.has(asset.id)
+            ? { ...asset, description: "Report (published)" }
+            : asset
+        ),
+    [assets, deletedRunIds, publishedReportIds]
   );
 
   useEffect(() => {
@@ -63,6 +72,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setShowHelp(false);
       setSelectedStep(null);
       setPendingDeleteRun(null);
+      setPendingPublishReport(null);
     }
 
     window.addEventListener("keydown", closePanels);
@@ -85,6 +95,14 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             setSelectedStep(null);
           }
         }}
+        onOpenReport={(reportId) => {
+          const report = visibleAssets.find((asset) => asset.id === reportId);
+          if (report) {
+            setSelectedAsset(report);
+            setSelectedStep(null);
+          }
+        }}
+        onRequestPublishReport={(asset) => setPendingPublishReport(asset)}
         onRequestDeleteRun={(asset) => setPendingDeleteRun(asset)}
         onOpenMenu={setMenu}
       />
@@ -118,6 +136,22 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
               setSelectedStep(null);
             }
             setPendingDeleteRun(null);
+          }}
+        />
+      ) : null}
+      {pendingPublishReport ? (
+        <PublishReportConfirmationOverlay
+          report={pendingPublishReport}
+          onCancel={() => setPendingPublishReport(null)}
+          onConfirm={() => {
+            setPublishedReportIds(
+              (current) => new Set([...current, pendingPublishReport.id])
+            );
+            setSelectedAsset({
+              ...pendingPublishReport,
+              description: "Report (published)"
+            });
+            setPendingPublishReport(null);
           }}
         />
       ) : null}

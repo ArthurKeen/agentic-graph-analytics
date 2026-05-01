@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildAssetContextMenu } from "../contextMenus/asset";
 import { buildCanvasContextMenu } from "../contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "../contextMenus/pipelineStep";
+import { buildReportContextMenu } from "../contextMenus/report";
 import { buildRunContextMenu } from "../contextMenus/run";
 
 function noop() {
@@ -45,6 +46,20 @@ describe("workspace context menu builders", () => {
 
     expect(items.find((item) => item.id === "retry-run")).toBeDefined();
     expect(items.find((item) => item.id === "delete-run")?.danger).toBe(true);
+  });
+
+  it("builds report actions with publish", () => {
+    const items = buildReportContextMenu({
+      onViewReport: noop,
+      onCopyReportId: noop,
+      onPublishReport: noop
+    });
+
+    expect(items.map((item) => item.id)).toEqual([
+      "view-report",
+      "copy-report-id",
+      "publish-report"
+    ]);
   });
 
   it("builds pipeline step actions", () => {

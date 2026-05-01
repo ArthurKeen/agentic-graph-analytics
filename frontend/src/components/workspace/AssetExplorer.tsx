@@ -2,6 +2,7 @@
 
 import type { WorkspaceAsset, WorkspaceHealth } from "@/lib/product-api/types";
 import { buildAssetContextMenu } from "./contextMenus/asset";
+import { buildReportContextMenu } from "./contextMenus/report";
 import { buildRunContextMenu } from "./contextMenus/run";
 import type { ContextMenuState } from "./contextMenus/types";
 
@@ -10,6 +11,8 @@ interface AssetExplorerProps {
   health: WorkspaceHealth | null;
   onSelectAsset: (asset: WorkspaceAsset) => void;
   onOpenRun: (runId: string) => void;
+  onOpenReport: (reportId: string) => void;
+  onRequestPublishReport: (asset: WorkspaceAsset) => void;
   onRequestDeleteRun: (asset: WorkspaceAsset) => void;
   onOpenMenu: (menu: ContextMenuState) => void;
 }
@@ -19,6 +22,8 @@ export function AssetExplorer({
   health,
   onSelectAsset,
   onOpenRun,
+  onOpenReport,
+  onRequestPublishReport,
   onRequestDeleteRun,
   onOpenMenu
 }: AssetExplorerProps) {
@@ -44,6 +49,18 @@ export function AssetExplorer({
                   onCopyId: () => void navigator.clipboard?.writeText(asset.id)
                 };
                 if (asset.kind !== "run") {
+                  if (asset.kind === "report") {
+                    onOpenMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      items: buildReportContextMenu({
+                        onViewReport: () => onOpenReport(asset.id),
+                        onCopyReportId: baseArgs.onCopyId,
+                        onPublishReport: () => onRequestPublishReport(asset)
+                      })
+                    });
+                    return;
+                  }
                   onOpenMenu({
                     x: event.clientX,
                     y: event.clientY,

@@ -467,3 +467,12 @@ button {
   border-color: var(--aga-danger);
   color: #fff;
 }
+
+.primary-button {
+  background: var(--aga-accent);
+  border: 1px solid var(--aga-accent);
+  border-radius: 10px;
+  color: #07111f;
+  cursor: pointer;
+  padding: 9px 12px;
+}
