@@ -54,6 +54,8 @@ class WorkspaceOverview:
 
     workspace: Dict[str, Any]
     counts: Dict[str, int]
+    latest_graph_profiles: List[Dict[str, Any]] = field(default_factory=list)
+    latest_source_documents: List[Dict[str, Any]] = field(default_factory=list)
     latest_workflow_runs: List[Dict[str, Any]] = field(default_factory=list)
     latest_reports: List[Dict[str, Any]] = field(default_factory=list)
     latest_audit_events: List[Dict[str, Any]] = field(default_factory=list)
@@ -64,6 +66,8 @@ class WorkspaceOverview:
         return {
             "workspace": self.workspace,
             "counts": self.counts,
+            "latest_graph_profiles": self.latest_graph_profiles,
+            "latest_source_documents": self.latest_source_documents,
             "latest_workflow_runs": self.latest_workflow_runs,
             "latest_reports": self.latest_reports,
             "latest_audit_events": self.latest_audit_events,
@@ -310,6 +314,12 @@ class ProductService:
         return WorkspaceOverview(
             workspace=workspace.to_dict(),
             counts=counts,
+            latest_graph_profiles=[
+                profile.to_dict() for profile in graph_profiles[:recent_limit]
+            ],
+            latest_source_documents=[
+                document.to_dict() for document in source_documents[:recent_limit]
+            ],
             latest_workflow_runs=[
                 run.to_dict() for run in workflow_runs[:recent_limit]
             ],

@@ -19,6 +19,20 @@ describe("product API client mappers", () => {
         environment: "dev"
       },
       counts: { workflow_runs: 1, reports: 1 },
+      latest_graph_profiles: [
+        {
+          graph_profile_id: "graph-profile-1",
+          graph_name: "CustomerGraph",
+          status: "active"
+        }
+      ],
+      latest_source_documents: [
+        {
+          document_id: "document-1",
+          filename: "requirements.md",
+          mime_type: "text/markdown"
+        }
+      ],
       latest_workflow_runs: [
         {
           run_id: "run-1",
@@ -37,6 +51,18 @@ describe("product API client mappers", () => {
 
     expect(overview.latestWorkflowRuns[0].run_id).toBe("run-1");
     expect(workspaceAssetsFromOverview(overview)).toEqual([
+      {
+        id: "graph-profile-1",
+        kind: "graph-profile",
+        label: "CustomerGraph",
+        description: "Graph profile (active)"
+      },
+      {
+        id: "document-1",
+        kind: "document",
+        label: "requirements.md",
+        description: "text/markdown"
+      },
       {
         id: "run-1",
         kind: "run",

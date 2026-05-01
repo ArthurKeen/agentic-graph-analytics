@@ -51,6 +51,16 @@ export interface WorkspaceOverview {
     environment: string;
   };
   counts: Record<string, number>;
+  latestGraphProfiles: Array<{
+    graph_profile_id: string;
+    graph_name: string;
+    status: string;
+  }>;
+  latestSourceDocuments: Array<{
+    document_id: string;
+    filename: string;
+    mime_type: string;
+  }>;
   latestWorkflowRuns: Array<{
     run_id: string;
     status: string;
@@ -124,6 +134,8 @@ export interface ProductAPIClient {
 export interface RawWorkspaceOverview {
   workspace: WorkspaceOverview["workspace"];
   counts: Record<string, number>;
+  latest_graph_profiles?: WorkspaceOverview["latestGraphProfiles"];
+  latest_source_documents?: WorkspaceOverview["latestSourceDocuments"];
   latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
   latest_reports: WorkspaceOverview["latestReports"];
   latest_audit_events?: Array<Record<string, unknown>>;

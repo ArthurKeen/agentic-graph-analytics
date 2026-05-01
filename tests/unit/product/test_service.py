@@ -274,6 +274,8 @@ def test_workspace_overview_counts_and_recent_items():
 
     assert overview.counts["connection_profiles"] == 1
     assert overview.counts["reports"] == 1
+    assert overview.latest_graph_profiles[0]["graph_name"] == "customer_graph"
+    assert overview.latest_source_documents[0]["filename"] == "requirements.md"
     assert overview.latest_workflow_runs[0]["run_id"] == run.run_id
     assert overview.latest_reports[0]["report_id"] == report.report_id
     assert overview.latest_audit_events[0]["action"] == "create_report"

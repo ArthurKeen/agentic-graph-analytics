@@ -94,6 +94,8 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
   return {
     workspace: raw.workspace,
     counts: raw.counts,
+    latestGraphProfiles: raw.latest_graph_profiles ?? [],
+    latestSourceDocuments: raw.latest_source_documents ?? [],
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
@@ -147,6 +149,18 @@ export function mapReportBundle(raw: RawReportBundle): ReportBundle {
 }
 
 export function workspaceAssetsFromOverview(overview: WorkspaceOverview): WorkspaceAsset[] {
+  const graphProfileAssets = overview.latestGraphProfiles.map((profile) => ({
+    id: profile.graph_profile_id,
+    kind: "graph-profile" as const,
+    label: profile.graph_name,
+    description: `Graph profile (${profile.status})`
+  }));
+  const documentAssets = overview.latestSourceDocuments.map((document) => ({
+    id: document.document_id,
+    kind: "document" as const,
+    label: document.filename,
+    description: document.mime_type
+  }));
   const runAssets = overview.latestWorkflowRuns.map((run) => ({
     id: run.run_id,
     kind: "run" as const,
@@ -160,7 +174,7 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     description: `Report (${report.status})`
   }));
 
-  return [...runAssets, ...reportAssets];
+  return [...graphProfileAssets, ...documentAssets, ...runAssets, ...reportAssets];
 }
 
 function mapReportSection(raw: RawReportBundle["sections"][number]): ReportSection {
