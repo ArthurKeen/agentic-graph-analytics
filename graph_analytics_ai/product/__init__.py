@@ -53,6 +53,7 @@ from .service import (
     WorkspaceBundle,
     WorkspaceImportResult,
     WorkspaceOverview,
+    WorkflowStepUpdateResult,
 )
 from .storage import ProductArangoStorage
 
@@ -97,6 +98,7 @@ __all__ = [
     "WorkflowRunStatus",
     "WorkflowStep",
     "WorkflowStepStatus",
+    "WorkflowStepUpdateResult",
     "create_audit_event",
     "create_chart_spec",
     "create_connection_profile",

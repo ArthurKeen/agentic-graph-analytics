@@ -157,6 +157,10 @@ class FakeProductRepository:
     def get_workflow_run(self, run_id):
         return self.workflow_runs[run_id]
 
+    def update_workflow_run(self, run):
+        self.workflow_runs[run.run_id] = run
+        return run.run_id
+
     def get_report_manifest(self, report_id):
         return self.reports[report_id]
 
@@ -923,3 +927,78 @@ def test_requirements_copilot_approval_requires_draft():
         assert "draft" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for missing draft")
+
+
+def test_workflow_helpers_create_update_and_expose_recovery_actions():
+    """Workflow helpers support visualizer polling and recovery action display."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    run = service.create_workflow_run_from_steps(
+        workspace_id="workspace-1",
+        workflow_mode=WorkflowMode.AGENTIC,
+        steps=[
+            WorkflowStep(step_id="schema", label="Schema Analysis"),
+            WorkflowStep(step_id="report", label="Report Generation"),
+        ],
+        dag_edges=[
+            WorkflowDAGEdge(from_step_id="schema", to_step_id="report"),
+        ],
+        metadata={"source": "test"},
+    )
+    assert run.status == WorkflowRunStatus.QUEUED
+    assert repository.workflow_runs[run.run_id].metadata["source"] == "test"
+
+    started = service.start_workflow_run(run.run_id)
+    assert started.status == WorkflowRunStatus.RUNNING
+    assert started.started_at is not None
+
+    result = service.update_workflow_step(
+        run_id=run.run_id,
+        step_id="schema",
+        status=WorkflowStepStatus.COMPLETED,
+        outputs={"collections": ["Device"]},
+        artifact_refs=[{"type": "graph_profile", "id": "graph-profile-1"}],
+    )
+    updated_run = repository.workflow_runs[run.run_id]
+    assert updated_run.steps[0].status == WorkflowStepStatus.COMPLETED
+    assert updated_run.steps[0].outputs["collections"] == ["Device"]
+    assert result.dag_view["nodes"][0]["id"] == "schema"
+
+    failure = service.update_workflow_step(
+        run_id=run.run_id,
+        step_id="report",
+        status=WorkflowStepStatus.FAILED,
+        errors=["LLM timeout"],
+    )
+    assert failure.workflow_run["status"] == "failed"
+    assert service.supported_workflow_recovery_actions(run.run_id)["report"] == [
+        "retry",
+        "open_logs",
+    ]
+
+    retry = service.update_workflow_step(
+        run_id=run.run_id,
+        step_id="report",
+        status=WorkflowStepStatus.RUNNING,
+    )
+    retried_run = repository.workflow_runs[run.run_id]
+    assert retry.workflow_run["status"] == "running"
+    assert retried_run.steps[1].retry_count == 1
+
+
+def test_workflow_helper_rejects_invalid_dag_edges():
+    """Workflow creation validates DAG edge references."""
+
+    repository = FakeProductRepository()
+    try:
+        ProductService(repository).create_workflow_run_from_steps(
+            workspace_id="workspace-1",
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[WorkflowStep(step_id="schema", label="Schema Analysis")],
+            dag_edges=[WorkflowDAGEdge(from_step_id="schema", to_step_id="missing")],
+        )
+    except ValidationError as exc:
+        assert "missing" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError for invalid DAG edge")

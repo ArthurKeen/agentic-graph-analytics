@@ -31,13 +31,17 @@ from .models import (
     SourceDocument,
     Workspace,
     WorkflowDAGEdge,
+    WorkflowMode,
     WorkflowRun,
+    WorkflowRunStatus,
     WorkflowStep,
+    WorkflowStepStatus,
     create_audit_event,
     create_graph_profile,
     create_published_snapshot,
     create_requirement_interview,
     create_requirement_version,
+    create_workflow_run,
     current_timestamp,
 )
 from .repository import ProductRepository
@@ -222,6 +226,22 @@ class RequirementsDraftResult:
         }
 
 
+@dataclass
+class WorkflowStepUpdateResult:
+    """Result of updating workflow run step state."""
+
+    workflow_run: Dict[str, Any]
+    dag_view: Dict[str, Any]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert update result to an API-friendly dictionary."""
+
+        return {
+            "workflow_run": self.workflow_run,
+            "dag_view": self.dag_view,
+        }
+
+
 class ProductService:
     """Use-case oriented product operations for the future UI API."""
 
@@ -291,6 +311,107 @@ class ProductService:
             warnings=run.warnings,
             errors=run.errors,
         )
+
+    def create_workflow_run_from_steps(
+        self,
+        workspace_id: str,
+        workflow_mode: WorkflowMode,
+        steps: List[WorkflowStep],
+        dag_edges: List[WorkflowDAGEdge],
+        requirement_version_id: Optional[str] = None,
+        graph_profile_id: Optional[str] = None,
+        template_ids: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> WorkflowRun:
+        """Create a visualizable workflow run from planned steps and edges."""
+
+        self._validate_workflow_dag(steps, dag_edges)
+        run = create_workflow_run(
+            workspace_id=workspace_id,
+            workflow_mode=workflow_mode,
+            status=WorkflowRunStatus.QUEUED,
+            requirement_version_id=requirement_version_id,
+            graph_profile_id=graph_profile_id,
+            template_ids=template_ids or [],
+            steps=steps,
+            dag_edges=dag_edges,
+            metadata=metadata or {},
+        )
+        self.repository.create_workflow_run(run)
+        return run
+
+    def start_workflow_run(self, run_id: str) -> WorkflowRun:
+        """Mark a queued workflow run as running."""
+
+        run = self.repository.get_workflow_run(run_id)
+        run.status = WorkflowRunStatus.RUNNING
+        run.started_at = run.started_at or current_timestamp()
+        self.repository.update_workflow_run(run)
+        return run
+
+    def update_workflow_step(
+        self,
+        run_id: str,
+        step_id: str,
+        status: WorkflowStepStatus,
+        outputs: Optional[Dict[str, Any]] = None,
+        artifact_refs: Optional[List[Dict[str, str]]] = None,
+        warnings: Optional[List[str]] = None,
+        errors: Optional[List[str]] = None,
+        checkpoint_id: Optional[str] = None,
+        cost: Optional[Dict[str, Any]] = None,
+    ) -> WorkflowStepUpdateResult:
+        """Update a workflow step and roll up run status for the visualizer."""
+
+        run = self.repository.get_workflow_run(run_id)
+        step = self._find_workflow_step(run, step_id)
+        previous_status = step.status
+        step.status = status
+
+        if status == WorkflowStepStatus.RUNNING and step.started_at is None:
+            step.started_at = current_timestamp()
+        if status in {
+            WorkflowStepStatus.COMPLETED,
+            WorkflowStepStatus.FAILED,
+            WorkflowStepStatus.SKIPPED,
+        }:
+            step.completed_at = current_timestamp()
+        if previous_status == WorkflowStepStatus.FAILED and status == WorkflowStepStatus.RUNNING:
+            step.retry_count += 1
+
+        if outputs is not None:
+            step.outputs = outputs
+        if artifact_refs is not None:
+            step.artifact_refs = artifact_refs
+        if warnings is not None:
+            step.warnings = warnings
+        if errors is not None:
+            step.errors = errors
+        if checkpoint_id is not None:
+            step.checkpoint_id = checkpoint_id
+        if cost is not None:
+            step.cost = cost
+
+        self._roll_up_workflow_run_status(run)
+        self.repository.update_workflow_run(run)
+        return WorkflowStepUpdateResult(
+            workflow_run=run.to_dict(),
+            dag_view=self.get_workflow_dag_view(run.run_id).to_dict(),
+        )
+
+    def supported_workflow_recovery_actions(self, run_id: str) -> Dict[str, List[str]]:
+        """Return supported recovery actions keyed by workflow step ID."""
+
+        run = self.repository.get_workflow_run(run_id)
+        actions: Dict[str, List[str]] = {}
+        for step in run.steps:
+            if step.status == WorkflowStepStatus.FAILED:
+                actions[step.step_id] = ["retry", "open_logs"]
+            elif step.status == WorkflowStepStatus.PAUSED:
+                actions[step.step_id] = ["resume", "cancel", "open_logs"]
+            else:
+                actions[step.step_id] = []
+        return actions
 
     def get_report_bundle(self, report_id: str) -> ReportBundle:
         """Load a full dynamic report payload."""
@@ -754,6 +875,49 @@ class ProductService:
             "to": edge.to_step_id,
             **edge.to_dict(),
         }
+
+    def _validate_workflow_dag(
+        self,
+        steps: List[WorkflowStep],
+        dag_edges: List[WorkflowDAGEdge],
+    ) -> None:
+        step_ids = {step.step_id for step in steps}
+        if len(step_ids) != len(steps):
+            raise ValidationError("Workflow steps must have unique step_id values")
+        for edge in dag_edges:
+            if edge.from_step_id not in step_ids:
+                raise ValidationError(
+                    f"Workflow edge references missing from_step_id: {edge.from_step_id}"
+                )
+            if edge.to_step_id not in step_ids:
+                raise ValidationError(
+                    f"Workflow edge references missing to_step_id: {edge.to_step_id}"
+                )
+
+    def _find_workflow_step(self, run: WorkflowRun, step_id: str) -> WorkflowStep:
+        for step in run.steps:
+            if step.step_id == step_id:
+                return step
+        raise ValidationError(f"Workflow step not found: {step_id}")
+
+    def _roll_up_workflow_run_status(self, run: WorkflowRun) -> None:
+        statuses = [step.status for step in run.steps]
+        if any(status == WorkflowStepStatus.FAILED for status in statuses):
+            run.status = WorkflowRunStatus.FAILED
+            run.completed_at = current_timestamp()
+        elif any(status == WorkflowStepStatus.PAUSED for status in statuses):
+            run.status = WorkflowRunStatus.PAUSED
+        elif statuses and all(
+            status in {WorkflowStepStatus.COMPLETED, WorkflowStepStatus.SKIPPED}
+            for status in statuses
+        ):
+            run.status = WorkflowRunStatus.COMPLETED
+            run.completed_at = current_timestamp()
+        elif any(status == WorkflowStepStatus.RUNNING for status in statuses):
+            run.status = WorkflowRunStatus.RUNNING
+            run.started_at = run.started_at or current_timestamp()
+        else:
+            run.status = WorkflowRunStatus.QUEUED
 
     def _export_connection_profile(
         self,
