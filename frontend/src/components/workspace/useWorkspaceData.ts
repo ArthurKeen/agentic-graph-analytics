@@ -14,6 +14,7 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  CreateWorkspaceInput,
   CreateWorkflowRunInput,
   CreateWorkflowRunResult,
   DiscoverGraphProfileInput,
@@ -35,7 +36,8 @@ import type {
   WorkspaceBundle,
   WorkspaceHealth,
   WorkspaceImportResult,
-  WorkspaceOverview
+  WorkspaceOverview,
+  WorkspaceSummary
 } from "@/lib/product-api/types";
 
 let demoRequirementInterview: RequirementInterview | null = null;
@@ -61,6 +63,7 @@ interface WorkspaceDataState {
 }
 
 interface WorkspaceDataResult extends WorkspaceDataState {
+  createWorkspace: (input: CreateWorkspaceInput) => Promise<WorkspaceSummary>;
   publishReport: (reportId: string, actor?: string) => Promise<ReportBundle>;
   createConnectionProfile: (
     input: CreateConnectionProfileInput
@@ -221,6 +224,53 @@ export function useWorkspaceData({
       cancelled = true;
     };
   }, [apiClient, initialRunId, initialWorkspaceId]);
+
+  const createWorkspace = async (input: CreateWorkspaceInput): Promise<WorkspaceSummary> => {
+    const workspace =
+      initialWorkspaceId || state.status !== "demo"
+        ? await apiClient.createWorkspace(input)
+        : statefulDemoCreateWorkspace(input);
+    setState((current) => ({
+      ...current,
+      overview: {
+        workspace: {
+          workspace_id: workspace.workspaceId,
+          customer_name: workspace.customerName,
+          project_name: workspace.projectName,
+          environment: workspace.environment
+        },
+        counts: {},
+        latestConnectionProfiles: [],
+        latestGraphProfiles: [],
+        latestSourceDocuments: [],
+        latestWorkflowRuns: [],
+        latestReports: [],
+        latestAuditEvents: [
+          {
+            action: "create_workspace",
+            entity_id: workspace.workspaceId,
+            actor: input.actor ?? "workspace-ui"
+          }
+        ]
+      },
+      health: {
+        workspaceId: workspace.workspaceId,
+        status: "needs_attention",
+        counts: {},
+        issues: [
+          {
+            severity: "warning",
+            code: "missing_connection_profile",
+            message: "Workspace has no connection profiles.",
+            entityIds: []
+          }
+        ]
+      },
+      status: current.status === "demo" ? "demo" : "ready",
+      errorMessage: undefined
+    }));
+    return workspace;
+  };
 
   const publishReport = async (
     reportId: string,
@@ -500,6 +550,7 @@ export function useWorkspaceData({
 
   return {
     ...state,
+    createWorkspace,
     publishReport,
     createConnectionProfile,
     verifyConnectionProfile,
@@ -524,6 +575,18 @@ function statefulDemoPublish(reportId: string): ReportBundle {
       reportId,
       status: "published"
     }
+  };
+}
+
+function statefulDemoCreateWorkspace(input: CreateWorkspaceInput): WorkspaceSummary {
+  return {
+    workspaceId: `workspace-${Date.now()}`,
+    customerName: input.customerName.trim(),
+    projectName: input.projectName.trim(),
+    environment: input.environment.trim(),
+    description: input.description?.trim() ?? "",
+    status: "active",
+    tags: input.tags ?? []
   };
 }
 

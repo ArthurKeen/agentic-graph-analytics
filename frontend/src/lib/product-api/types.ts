@@ -20,6 +20,25 @@ export interface WorkspaceAsset {
   description?: string;
 }
 
+export interface WorkspaceSummary {
+  workspaceId: string;
+  customerName: string;
+  projectName: string;
+  environment: string;
+  description: string;
+  status: string;
+  tags: string[];
+}
+
+export interface CreateWorkspaceInput {
+  customerName: string;
+  projectName: string;
+  environment: string;
+  description?: string;
+  tags?: string[];
+  actor?: string;
+}
+
 export interface GraphProfileSummary {
   graphProfileId: string;
   workspaceId: string;
@@ -280,6 +299,7 @@ export interface WorkspaceImportResult {
 }
 
 export interface ProductAPIClient {
+  createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceSummary>;
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   createConnectionProfile(
@@ -336,6 +356,16 @@ export interface RawWorkspaceOverview {
   latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
   latest_reports: WorkspaceOverview["latestReports"];
   latest_audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawWorkspaceSummary {
+  workspace_id: string;
+  customer_name: string;
+  project_name: string;
+  environment: string;
+  description?: string;
+  status?: string;
+  tags?: string[];
 }
 
 export interface RawConnectionProfileSummary {

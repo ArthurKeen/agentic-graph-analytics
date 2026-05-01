@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
+import { CreateWorkspaceOverlay } from "./CreateWorkspaceOverlay";
 import { CreateWorkflowRunOverlay } from "./CreateWorkflowRunOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
@@ -40,6 +41,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     health,
     status,
     errorMessage,
+    createWorkspace,
     createConnectionProfile,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -65,15 +67,20 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
+  const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
   const [showCreateWorkflowRun, setShowCreateWorkflowRun] = useState(false);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
+    null
+  );
+  const [createWorkspaceErrorMessage, setCreateWorkspaceErrorMessage] = useState<string | null>(
     null
   );
   const [createWorkflowRunErrorMessage, setCreateWorkflowRunErrorMessage] = useState<
     string | null
   >(null);
   const [isCreatingConnectionProfile, setIsCreatingConnectionProfile] = useState(false);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [isCreatingWorkflowRun, setIsCreatingWorkflowRun] = useState(false);
   const [verifyingConnectionProfileId, setVerifyingConnectionProfileId] = useState<string | null>(
     null
@@ -193,7 +200,9 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setPendingPublishReport(null);
       setPendingDiscoverGraph(null);
       setPendingStartCopilot(null);
+      setShowCreateWorkspace(false);
       setShowCreateConnectionProfile(false);
+      setCreateWorkspaceErrorMessage(null);
       setShowCreateWorkflowRun(false);
       setCreateConnectionErrorMessage(null);
       setCreateWorkflowRunErrorMessage(null);
@@ -385,6 +394,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setSelectedStep(null);
         }}
         onClearSelection={() => setSelectedStep(null)}
+        onRequestCreateWorkspace={() => {
+          setCreateWorkspaceErrorMessage(null);
+          setShowCreateWorkspace(true);
+        }}
         onRequestCreateConnectionProfile={() => {
           setCreateConnectionErrorMessage(null);
           setShowCreateConnectionProfile(true);
@@ -514,6 +527,32 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {showCreateWorkspace ? (
+        <CreateWorkspaceOverlay
+          isCreating={isCreatingWorkspace}
+          errorMessage={createWorkspaceErrorMessage}
+          onCancel={() => setShowCreateWorkspace(false)}
+          onSubmit={async (input) => {
+            setCreateWorkspaceErrorMessage(null);
+            setIsCreatingWorkspace(true);
+            try {
+              const workspace = await createWorkspace(input);
+              setSelectedAsset(null);
+              setSelectedStep(null);
+              setCanvasActionMessage(
+                `Created workspace ${workspace.customerName} / ${workspace.projectName}.`
+              );
+              setShowCreateWorkspace(false);
+            } catch (error) {
+              setCreateWorkspaceErrorMessage(
+                error instanceof Error ? error.message : "Failed to create workspace"
+              );
+            } finally {
+              setIsCreatingWorkspace(false);
+            }
+          }}
+        />
+      ) : null}
       {canvasActionMessage ? (
         <FloatingDetailPanel
           title="Canvas View"

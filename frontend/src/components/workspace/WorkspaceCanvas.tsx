@@ -53,6 +53,7 @@ interface WorkspaceCanvasProps {
   onRetryWorkflowStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
+  onRequestCreateWorkspace: () => void;
   onRequestCreateConnectionProfile: () => void;
   onRequestCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
@@ -106,6 +107,7 @@ export function WorkspaceCanvas({
   onRetryWorkflowStep,
   onClearAssetSelection,
   onClearSelection,
+  onRequestCreateWorkspace,
   onRequestCreateConnectionProfile,
   onRequestCreateWorkflowRun,
   onExportWorkspace,
@@ -136,6 +138,7 @@ export function WorkspaceCanvas({
             : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
+      onCreateWorkspace: onRequestCreateWorkspace,
       onCreateConnectionProfile: onRequestCreateConnectionProfile,
       onCreateWorkflowRun: onRequestCreateWorkflowRun,
       onExportWorkspace,

@@ -43,6 +43,7 @@ from .models import (
     create_published_snapshot,
     create_requirement_interview,
     create_requirement_version,
+    create_workspace,
     create_workflow_run,
     current_timestamp,
 )
@@ -286,6 +287,43 @@ class ProductService:
         self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
         self.db_connector = db_connector or connect_arango_database
         self.schema_extractor_factory = schema_extractor_factory or SchemaExtractor
+
+    def create_workspace(
+        self,
+        customer_name: str,
+        project_name: str,
+        environment: str,
+        description: str = "",
+        tags: Optional[List[str]] = None,
+        actor: Optional[str] = None,
+    ) -> Workspace:
+        """Create customer/project workspace metadata."""
+
+        if not customer_name.strip():
+            raise ValidationError("Customer name is required")
+        if not project_name.strip():
+            raise ValidationError("Project name is required")
+        if not environment.strip():
+            raise ValidationError("Environment is required")
+
+        workspace = create_workspace(
+            customer_name=customer_name.strip(),
+            project_name=project_name.strip(),
+            environment=environment.strip(),
+            description=description.strip(),
+            tags=[tag.strip() for tag in tags or [] if tag.strip()],
+        )
+        self.repository.create_workspace(workspace)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace.workspace_id,
+                actor=actor or "system",
+                action="create_workspace",
+                target_type="workspace",
+                target_id=workspace.workspace_id,
+            )
+        )
+        return workspace
 
     def get_workspace_overview(
         self,

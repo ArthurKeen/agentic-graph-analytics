@@ -3,6 +3,7 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  CreateWorkspaceInput,
   CreateWorkflowRunInput,
   CreateWorkflowRunResult,
   DiscoverGraphProfileInput,
@@ -25,6 +26,7 @@ import type {
   RawWorkspaceHealth,
   RawWorkspaceImportResult,
   RawWorkspaceOverview,
+  RawWorkspaceSummary,
   ReportBundle,
   ReportSection,
   RequirementInterview,
@@ -43,7 +45,8 @@ import type {
   WorkspaceBundle,
   WorkspaceHealth,
   WorkspaceImportResult,
-  WorkspaceOverview
+  WorkspaceOverview,
+  WorkspaceSummary
 } from "./types";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
@@ -54,6 +57,14 @@ export function createProductAPIClient(
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
 
   return {
+    async createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceSummary> {
+      return mapWorkspaceSummary(
+        await postJSON<RawWorkspaceSummary>(
+          `${normalizedBaseUrl}/api/workspaces`,
+          createWorkspacePayload(input)
+        )
+      );
+    },
     async getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview> {
       return mapWorkspaceOverview(
         await getJSON<RawWorkspaceOverview>(
@@ -278,6 +289,18 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
+  };
+}
+
+export function mapWorkspaceSummary(raw: RawWorkspaceSummary): WorkspaceSummary {
+  return {
+    workspaceId: raw.workspace_id,
+    customerName: raw.customer_name,
+    projectName: raw.project_name,
+    environment: raw.environment,
+    description: raw.description ?? "",
+    status: raw.status ?? "active",
+    tags: raw.tags ?? []
   };
 }
 
@@ -568,6 +591,19 @@ function createConnectionProfilePayload(
     username: input.username,
     verify_ssl: input.verifySsl,
     secret_refs: secretRefs
+  };
+}
+
+function createWorkspacePayload(input: CreateWorkspaceInput): Record<string, unknown> {
+  const description = input.description?.trim() ?? "";
+  const actor = input.actor?.trim() ?? "";
+  return {
+    customer_name: input.customerName,
+    project_name: input.projectName,
+    environment: input.environment,
+    ...(description ? { description } : {}),
+    tags: input.tags ?? [],
+    ...(actor ? { actor } : {})
   };
 }
 

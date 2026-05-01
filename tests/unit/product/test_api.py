@@ -17,6 +17,7 @@ def test_product_api_contract_includes_core_ui_routes():
     endpoints = list_product_api_endpoints()
     route_keys = {(endpoint["method"], endpoint["path"]) for endpoint in endpoints}
 
+    assert ("POST", "/api/workspaces") in route_keys
     assert ("GET", "/api/workspaces/{workspace_id}/overview") in route_keys
     assert ("GET", "/api/workspaces/{workspace_id}/health") in route_keys
     assert (
@@ -42,6 +43,7 @@ def test_product_api_contract_maps_to_service_methods():
     service_methods = {endpoint.service_method for endpoint in PRODUCT_API_ENDPOINTS}
 
     assert "get_workspace_overview" in service_methods
+    assert "create_workspace" in service_methods
     assert "create_connection_profile" in service_methods
     assert "verify_connection_profile" in service_methods
     assert "discover_graph_profile" in service_methods

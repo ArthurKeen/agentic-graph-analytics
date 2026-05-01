@@ -10,6 +10,54 @@ import {
 } from "../client";
 
 describe("product API client mappers", () => {
+  it("creates workspaces through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        customer_name: "Example",
+        project_name: "Graph Analytics",
+        environment: "dev",
+        description: "Demo workspace",
+        status: "active",
+        tags: ["demo"]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const workspace = await createProductAPIClient("http://api.example").createWorkspace({
+      customerName: "Example",
+      projectName: "Graph Analytics",
+      environment: "dev",
+      description: "Demo workspace",
+      tags: ["demo"],
+      actor: "tester"
+    });
+
+    expect(workspace).toMatchObject({
+      workspaceId: "workspace-1",
+      customerName: "Example",
+      projectName: "Graph Analytics",
+      environment: "dev"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          customer_name: "Example",
+          project_name: "Graph Analytics",
+          environment: "dev",
+          description: "Demo workspace",
+          tags: ["demo"],
+          actor: "tester"
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
   it("maps workspace overview payloads into UI assets", () => {
     const overview = mapWorkspaceOverview({
       workspace: {

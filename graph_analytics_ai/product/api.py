@@ -40,6 +40,15 @@ class ProductAPIEndpoint:
 
 PRODUCT_API_ENDPOINTS = [
     ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces",
+        service_method="create_workspace",
+        summary="Create a customer/project workspace",
+        tags=["workspaces"],
+        request_model="CreateWorkspaceRequest",
+        response_model="Workspace",
+    ),
+    ProductAPIEndpoint(
         method="GET",
         path="/api/workspaces/{workspace_id}/overview",
         service_method="get_workspace_overview",

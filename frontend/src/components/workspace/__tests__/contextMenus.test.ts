@@ -16,6 +16,7 @@ function noop() {
 describe("workspace context menu builders", () => {
   it("builds canvas actions without page navigation", () => {
     const items = buildCanvasContextMenu({
+      onCreateWorkspace: noop,
       onCreateConnectionProfile: noop,
       onCreateWorkflowRun: noop,
       onExportWorkspace: noop,
@@ -27,6 +28,7 @@ describe("workspace context menu builders", () => {
     });
 
     expect(items.map((item) => item.id)).toEqual([
+      "create-workspace",
       "create-connection-profile",
       "create-workflow-run",
       "export-workspace",

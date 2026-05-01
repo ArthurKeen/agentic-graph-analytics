@@ -210,6 +210,48 @@ class FakeProductRepository:
         ][:limit]
 
 
+def test_create_workspace_validates_and_audits_metadata():
+    """Workspace creation stores trimmed metadata and records audit context."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+
+    workspace = service.create_workspace(
+        customer_name=" Example Customer ",
+        project_name=" Product UI ",
+        environment=" dev ",
+        description=" Workspace metadata ",
+        tags=[" graph ", "", "analytics"],
+        actor="tester",
+    )
+
+    assert workspace.workspace_id in repository.workspaces
+    assert workspace.customer_name == "Example Customer"
+    assert workspace.project_name == "Product UI"
+    assert workspace.environment == "dev"
+    assert workspace.description == "Workspace metadata"
+    assert workspace.tags == ["graph", "analytics"]
+    assert repository.audit_events[-1].action == "create_workspace"
+    assert repository.audit_events[-1].actor == "tester"
+
+
+def test_create_workspace_requires_core_fields():
+    """Workspace creation fails before storing incomplete metadata."""
+
+    service = ProductService(FakeProductRepository())
+
+    try:
+        service.create_workspace(
+            customer_name="",
+            project_name="Project",
+            environment="dev",
+        )
+    except ValidationError as exc:
+        assert "Customer name" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError for missing customer name")
+
+
 def test_workspace_overview_counts_and_recent_items():
     """Workspace overview aggregates related product metadata."""
 

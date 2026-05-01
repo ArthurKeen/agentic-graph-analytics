@@ -1,6 +1,7 @@
 import type { ContextMenuItem } from "./types";
 
 interface BuildCanvasContextMenuArgs {
+  onCreateWorkspace: () => void;
   onCreateConnectionProfile: () => void;
   onCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
@@ -12,6 +13,7 @@ interface BuildCanvasContextMenuArgs {
 }
 
 export function buildCanvasContextMenu({
+  onCreateWorkspace,
   onCreateConnectionProfile,
   onCreateWorkflowRun,
   onExportWorkspace,
@@ -22,6 +24,12 @@ export function buildCanvasContextMenu({
   onShowHelp
 }: BuildCanvasContextMenuArgs): ContextMenuItem[] {
   return [
+    {
+      id: "create-workspace",
+      label: "Create Workspace",
+      icon: "+",
+      onSelect: onCreateWorkspace
+    },
     {
       id: "create-connection-profile",
       label: "Create Connection Profile",
