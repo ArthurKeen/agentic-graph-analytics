@@ -1,14 +1,16 @@
 """Optional FastAPI adapter for the product UI API."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .api import PRODUCT_API_ENDPOINTS, ProductAPIDispatcher, ProductAPIEndpoint
+from .factory import create_product_service
 
 
 def create_product_fastapi_app(
-    service: Any,
+    service: Optional[Any] = None,
     title: str = "Agentic Graph Analytics Product API",
     version: str = "0.1.0",
+    **service_kwargs: Any,
 ) -> Any:
     """Create a FastAPI app wired to the product service.
 
@@ -24,8 +26,9 @@ def create_product_fastapi_app(
             "pip install 'graph-analytics-ai[api]'"
         ) from exc
 
+    product_service = service or create_product_service(**service_kwargs)
     app = FastAPI(title=title, version=version)
-    dispatcher = ProductAPIDispatcher(service)
+    dispatcher = ProductAPIDispatcher(product_service)
 
     for endpoint in PRODUCT_API_ENDPOINTS:
         app.add_api_route(

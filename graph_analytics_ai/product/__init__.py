@@ -7,6 +7,7 @@ from .api import (
     list_product_api_endpoints,
 )
 from .fastapi_app import create_product_fastapi_app
+from .factory import create_product_service
 from .models import (
     AuditEvent,
     ChartSpec,
@@ -115,6 +116,7 @@ __all__ = [
     "create_chart_spec",
     "create_connection_profile",
     "create_product_fastapi_app",
+    "create_product_service",
     "create_graph_profile",
     "create_published_snapshot",
     "create_report_manifest",

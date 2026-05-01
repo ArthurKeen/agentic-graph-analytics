@@ -67,6 +67,18 @@ def test_create_product_fastapi_app_registers_contract_routes(fake_fastapi_modul
     assert route_keys == contract_keys
 
 
+def test_create_product_fastapi_app_can_bootstrap_default_service(fake_fastapi_module):
+    """FastAPI adapter can build the product service from a database connector."""
+
+    database = object()
+    app = create_product_fastapi_app(
+        db_connector=lambda: database,
+        auto_initialize=False,
+    )
+
+    assert app.routes
+
+
 def test_product_fastapi_route_dispatches_request(fake_fastapi_module):
     """Generated route handler delegates to the service dispatcher."""
 
