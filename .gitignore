@@ -28,6 +28,10 @@ MANIFEST
 
 # Package build artifacts
 graph_analytics_ai.egg-info/
+frontend/.next/
+frontend/node_modules/
+frontend/coverage/
+frontend/tsconfig.tsbuildinfo
 
 # Virtual environments
 venv/
