@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  createProductAPIClient,
   mapReportBundle,
   mapWorkflowDAGView,
   mapWorkspaceHealth,
@@ -153,5 +154,40 @@ describe("product API client mappers", () => {
       chartId: "chart-1",
       chartType: "table"
     });
+  });
+
+  it("publishes reports through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        manifest: {
+          report_id: "report-1",
+          workspace_id: "workspace-1",
+          run_id: "run-1",
+          title: "Risk Report",
+          status: "published"
+        },
+        sections: [],
+        charts: [],
+        snapshots: []
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const report = await createProductAPIClient("http://api.example").publishReport(
+      "report-1",
+      "tester"
+    );
+
+    expect(report.manifest.status).toBe("published");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/reports/report-1/publish",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ actor: "tester" })
+      })
+    );
+
+    vi.unstubAllGlobals();
   });
 });

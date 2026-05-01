@@ -50,14 +50,36 @@ export function createProductAPIClient(
           `${normalizedBaseUrl}/api/reports/${reportId}`
         )
       );
+    },
+    async publishReport(reportId: string, actor: string): Promise<ReportBundle> {
+      return mapReportBundle(
+        await postJSON<RawReportBundle>(
+          `${normalizedBaseUrl}/api/reports/${reportId}/publish`,
+          { actor }
+        )
+      );
     }
   };
 }
 
 export async function getJSON<T>(url: string): Promise<T> {
+  return requestJSON<T>(url, { method: "GET" });
+}
+
+export async function postJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  return requestJSON<T>(url, {
+    method: "POST",
+    body: JSON.stringify(body)
+  });
+}
+
+async function requestJSON<T>(url: string, init: RequestInit): Promise<T> {
   const response = await fetch(url, {
+    ...init,
     headers: {
-      Accept: "application/json"
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...init.headers
     }
   });
 

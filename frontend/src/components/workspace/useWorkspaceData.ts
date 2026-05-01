@@ -28,11 +28,15 @@ interface WorkspaceDataState {
   errorMessage?: string;
 }
 
+interface WorkspaceDataResult extends WorkspaceDataState {
+  publishReport: (reportId: string, actor?: string) => Promise<ReportBundle>;
+}
+
 export function useWorkspaceData({
   initialWorkspaceId,
   initialRunId,
   client
-}: UseWorkspaceDataArgs): WorkspaceDataState {
+}: UseWorkspaceDataArgs): WorkspaceDataResult {
   const apiClient = useMemo(() => client ?? createProductAPIClient(), [client]);
   const [state, setState] = useState<WorkspaceDataState>({
     assets: demoAssets,
@@ -107,5 +111,53 @@ export function useWorkspaceData({
     };
   }, [apiClient, initialRunId, initialWorkspaceId]);
 
-  return state;
+  const publishReport = async (
+    reportId: string,
+    actor = "workspace-ui"
+  ): Promise<ReportBundle> => {
+    if (!initialWorkspaceId) {
+      const report = state.reportById[reportId] ?? statefulDemoPublish(reportId);
+      const publishedReport = {
+        ...report,
+        manifest: {
+          ...report.manifest,
+          status: "published"
+        }
+      };
+      setState((current) => ({
+        ...current,
+        reportById: {
+          ...current.reportById,
+          [reportId]: publishedReport
+        }
+      }));
+      return publishedReport;
+    }
+
+    const publishedReport = await apiClient.publishReport(reportId, actor);
+    setState((current) => ({
+      ...current,
+      reportById: {
+        ...current.reportById,
+        [reportId]: publishedReport
+      }
+    }));
+    return publishedReport;
+  };
+
+  return {
+    ...state,
+    publishReport
+  };
+}
+
+function statefulDemoPublish(reportId: string): ReportBundle {
+  return {
+    ...demoReport,
+    manifest: {
+      ...demoReport.manifest,
+      reportId,
+      status: "published"
+    }
+  };
 }

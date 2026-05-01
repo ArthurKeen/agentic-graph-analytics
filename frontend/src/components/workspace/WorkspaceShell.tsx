@@ -16,7 +16,15 @@ interface WorkspaceShellProps {
 }
 
 export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceShellProps) {
-  const { assets, dagByRunId, reportById, health, status, errorMessage } = useWorkspaceData({
+  const {
+    assets,
+    dagByRunId,
+    reportById,
+    health,
+    status,
+    errorMessage,
+    publishReport
+  } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
   });
@@ -26,6 +34,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
+  const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
+  const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
   const [publishedReportIds, setPublishedReportIds] = useState<Set<string>>(() => new Set());
   const visibleAssets = useMemo(
@@ -73,6 +83,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setSelectedStep(null);
       setPendingDeleteRun(null);
       setPendingPublishReport(null);
+      setPublishErrorMessage(null);
     }
 
     window.addEventListener("keydown", closePanels);
@@ -142,16 +153,29 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       {pendingPublishReport ? (
         <PublishReportConfirmationOverlay
           report={pendingPublishReport}
+          isPublishing={publishingReportId === pendingPublishReport.id}
+          errorMessage={publishErrorMessage}
           onCancel={() => setPendingPublishReport(null)}
-          onConfirm={() => {
-            setPublishedReportIds(
-              (current) => new Set([...current, pendingPublishReport.id])
-            );
-            setSelectedAsset({
-              ...pendingPublishReport,
-              description: "Report (published)"
-            });
-            setPendingPublishReport(null);
+          onConfirm={async () => {
+            setPublishErrorMessage(null);
+            setPublishingReportId(pendingPublishReport.id);
+            try {
+              const publishedReport = await publishReport(pendingPublishReport.id);
+              setPublishedReportIds(
+                (current) => new Set([...current, publishedReport.manifest.reportId])
+              );
+              setSelectedAsset({
+                ...pendingPublishReport,
+                description: `Report (${publishedReport.manifest.status})`
+              });
+              setPendingPublishReport(null);
+            } catch (error) {
+              setPublishErrorMessage(
+                error instanceof Error ? error.message : "Failed to publish report"
+              );
+            } finally {
+              setPublishingReportId(null);
+            }
           }}
         />
       ) : null}

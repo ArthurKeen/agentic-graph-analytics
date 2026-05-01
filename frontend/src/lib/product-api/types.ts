@@ -118,6 +118,7 @@ export interface ProductAPIClient {
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
+  publishReport(reportId: string, actor: string): Promise<ReportBundle>;
 }
 
 export interface RawWorkspaceOverview {

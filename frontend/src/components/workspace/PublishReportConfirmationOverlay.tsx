@@ -4,12 +4,16 @@ import type { WorkspaceAsset } from "@/lib/product-api/types";
 
 interface PublishReportConfirmationOverlayProps {
   report: WorkspaceAsset;
+  isPublishing: boolean;
+  errorMessage: string | null;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
 }
 
 export function PublishReportConfirmationOverlay({
   report,
+  isPublishing,
+  errorMessage,
   onCancel,
   onConfirm
 }: PublishReportConfirmationOverlayProps) {
@@ -36,12 +40,23 @@ export function PublishReportConfirmationOverlay({
             <dd>{report.description ?? "No description available."}</dd>
           </div>
         </dl>
+        {errorMessage ? <p className="confirmation-error">{errorMessage}</p> : null}
         <div className="confirmation-actions">
-          <button type="button" className="secondary-button" onClick={onCancel}>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={isPublishing}
+            onClick={onCancel}
+          >
             Cancel
           </button>
-          <button type="button" className="primary-button" onClick={onConfirm}>
-            Publish Report
+          <button
+            type="button"
+            className="primary-button"
+            disabled={isPublishing}
+            onClick={() => void onConfirm()}
+          >
+            {isPublishing ? "Publishing..." : "Publish Report"}
           </button>
         </div>
       </section>

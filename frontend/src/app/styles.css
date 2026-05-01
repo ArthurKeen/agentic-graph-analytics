@@ -442,6 +442,11 @@ button {
   margin: 0 0 16px;
 }
 
+.confirmation-error {
+  color: var(--aga-danger) !important;
+  margin-top: 12px !important;
+}
+
 .confirmation-actions {
   display: flex;
   justify-content: flex-end;
@@ -475,4 +480,11 @@ button {
   color: #07111f;
   cursor: pointer;
   padding: 9px 12px;
+}
+
+.secondary-button:disabled,
+.danger-button:disabled,
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
