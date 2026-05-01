@@ -6,7 +6,10 @@ the core package.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from enum import Enum
+from inspect import Parameter, signature
+from types import UnionType
+from typing import Any, Dict, List, Optional, Union, get_args, get_origin
 
 
 @dataclass(frozen=True)
@@ -219,6 +222,7 @@ class ProductAPIDispatcher:
         kwargs.update(body or {})
 
         service_method = getattr(self.service, endpoint.service_method)
+        kwargs = self._coerce_kwargs(service_method, kwargs)
         return self._serialize_response(service_method(**kwargs))
 
     def get_endpoint(self, method: str, path: str) -> ProductAPIEndpoint:
@@ -229,6 +233,51 @@ class ProductAPIDispatcher:
             if endpoint.method == normalized_method and endpoint.path == path:
                 return endpoint
         raise KeyError(f"Product API endpoint not found: {normalized_method} {path}")
+
+    def _coerce_kwargs(self, service_method: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        method_signature = signature(service_method)
+        coerced = dict(kwargs)
+        for name, parameter in method_signature.parameters.items():
+            if name not in coerced or parameter.annotation is Parameter.empty:
+                continue
+            coerced[name] = self._coerce_value(coerced[name], parameter.annotation)
+        return coerced
+
+    def _coerce_value(self, value: Any, annotation: Any) -> Any:
+        if annotation is Any or value is None:
+            return value
+
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+
+        if origin in {Union, UnionType}:
+            non_none_args = [arg for arg in args if arg is not type(None)]
+            if len(non_none_args) == 1:
+                return self._coerce_value(value, non_none_args[0])
+            return value
+
+        if origin in {list, List} and args and isinstance(value, list):
+            return [self._coerce_value(item, args[0]) for item in value]
+
+        if origin in {dict, Dict}:
+            return value
+
+        if annotation is bool and isinstance(value, str):
+            return value.lower() in {"1", "true", "yes", "on"}
+
+        if annotation is int and isinstance(value, str):
+            return int(value)
+
+        if annotation is float and isinstance(value, str):
+            return float(value)
+
+        if isinstance(annotation, type) and issubclass(annotation, Enum):
+            return value if isinstance(value, annotation) else annotation(value)
+
+        if isinstance(annotation, type) and hasattr(annotation, "from_dict") and isinstance(value, dict):
+            return annotation.from_dict(value)
+
+        return value
 
     def _serialize_response(self, value: Any) -> Any:
         if hasattr(value, "to_dict"):

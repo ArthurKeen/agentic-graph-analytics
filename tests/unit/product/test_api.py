@@ -3,8 +3,11 @@
 from graph_analytics_ai.product import (
     PRODUCT_API_ENDPOINTS,
     ProductAPIDispatcher,
+    WorkflowMode,
+    WorkflowStepStatus,
     list_product_api_endpoints,
 )
+from graph_analytics_ai.product.models import WorkflowDAGEdge, WorkflowStep
 
 
 def test_product_api_contract_includes_core_ui_routes():
@@ -81,3 +84,61 @@ def test_product_api_dispatcher_rejects_unknown_endpoint():
         assert "/api/unknown" in str(exc)
     else:
         raise AssertionError("Expected KeyError for unknown endpoint")
+
+
+def test_product_api_dispatcher_coerces_json_shapes_to_service_types():
+    """Dispatcher converts API payload shapes into service-level types."""
+
+    class Service:
+        def __init__(self):
+            self.workflow_call = None
+            self.step_update_call = None
+
+        def create_workflow_run_from_steps(
+            self,
+            workspace_id,
+            workflow_mode: WorkflowMode,
+            steps: list[WorkflowStep],
+            dag_edges: list[WorkflowDAGEdge],
+        ):
+            self.workflow_call = {
+                "workspace_id": workspace_id,
+                "workflow_mode": workflow_mode,
+                "steps": steps,
+                "dag_edges": dag_edges,
+            }
+            return {"ok": True}
+
+        def update_workflow_step(self, run_id, step_id, status: WorkflowStepStatus):
+            self.step_update_call = {
+                "run_id": run_id,
+                "step_id": step_id,
+                "status": status,
+            }
+            return {"ok": True}
+
+    service = Service()
+    dispatcher = ProductAPIDispatcher(service)
+    dispatcher.dispatch(
+        method="POST",
+        path="/api/runs",
+        body={
+            "workspace_id": "workspace-1",
+            "workflow_mode": "agentic",
+            "steps": [{"step_id": "step-1", "label": "Extract"}],
+            "dag_edges": [
+                {"from_step_id": "step-1", "to_step_id": "step-2"},
+            ],
+        },
+    )
+    dispatcher.dispatch(
+        method="PATCH",
+        path="/api/runs/{run_id}/steps/{step_id}",
+        path_params={"run_id": "run-1", "step_id": "step-1"},
+        body={"status": "completed"},
+    )
+
+    assert service.workflow_call["workflow_mode"] == WorkflowMode.AGENTIC
+    assert isinstance(service.workflow_call["steps"][0], WorkflowStep)
+    assert isinstance(service.workflow_call["dag_edges"][0], WorkflowDAGEdge)
+    assert service.step_update_call["status"] == WorkflowStepStatus.COMPLETED
