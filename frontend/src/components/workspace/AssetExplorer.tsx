@@ -12,6 +12,7 @@ import type { ContextMenuState } from "./contextMenus/types";
 interface AssetExplorerProps {
   assets: WorkspaceAsset[];
   health: WorkspaceHealth | null;
+  auditEvents: Array<Record<string, unknown>>;
   onSelectAsset: (asset: WorkspaceAsset) => void;
   onOpenConnectionProfile: (connectionProfileId: string) => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
@@ -30,6 +31,7 @@ interface AssetExplorerProps {
 export function AssetExplorer({
   assets,
   health,
+  auditEvents,
   onSelectAsset,
   onOpenConnectionProfile,
   onVerifyConnectionProfile,
@@ -49,6 +51,7 @@ export function AssetExplorer({
       <h1>Graph Analytics Workspace</h1>
       <p>Left-click selects. Right-click opens object actions.</p>
       <WorkspaceHealthSummary health={health} />
+      <RecentAuditEvents events={auditEvents} />
 
       <section className="asset-section">
         <h2>Assets</h2>
@@ -146,6 +149,29 @@ export function AssetExplorer({
         </div>
       </section>
     </aside>
+  );
+}
+
+function RecentAuditEvents({ events }: { events: Array<Record<string, unknown>> }) {
+  return (
+    <section className="health-card" aria-label="Recent audit activity">
+      <div className="health-card-header">
+        <strong>Recent Activity</strong>
+        <span>{events.length} events</span>
+      </div>
+      {events.length === 0 ? (
+        <p className="muted">No audit events loaded for this workspace.</p>
+      ) : (
+        <ul>
+          {events.slice(0, 4).map((event, index) => (
+            <li key={String(event.audit_event_id ?? event.event_id ?? index)}>
+              <span>{String(event.action ?? event.type ?? "event")}</span>{" "}
+              {String(event.entity_id ?? event.target_id ?? event.actor ?? "workspace")}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

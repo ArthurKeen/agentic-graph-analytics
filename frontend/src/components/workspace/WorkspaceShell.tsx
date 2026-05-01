@@ -36,6 +36,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     dagByRunId,
     recoveryActionsByRunId,
     reportById,
+    overview,
     health,
     status,
     errorMessage,
@@ -236,6 +237,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       <AssetExplorer
         assets={visibleAssets}
         health={health}
+        auditEvents={overview?.latestAuditEvents ?? []}
         onSelectAsset={(asset) => {
           setSelectedAsset(asset);
           setSelectedStep(null);
