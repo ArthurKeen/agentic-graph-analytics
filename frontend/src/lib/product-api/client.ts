@@ -1,8 +1,12 @@
 import type {
+  ChartSpec,
   ProductAPIClient,
+  RawReportBundle,
   RawWorkflowDAGView,
   RawWorkspaceHealth,
   RawWorkspaceOverview,
+  ReportBundle,
+  ReportSection,
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -37,6 +41,13 @@ export function createProductAPIClient(
       return mapWorkflowDAGView(
         await getJSON<RawWorkflowDAGView>(
           `${normalizedBaseUrl}/api/runs/${runId}/workflow-dag`
+        )
+      );
+    },
+    async getReportBundle(reportId: string): Promise<ReportBundle> {
+      return mapReportBundle(
+        await getJSON<RawReportBundle>(
+          `${normalizedBaseUrl}/api/reports/${reportId}`
         )
       );
     }
@@ -94,6 +105,25 @@ export function mapWorkspaceHealth(raw: RawWorkspaceHealth): WorkspaceHealth {
   };
 }
 
+export function mapReportBundle(raw: RawReportBundle): ReportBundle {
+  return {
+    manifest: {
+      reportId: raw.manifest.report_id,
+      workspaceId: raw.manifest.workspace_id,
+      runId: raw.manifest.run_id,
+      title: raw.manifest.title,
+      status: raw.manifest.status,
+      summary: raw.manifest.summary ?? "",
+      version: raw.manifest.version ?? 1
+    },
+    sections: raw.sections
+      .map(mapReportSection)
+      .sort((left, right) => left.order - right.order),
+    charts: raw.charts.map(mapChartSpec),
+    snapshots: raw.snapshots
+  };
+}
+
 export function workspaceAssetsFromOverview(overview: WorkspaceOverview): WorkspaceAsset[] {
   const runAssets = overview.latestWorkflowRuns.map((run) => ({
     id: run.run_id,
@@ -109,6 +139,28 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
   }));
 
   return [...runAssets, ...reportAssets];
+}
+
+function mapReportSection(raw: RawReportBundle["sections"][number]): ReportSection {
+  return {
+    sectionId: raw.section_id,
+    order: raw.order,
+    type: raw.type,
+    title: raw.title,
+    content: raw.content ?? {},
+    evidenceRefs: raw.evidence_refs ?? []
+  };
+}
+
+function mapChartSpec(raw: RawReportBundle["charts"][number]): ChartSpec {
+  return {
+    chartId: raw.chart_id,
+    title: raw.title,
+    chartType: raw.chart_type,
+    dataSource: raw.data_source ?? {},
+    data: raw.data ?? {},
+    encoding: raw.encoding ?? {}
+  };
 }
 
 function mapWorkflowNode(raw: RawWorkflowDAGView["nodes"][number]): WorkflowDAGNode {

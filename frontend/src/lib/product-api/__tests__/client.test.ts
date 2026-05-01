@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  mapReportBundle,
   mapWorkflowDAGView,
   mapWorkspaceHealth,
   mapWorkspaceOverview,
@@ -102,6 +103,55 @@ describe("product API client mappers", () => {
       code: "missing_connection_profile",
       message: "Workspace has no connection profiles.",
       entityIds: ["connection-1"]
+    });
+  });
+
+  it("maps and orders report bundles for dynamic rendering", () => {
+    const report = mapReportBundle({
+      manifest: {
+        report_id: "report-1",
+        workspace_id: "workspace-1",
+        run_id: "run-1",
+        title: "Risk Report",
+        status: "draft",
+        summary: "Summary",
+        version: 2
+      },
+      sections: [
+        {
+          section_id: "section-2",
+          order: 2,
+          type: "recommendation",
+          title: "Recommendation",
+          content: { text: "Act" }
+        },
+        {
+          section_id: "section-1",
+          order: 1,
+          type: "summary",
+          title: "Summary",
+          content: { text: "Read" }
+        }
+      ],
+      charts: [
+        {
+          chart_id: "chart-1",
+          title: "Counts",
+          chart_type: "table",
+          data: { rows: [] }
+        }
+      ],
+      snapshots: []
+    });
+
+    expect(report.manifest.reportId).toBe("report-1");
+    expect(report.sections.map((section) => section.sectionId)).toEqual([
+      "section-1",
+      "section-2"
+    ]);
+    expect(report.charts[0]).toMatchObject({
+      chartId: "chart-1",
+      chartType: "table"
     });
   });
 });

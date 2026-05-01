@@ -15,7 +15,7 @@ interface WorkspaceShellProps {
 }
 
 export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceShellProps) {
-  const { assets, dagByRunId, health, status, errorMessage } = useWorkspaceData({
+  const { assets, dagByRunId, reportById, health, status, errorMessage } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
   });
@@ -48,6 +48,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const dagView = useMemo(
     () => (selectedAsset?.kind === "run" ? dagByRunId[selectedAsset.id] ?? null : null),
     [dagByRunId, selectedAsset]
+  );
+  const reportBundle = useMemo(
+    () => (selectedAsset?.kind === "report" ? reportById[selectedAsset.id] ?? null : null),
+    [reportById, selectedAsset]
   );
 
   useEffect(() => {
@@ -88,6 +92,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         selectedAsset={selectedAsset}
         selectedStep={selectedStep}
         dagView={dagView}
+        reportBundle={reportBundle}
         dataStatus={status}
         dataErrorMessage={errorMessage}
         showHelp={showHelp}

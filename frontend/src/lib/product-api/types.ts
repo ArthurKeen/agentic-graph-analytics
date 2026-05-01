@@ -78,10 +78,46 @@ export interface WorkspaceHealth {
   issues: WorkspaceHealthIssue[];
 }
 
+export interface ReportManifest {
+  reportId: string;
+  workspaceId: string;
+  runId: string;
+  title: string;
+  status: string;
+  summary: string;
+  version: number;
+}
+
+export interface ReportSection {
+  sectionId: string;
+  order: number;
+  type: string;
+  title: string;
+  content: Record<string, unknown>;
+  evidenceRefs: Array<Record<string, string>>;
+}
+
+export interface ChartSpec {
+  chartId: string;
+  title: string;
+  chartType: string;
+  dataSource: Record<string, unknown>;
+  data: Record<string, unknown>;
+  encoding: Record<string, unknown>;
+}
+
+export interface ReportBundle {
+  manifest: ReportManifest;
+  sections: ReportSection[];
+  charts: ChartSpec[];
+  snapshots: Array<Record<string, unknown>>;
+}
+
 export interface ProductAPIClient {
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
+  getReportBundle(reportId: string): Promise<ReportBundle>;
 }
 
 export interface RawWorkspaceOverview {
@@ -126,4 +162,33 @@ export interface RawWorkspaceHealth {
     message: string;
     entity_ids?: string[];
   }>;
+}
+
+export interface RawReportBundle {
+  manifest: {
+    report_id: string;
+    workspace_id: string;
+    run_id: string;
+    title: string;
+    status: string;
+    summary?: string;
+    version?: number;
+  };
+  sections: Array<{
+    section_id: string;
+    order: number;
+    type: string;
+    title: string;
+    content?: Record<string, unknown>;
+    evidence_refs?: Array<Record<string, string>>;
+  }>;
+  charts: Array<{
+    chart_id: string;
+    title: string;
+    chart_type: string;
+    data_source?: Record<string, unknown>;
+    data?: Record<string, unknown>;
+    encoding?: Record<string, unknown>;
+  }>;
+  snapshots: Array<Record<string, unknown>>;
 }

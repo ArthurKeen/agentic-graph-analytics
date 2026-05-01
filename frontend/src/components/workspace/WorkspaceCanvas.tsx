@@ -1,6 +1,7 @@
 "use client";
 
 import { CanvasLensLegend } from "./CanvasLensLegend";
+import { DynamicReportCanvas } from "./DynamicReportCanvas";
 import { EmptyCanvasState } from "./EmptyCanvasState";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
@@ -8,12 +9,18 @@ import { WorkspaceHelpOverlay } from "./WorkspaceHelpOverlay";
 import { buildCanvasContextMenu } from "./contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
-import type { WorkflowDAGNode, WorkflowDAGView, WorkspaceAsset } from "@/lib/product-api/types";
+import type {
+  ReportBundle,
+  WorkflowDAGNode,
+  WorkflowDAGView,
+  WorkspaceAsset
+} from "@/lib/product-api/types";
 
 interface WorkspaceCanvasProps {
   selectedAsset: WorkspaceAsset | null;
   selectedStep: WorkflowDAGNode | null;
   dagView: WorkflowDAGView | null;
+  reportBundle: ReportBundle | null;
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
   showHelp: boolean;
@@ -29,6 +36,7 @@ export function WorkspaceCanvas({
   selectedAsset,
   selectedStep,
   dagView,
+  reportBundle,
   dataStatus,
   dataErrorMessage,
   showHelp,
@@ -141,11 +149,15 @@ export function WorkspaceCanvas({
             </div>
           ))}
         </section>
+      ) : reportBundle && selectedAsset.kind === "report" ? (
+        <DynamicReportCanvas report={reportBundle} />
       ) : (
         <EmptyCanvasState />
       )}
 
-      <CanvasLensLegend lensName="Operational DAG" />
+      <CanvasLensLegend
+        lensName={selectedAsset.kind === "report" ? "Dynamic Report" : "Operational DAG"}
+      />
 
       <AssetInfoPanel asset={selectedAsset} onClose={onClearAssetSelection} />
 

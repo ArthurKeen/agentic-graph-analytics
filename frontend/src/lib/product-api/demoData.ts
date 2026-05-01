@@ -1,4 +1,4 @@
-import type { WorkflowDAGView, WorkspaceAsset } from "./types";
+import type { ReportBundle, WorkflowDAGView, WorkspaceAsset } from "./types";
 
 export const demoAssets: WorkspaceAsset[] = [
   {
@@ -12,6 +12,12 @@ export const demoAssets: WorkspaceAsset[] = [
     kind: "graph-profile",
     label: "Customer Graph Profile",
     description: "Discovered graph schema"
+  },
+  {
+    id: "report-demo",
+    kind: "report",
+    label: "Dynamic Graph Analytics Report",
+    description: "Structured report bundle"
   }
 ];
 
@@ -61,4 +67,55 @@ export const demoDag: WorkflowDAGView = {
   ],
   warnings: [],
   errors: []
+};
+
+export const demoReport: ReportBundle = {
+  manifest: {
+    reportId: "report-demo",
+    workspaceId: "workspace-demo",
+    runId: "run-demo",
+    title: "Dynamic Graph Analytics Report",
+    status: "draft",
+    summary: "A workspace-rendered report assembled from structured product metadata.",
+    version: 1
+  },
+  sections: [
+    {
+      sectionId: "summary",
+      order: 1,
+      type: "summary",
+      title: "Executive Summary",
+      content: {
+        text: "This report is rendered from a structured report bundle rather than a static file."
+      },
+      evidenceRefs: []
+    },
+    {
+      sectionId: "recommendation",
+      order: 2,
+      type: "recommendation",
+      title: "Recommended Next Step",
+      content: {
+        text: "Connect a workspaceId to load live report bundles from the product API."
+      },
+      evidenceRefs: []
+    }
+  ],
+  charts: [
+    {
+      chartId: "status-counts",
+      title: "Workflow Status Counts",
+      chartType: "table",
+      dataSource: { kind: "demo" },
+      data: {
+        rows: [
+          { status: "completed", count: 2 },
+          { status: "running", count: 1 },
+          { status: "pending", count: 1 }
+        ]
+      },
+      encoding: {}
+    }
+  ],
+  snapshots: []
 };

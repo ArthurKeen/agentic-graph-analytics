@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createProductAPIClient, workspaceAssetsFromOverview } from "@/lib/product-api/client";
-import { demoAssets, demoDag } from "@/lib/product-api/demoData";
+import { demoAssets, demoDag, demoReport } from "@/lib/product-api/demoData";
 import type {
   ProductAPIClient,
+  ReportBundle,
   WorkflowDAGView,
   WorkspaceAsset,
   WorkspaceHealth,
@@ -20,6 +21,7 @@ interface UseWorkspaceDataArgs {
 interface WorkspaceDataState {
   assets: WorkspaceAsset[];
   dagByRunId: Record<string, WorkflowDAGView>;
+  reportById: Record<string, ReportBundle>;
   overview: WorkspaceOverview | null;
   health: WorkspaceHealth | null;
   status: "demo" | "loading" | "ready" | "error";
@@ -35,6 +37,7 @@ export function useWorkspaceData({
   const [state, setState] = useState<WorkspaceDataState>({
     assets: demoAssets,
     dagByRunId: { [demoDag.runId]: demoDag },
+    reportById: { [demoReport.manifest.reportId]: demoReport },
     overview: null,
     health: null,
     status: "demo"
@@ -60,6 +63,14 @@ export function useWorkspaceData({
           initialRunId ??
           assets.find((asset) => asset.kind === "run")?.id;
         const dag = firstRunId ? await apiClient.getWorkflowDAG(firstRunId) : null;
+        const reportBundles = await Promise.all(
+          assets
+            .filter((asset) => asset.kind === "report")
+            .map((asset) => apiClient.getReportBundle(asset.id))
+        );
+        const reportById = Object.fromEntries(
+          reportBundles.map((report) => [report.manifest.reportId, report])
+        );
 
         if (cancelled) {
           return;
@@ -68,6 +79,10 @@ export function useWorkspaceData({
         setState({
           assets: assets.length > 0 ? assets : demoAssets,
           dagByRunId: dag ? { [dag.runId]: dag } : { [demoDag.runId]: demoDag },
+          reportById:
+            Object.keys(reportById).length > 0
+              ? reportById
+              : { [demoReport.manifest.reportId]: demoReport },
           overview,
           health,
           status: "ready"
