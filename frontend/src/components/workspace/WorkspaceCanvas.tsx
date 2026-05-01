@@ -35,6 +35,7 @@ interface WorkspaceCanvasProps {
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
   isVerifyingConnection: boolean;
+  isDiscoveringGraph: boolean;
   connectionVerificationErrorMessage: string | null;
   showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
@@ -42,6 +43,7 @@ interface WorkspaceCanvasProps {
   onClearSelection: () => void;
   onRequestCreateConnectionProfile: () => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
+  onRequestDiscoverGraph: (connectionProfileId: string) => void;
   onShowHelp: () => void;
   onCloseHelp: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
@@ -59,6 +61,7 @@ export function WorkspaceCanvas({
   dataStatus,
   dataErrorMessage,
   isVerifyingConnection,
+  isDiscoveringGraph,
   connectionVerificationErrorMessage,
   showHelp,
   onSelectStep,
@@ -66,6 +69,7 @@ export function WorkspaceCanvas({
   onClearSelection,
   onRequestCreateConnectionProfile,
   onVerifyConnectionProfile,
+  onRequestDiscoverGraph,
   onShowHelp,
   onCloseHelp,
   onOpenMenu
@@ -150,8 +154,10 @@ export function WorkspaceCanvas({
           connectionProfile={connectionProfile}
           verificationResult={connectionVerificationResult}
           isVerifying={isVerifyingConnection}
+          isDiscovering={isDiscoveringGraph}
           verificationErrorMessage={connectionVerificationErrorMessage}
           onVerify={onVerifyConnectionProfile}
+          onDiscoverGraph={onRequestDiscoverGraph}
         />
       ) : sourceDocument && selectedAsset.kind === "document" ? (
         <SourceDocumentCanvas document={sourceDocument} />

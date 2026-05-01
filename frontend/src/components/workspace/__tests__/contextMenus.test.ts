@@ -45,6 +45,7 @@ describe("workspace context menu builders", () => {
     const items = buildConnectionProfileContextMenu({
       onOpenInCanvas: noop,
       onVerifyConnection: noop,
+      onDiscoverGraph: noop,
       onViewInfo: noop,
       onCopyId: noop
     });
@@ -52,6 +53,7 @@ describe("workspace context menu builders", () => {
     expect(items.map((item) => item.id)).toEqual([
       "open-in-canvas",
       "verify-connection",
+      "discover-graph",
       "view-info",
       "copy-id"
     ]);

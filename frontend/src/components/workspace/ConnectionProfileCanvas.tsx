@@ -9,16 +9,20 @@ interface ConnectionProfileCanvasProps {
   connectionProfile: ConnectionProfileSummary;
   verificationResult: ConnectionVerificationResult | null;
   isVerifying: boolean;
+  isDiscovering: boolean;
   verificationErrorMessage: string | null;
   onVerify: (connectionProfileId: string) => void;
+  onDiscoverGraph: (connectionProfileId: string) => void;
 }
 
 export function ConnectionProfileCanvas({
   connectionProfile,
   verificationResult,
   isVerifying,
+  isDiscovering,
   verificationErrorMessage,
-  onVerify
+  onVerify,
+  onDiscoverGraph
 }: ConnectionProfileCanvasProps) {
   const secretRefKeys = Object.keys(connectionProfile.secretRefs);
 
@@ -42,6 +46,14 @@ export function ConnectionProfileCanvas({
             onClick={() => onVerify(connectionProfile.connectionProfileId)}
           >
             {isVerifying ? "Verifying..." : "Verify Connection"}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isDiscovering}
+            onClick={() => onDiscoverGraph(connectionProfile.connectionProfileId)}
+          >
+            {isDiscovering ? "Discovering..." : "Discover Graph"}
           </button>
         </div>
         <dl className="detail-list">

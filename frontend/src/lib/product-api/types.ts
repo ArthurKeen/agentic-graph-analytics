@@ -82,6 +82,18 @@ export interface ConnectionVerificationResult {
   errorMessage?: string | null;
 }
 
+export interface DiscoverGraphProfileInput {
+  graphName?: string;
+  sampleSize: number;
+  maxSamplesPerCollection: number;
+  verifySystem: boolean;
+}
+
+export interface GraphDiscoveryResult {
+  graphProfile: GraphProfileSummary;
+  schemaSummary: Record<string, unknown>;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -191,6 +203,10 @@ export interface ProductAPIClient {
     input: CreateConnectionProfileInput
   ): Promise<ConnectionProfileSummary>;
   verifyConnectionProfile(connectionProfileId: string): Promise<ConnectionVerificationResult>;
+  discoverGraphProfile(
+    connectionProfileId: string,
+    input: DiscoverGraphProfileInput
+  ): Promise<GraphDiscoveryResult>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
@@ -230,6 +246,11 @@ export interface RawConnectionVerificationResult {
   endpoint: string;
   database: string;
   error_message?: string | null;
+}
+
+export interface RawGraphDiscoveryResult {
+  graph_profile: RawGraphProfileSummary;
+  schema_summary: Record<string, unknown>;
 }
 
 export interface RawSourceDocumentSummary {

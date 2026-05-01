@@ -3,6 +3,7 @@ import type { ContextMenuItem } from "./types";
 interface BuildConnectionProfileContextMenuArgs {
   onOpenInCanvas: () => void;
   onVerifyConnection: () => void;
+  onDiscoverGraph: () => void;
   onViewInfo: () => void;
   onCopyId: () => void;
 }
@@ -10,6 +11,7 @@ interface BuildConnectionProfileContextMenuArgs {
 export function buildConnectionProfileContextMenu({
   onOpenInCanvas,
   onVerifyConnection,
+  onDiscoverGraph,
   onViewInfo,
   onCopyId
 }: BuildConnectionProfileContextMenuArgs): ContextMenuItem[] {
@@ -25,6 +27,12 @@ export function buildConnectionProfileContextMenu({
       label: "Verify Connection",
       icon: "V",
       onSelect: onVerifyConnection
+    },
+    {
+      id: "discover-graph",
+      label: "Discover Graph Profile",
+      icon: "G",
+      onSelect: onDiscoverGraph
     },
     {
       id: "view-info",

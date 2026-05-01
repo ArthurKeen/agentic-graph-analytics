@@ -5,6 +5,7 @@ import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
+import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
@@ -32,6 +33,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     status,
     errorMessage,
     createConnectionProfile,
+    discoverGraphProfile,
     verifyConnectionProfile,
     publishReport
   } = useWorkspaceData({
@@ -44,6 +46,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
+  const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
     null
@@ -56,6 +59,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     Record<string, ConnectionVerificationResult>
   >({});
   const [connectionVerificationErrorMessage, setConnectionVerificationErrorMessage] = useState<
+    string | null
+  >(null);
+  const [discoverGraphErrorMessage, setDiscoverGraphErrorMessage] = useState<string | null>(null);
+  const [discoveringGraphConnectionProfileId, setDiscoveringGraphConnectionProfileId] = useState<
     string | null
   >(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
@@ -128,9 +135,11 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setSelectedStep(null);
       setPendingDeleteRun(null);
       setPendingPublishReport(null);
+      setPendingDiscoverGraph(null);
       setShowCreateConnectionProfile(false);
       setCreateConnectionErrorMessage(null);
       setConnectionVerificationErrorMessage(null);
+      setDiscoverGraphErrorMessage(null);
       setPublishErrorMessage(null);
     }
 
@@ -179,6 +188,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             setSelectedStep(null);
           }
           verifySelectedConnectionProfile(connectionProfileId);
+        }}
+        onRequestDiscoverGraph={(asset) => {
+          setDiscoverGraphErrorMessage(null);
+          setPendingDiscoverGraph(asset);
         }}
         onOpenDocument={(documentId) => {
           const documentAsset = visibleAssets.find((asset) => asset.id === documentId);
@@ -231,6 +244,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           selectedAsset?.kind === "connection-profile" &&
           verifyingConnectionProfileId === selectedAsset.id
         }
+        isDiscoveringGraph={
+          selectedAsset?.kind === "connection-profile" &&
+          discoveringGraphConnectionProfileId === selectedAsset.id
+        }
         connectionVerificationErrorMessage={connectionVerificationErrorMessage}
         showHelp={showHelp}
         onSelectStep={setSelectedStep}
@@ -244,6 +261,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setShowCreateConnectionProfile(true);
         }}
         onVerifyConnectionProfile={verifySelectedConnectionProfile}
+        onRequestDiscoverGraph={(connectionProfileId) => {
+          const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
+          if (connectionAsset) {
+            setDiscoverGraphErrorMessage(null);
+            setPendingDiscoverGraph(connectionAsset);
+          }
+        }}
         onShowHelp={() => setShowHelp(true)}
         onCloseHelp={() => setShowHelp(false)}
         onOpenMenu={setMenu}
@@ -273,6 +297,35 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
               );
             } finally {
               setIsCreatingConnectionProfile(false);
+            }
+          }}
+        />
+      ) : null}
+      {pendingDiscoverGraph ? (
+        <DiscoverGraphProfileOverlay
+          connectionProfile={pendingDiscoverGraph}
+          isDiscovering={discoveringGraphConnectionProfileId === pendingDiscoverGraph.id}
+          errorMessage={discoverGraphErrorMessage}
+          onCancel={() => setPendingDiscoverGraph(null)}
+          onSubmit={async (input) => {
+            setDiscoverGraphErrorMessage(null);
+            setDiscoveringGraphConnectionProfileId(pendingDiscoverGraph.id);
+            try {
+              const discovery = await discoverGraphProfile(pendingDiscoverGraph.id, input);
+              setSelectedAsset({
+                id: discovery.graphProfile.graphProfileId,
+                kind: "graph-profile",
+                label: discovery.graphProfile.graphName,
+                description: `Graph profile (${discovery.graphProfile.status})`
+              });
+              setSelectedStep(null);
+              setPendingDiscoverGraph(null);
+            } catch (error) {
+              setDiscoverGraphErrorMessage(
+                error instanceof Error ? error.message : "Failed to discover graph profile"
+              );
+            } finally {
+              setDiscoveringGraphConnectionProfileId(null);
             }
           }}
         />

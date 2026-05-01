@@ -3,10 +3,13 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  DiscoverGraphProfileInput,
+  GraphDiscoveryResult,
   GraphProfileSummary,
   ProductAPIClient,
   RawConnectionProfileSummary,
   RawConnectionVerificationResult,
+  RawGraphDiscoveryResult,
   RawGraphProfileSummary,
   RawReportBundle,
   RawSourceDocumentSummary,
@@ -64,6 +67,17 @@ export function createProductAPIClient(
         await postJSON<RawConnectionVerificationResult>(
           `${normalizedBaseUrl}/api/connection-profiles/${connectionProfileId}/verify`,
           {}
+        )
+      );
+    },
+    async discoverGraphProfile(
+      connectionProfileId: string,
+      input: DiscoverGraphProfileInput
+    ): Promise<GraphDiscoveryResult> {
+      return mapGraphDiscoveryResult(
+        await postJSON<RawGraphDiscoveryResult>(
+          `${normalizedBaseUrl}/api/connection-profiles/${connectionProfileId}/discover-graph`,
+          discoverGraphProfilePayload(input)
         )
       );
     },
@@ -132,6 +146,13 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
+  };
+}
+
+export function mapGraphDiscoveryResult(raw: RawGraphDiscoveryResult): GraphDiscoveryResult {
+  return {
+    graphProfile: mapGraphProfileSummary(raw.graph_profile),
+    schemaSummary: raw.schema_summary
   };
 }
 
@@ -302,6 +323,16 @@ function createConnectionProfilePayload(
     username: input.username,
     verify_ssl: input.verifySsl,
     secret_refs: secretRefs
+  };
+}
+
+function discoverGraphProfilePayload(input: DiscoverGraphProfileInput): Record<string, unknown> {
+  const graphName = input.graphName?.trim() ?? "";
+  return {
+    ...(graphName ? { graph_name: graphName } : {}),
+    sample_size: input.sampleSize,
+    max_samples_per_collection: input.maxSamplesPerCollection,
+    verify_system: input.verifySystem
   };
 }
 

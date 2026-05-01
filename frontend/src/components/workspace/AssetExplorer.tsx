@@ -15,6 +15,7 @@ interface AssetExplorerProps {
   onSelectAsset: (asset: WorkspaceAsset) => void;
   onOpenConnectionProfile: (connectionProfileId: string) => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
+  onRequestDiscoverGraph: (asset: WorkspaceAsset) => void;
   onOpenDocument: (documentId: string) => void;
   onOpenGraphProfile: (graphProfileId: string) => void;
   onOpenRun: (runId: string) => void;
@@ -30,6 +31,7 @@ export function AssetExplorer({
   onSelectAsset,
   onOpenConnectionProfile,
   onVerifyConnectionProfile,
+  onRequestDiscoverGraph,
   onOpenDocument,
   onOpenGraphProfile,
   onOpenRun,
@@ -67,6 +69,7 @@ export function AssetExplorer({
                       items: buildConnectionProfileContextMenu({
                         onOpenInCanvas: () => onOpenConnectionProfile(asset.id),
                         onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
+                        onDiscoverGraph: () => onRequestDiscoverGraph(asset),
                         onViewInfo: () => onSelectAsset(asset),
                         onCopyId: baseArgs.onCopyId
                       })

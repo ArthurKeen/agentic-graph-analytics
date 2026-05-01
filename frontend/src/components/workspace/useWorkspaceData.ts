@@ -14,6 +14,8 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  DiscoverGraphProfileInput,
+  GraphDiscoveryResult,
   GraphProfileSummary,
   ProductAPIClient,
   ReportBundle,
@@ -49,6 +51,10 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     input: CreateConnectionProfileInput
   ) => Promise<ConnectionProfileSummary>;
   verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
+  discoverGraphProfile: (
+    connectionProfileId: string,
+    input: DiscoverGraphProfileInput
+  ) => Promise<GraphDiscoveryResult>;
 }
 
 export function useWorkspaceData({
@@ -260,11 +266,38 @@ export function useWorkspaceData({
     return verification;
   };
 
+  const discoverGraphProfile = async (
+    connectionProfileId: string,
+    input: DiscoverGraphProfileInput
+  ): Promise<GraphDiscoveryResult> => {
+    const discovery = initialWorkspaceId
+      ? await apiClient.discoverGraphProfile(connectionProfileId, input)
+      : statefulDemoDiscoverGraphProfile(connectionProfileId, input);
+    const profile = discovery.graphProfile;
+    const asset: WorkspaceAsset = {
+      id: profile.graphProfileId,
+      kind: "graph-profile",
+      label: profile.graphName,
+      description: `Graph profile (${profile.status})`
+    };
+
+    setState((current) => ({
+      ...current,
+      assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+      graphProfileById: {
+        ...current.graphProfileById,
+        [profile.graphProfileId]: profile
+      }
+    }));
+    return discovery;
+  };
+
   return {
     ...state,
     publishReport,
     createConnectionProfile,
-    verifyConnectionProfile
+    verifyConnectionProfile,
+    discoverGraphProfile
   };
 }
 
@@ -311,5 +344,26 @@ function statefulDemoVerifyConnectionProfile(
     endpoint: demoConnectionProfile.endpoint,
     database: demoConnectionProfile.database,
     errorMessage: null
+  };
+}
+
+function statefulDemoDiscoverGraphProfile(
+  connectionProfileId: string,
+  input: DiscoverGraphProfileInput
+): GraphDiscoveryResult {
+  const graphProfile = {
+    ...demoGraphProfile,
+    graphProfileId: `graph-profile-${Date.now()}`,
+    connectionProfileId,
+    graphName: input.graphName?.trim() || demoGraphProfile.graphName,
+    status: "active"
+  };
+  return {
+    graphProfile,
+    schemaSummary: {
+      database_name: demoConnectionProfile.database,
+      graph_names: [graphProfile.graphName],
+      sample_size: input.sampleSize
+    }
   };
 }
