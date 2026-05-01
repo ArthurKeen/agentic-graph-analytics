@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
+import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -22,20 +23,27 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [selectedStep, setSelectedStep] = useState<WorkflowDAGNode | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
+  const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
+  const visibleAssets = useMemo(
+    () =>
+      assets.filter((asset) => asset.kind !== "run" || !deletedRunIds.has(asset.id)),
+    [assets, deletedRunIds]
+  );
 
   useEffect(() => {
-    if (selectedAsset && assets.some((asset) => asset.id === selectedAsset.id)) {
+    if (selectedAsset && visibleAssets.some((asset) => asset.id === selectedAsset.id)) {
       return;
     }
 
     const initialAsset =
-      assets.find((asset) => asset.id === initialRunId) ??
-      assets.find((asset) => asset.kind === "run") ??
-      assets[0] ??
+      visibleAssets.find((asset) => asset.id === initialRunId) ??
+      visibleAssets.find((asset) => asset.kind === "run") ??
+      visibleAssets[0] ??
       null;
     setSelectedAsset(initialAsset);
     setSelectedStep(null);
-  }, [assets, initialRunId, selectedAsset]);
+  }, [initialRunId, selectedAsset, visibleAssets]);
 
   const dagView = useMemo(
     () => (selectedAsset?.kind === "run" ? dagByRunId[selectedAsset.id] ?? null : null),
@@ -50,6 +58,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setMenu(null);
       setShowHelp(false);
       setSelectedStep(null);
+      setPendingDeleteRun(null);
     }
 
     window.addEventListener("keydown", closePanels);
@@ -59,18 +68,19 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
       <AssetExplorer
-        assets={assets}
+        assets={visibleAssets}
         onSelectAsset={(asset) => {
           setSelectedAsset(asset);
           setSelectedStep(null);
         }}
         onOpenRun={(runId) => {
-          const run = assets.find((asset) => asset.id === runId);
+          const run = visibleAssets.find((asset) => asset.id === runId);
           if (run) {
             setSelectedAsset(run);
             setSelectedStep(null);
           }
         }}
+        onRequestDeleteRun={(asset) => setPendingDeleteRun(asset)}
         onOpenMenu={setMenu}
       />
       <WorkspaceCanvas
@@ -91,6 +101,20 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {pendingDeleteRun ? (
+        <DeleteRunConfirmationOverlay
+          run={pendingDeleteRun}
+          onCancel={() => setPendingDeleteRun(null)}
+          onConfirm={() => {
+            setDeletedRunIds((current) => new Set([...current, pendingDeleteRun.id]));
+            if (selectedAsset?.id === pendingDeleteRun.id) {
+              setSelectedAsset(null);
+              setSelectedStep(null);
+            }
+            setPendingDeleteRun(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

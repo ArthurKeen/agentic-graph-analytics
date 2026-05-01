@@ -9,6 +9,7 @@ interface AssetExplorerProps {
   assets: WorkspaceAsset[];
   onSelectAsset: (asset: WorkspaceAsset) => void;
   onOpenRun: (runId: string) => void;
+  onRequestDeleteRun: (asset: WorkspaceAsset) => void;
   onOpenMenu: (menu: ContextMenuState) => void;
 }
 
@@ -16,6 +17,7 @@ export function AssetExplorer({
   assets,
   onSelectAsset,
   onOpenRun,
+  onRequestDeleteRun,
   onOpenMenu
 }: AssetExplorerProps) {
   return (
@@ -53,7 +55,7 @@ export function AssetExplorer({
                     onViewPipeline: () => onOpenRun(asset.id),
                     onCopyRunId: baseArgs.onCopyId,
                     onRetryRun: () => onOpenRun(asset.id),
-                    onDeleteRun: () => onSelectAsset(asset)
+                    onDeleteRun: () => onRequestDeleteRun(asset)
                   })
                 });
               }}

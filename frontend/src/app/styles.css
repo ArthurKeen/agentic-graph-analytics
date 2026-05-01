@@ -281,3 +281,57 @@ button {
 .context-menu button[data-danger="true"] {
   color: var(--aga-danger);
 }
+
+.confirmation-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 48%);
+  padding: 24px;
+}
+
+.confirmation-overlay {
+  width: min(480px, 100%);
+  border: 1px solid var(--aga-border);
+  border-radius: 16px;
+  background: var(--aga-panel);
+  box-shadow: 0 24px 100px rgb(0 0 0 / 45%);
+  padding: 20px;
+}
+
+.confirmation-overlay h2 {
+  margin: 0 0 10px;
+}
+
+.confirmation-overlay p {
+  color: var(--aga-muted);
+  margin: 0 0 16px;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.secondary-button,
+.danger-button {
+  border: 1px solid var(--aga-border);
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 9px 12px;
+}
+
+.secondary-button {
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+}
+
+.danger-button {
+  background: var(--aga-danger);
+  border-color: var(--aga-danger);
+  color: #fff;
+}
