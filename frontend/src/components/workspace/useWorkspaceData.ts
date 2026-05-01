@@ -12,6 +12,7 @@ import {
 } from "@/lib/product-api/demoData";
 import type {
   ConnectionProfileSummary,
+  ConnectionVerificationResult,
   CreateConnectionProfileInput,
   GraphProfileSummary,
   ProductAPIClient,
@@ -47,6 +48,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   createConnectionProfile: (
     input: CreateConnectionProfileInput
   ) => Promise<ConnectionProfileSummary>;
+  verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
 }
 
 export function useWorkspaceData({
@@ -220,10 +222,49 @@ export function useWorkspaceData({
     return profile;
   };
 
+  const verifyConnectionProfile = async (
+    connectionProfileId: string
+  ): Promise<ConnectionVerificationResult> => {
+    const verification = initialWorkspaceId
+      ? await apiClient.verifyConnectionProfile(connectionProfileId)
+      : statefulDemoVerifyConnectionProfile(connectionProfileId);
+
+    setState((current) => {
+      const profile = current.connectionProfileById[connectionProfileId];
+      if (!profile) {
+        return current;
+      }
+
+      const updatedProfile = {
+        ...profile,
+        lastVerificationStatus: verification.status,
+        lastVerifiedAt: verification.verifiedAt
+      };
+      return {
+        ...current,
+        assets: current.assets.map((asset) =>
+          asset.id === connectionProfileId
+            ? {
+                ...asset,
+                description: `${updatedProfile.deploymentMode} connection (${updatedProfile.lastVerificationStatus})`
+              }
+            : asset
+        ),
+        connectionProfileById: {
+          ...current.connectionProfileById,
+          [connectionProfileId]: updatedProfile
+        }
+      };
+    });
+
+    return verification;
+  };
+
   return {
     ...state,
     publishReport,
-    createConnectionProfile
+    createConnectionProfile,
+    verifyConnectionProfile
   };
 }
 
@@ -256,5 +297,19 @@ function statefulDemoCreateConnectionProfile(
     lastVerificationStatus: "unknown",
     lastVerifiedAt: null,
     metadata: { source: "demo" }
+  };
+}
+
+function statefulDemoVerifyConnectionProfile(
+  connectionProfileId: string
+): ConnectionVerificationResult {
+  return {
+    connectionProfileId,
+    workspaceId: "workspace-demo",
+    status: "success",
+    verifiedAt: new Date().toISOString(),
+    endpoint: demoConnectionProfile.endpoint,
+    database: demoConnectionProfile.database,
+    errorMessage: null
   };
 }

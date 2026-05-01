@@ -72,6 +72,16 @@ export interface CreateConnectionProfileInput {
   passwordSecretEnvVar?: string;
 }
 
+export interface ConnectionVerificationResult {
+  connectionProfileId: string;
+  workspaceId: string;
+  status: string;
+  verifiedAt: string;
+  endpoint: string;
+  database: string;
+  errorMessage?: string | null;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -180,6 +190,7 @@ export interface ProductAPIClient {
     workspaceId: string,
     input: CreateConnectionProfileInput
   ): Promise<ConnectionProfileSummary>;
+  verifyConnectionProfile(connectionProfileId: string): Promise<ConnectionVerificationResult>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
@@ -209,6 +220,16 @@ export interface RawConnectionProfileSummary {
   last_verification_status?: string;
   last_verified_at?: string | null;
   metadata?: Record<string, unknown>;
+}
+
+export interface RawConnectionVerificationResult {
+  connection_profile_id: string;
+  workspace_id: string;
+  status: string;
+  verified_at: string;
+  endpoint: string;
+  database: string;
+  error_message?: string | null;
 }
 
 export interface RawSourceDocumentSummary {

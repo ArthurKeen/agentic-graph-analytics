@@ -2,6 +2,7 @@
 
 import type { WorkspaceAsset, WorkspaceHealth } from "@/lib/product-api/types";
 import { buildAssetContextMenu } from "./contextMenus/asset";
+import { buildConnectionProfileContextMenu } from "./contextMenus/connectionProfile";
 import { buildDocumentContextMenu } from "./contextMenus/document";
 import { buildGraphProfileContextMenu } from "./contextMenus/graphProfile";
 import { buildReportContextMenu } from "./contextMenus/report";
@@ -12,6 +13,8 @@ interface AssetExplorerProps {
   assets: WorkspaceAsset[];
   health: WorkspaceHealth | null;
   onSelectAsset: (asset: WorkspaceAsset) => void;
+  onOpenConnectionProfile: (connectionProfileId: string) => void;
+  onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onOpenDocument: (documentId: string) => void;
   onOpenGraphProfile: (graphProfileId: string) => void;
   onOpenRun: (runId: string) => void;
@@ -25,6 +28,8 @@ export function AssetExplorer({
   assets,
   health,
   onSelectAsset,
+  onOpenConnectionProfile,
+  onVerifyConnectionProfile,
   onOpenDocument,
   onOpenGraphProfile,
   onOpenRun,
@@ -55,6 +60,19 @@ export function AssetExplorer({
                   onCopyId: () => void navigator.clipboard?.writeText(asset.id)
                 };
                 if (asset.kind !== "run") {
+                  if (asset.kind === "connection-profile") {
+                    onOpenMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      items: buildConnectionProfileContextMenu({
+                        onOpenInCanvas: () => onOpenConnectionProfile(asset.id),
+                        onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
+                        onViewInfo: () => onSelectAsset(asset),
+                        onCopyId: baseArgs.onCopyId
+                      })
+                    });
+                    return;
+                  }
                   if (asset.kind === "document") {
                     onOpenMenu({
                       x: event.clientX,

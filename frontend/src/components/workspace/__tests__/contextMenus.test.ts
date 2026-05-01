@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildAssetContextMenu } from "../contextMenus/asset";
 import { buildCanvasContextMenu } from "../contextMenus/canvas";
+import { buildConnectionProfileContextMenu } from "../contextMenus/connectionProfile";
 import { buildDocumentContextMenu } from "../contextMenus/document";
 import { buildGraphProfileContextMenu } from "../contextMenus/graphProfile";
 import { buildPipelineStepContextMenu } from "../contextMenus/pipelineStep";
@@ -38,6 +39,22 @@ describe("workspace context menu builders", () => {
     });
 
     expect(items.map((item) => item.id)).toEqual(["view-info", "copy-id"]);
+  });
+
+  it("builds connection profile actions with verification", () => {
+    const items = buildConnectionProfileContextMenu({
+      onOpenInCanvas: noop,
+      onVerifyConnection: noop,
+      onViewInfo: noop,
+      onCopyId: noop
+    });
+
+    expect(items.map((item) => item.id)).toEqual([
+      "open-in-canvas",
+      "verify-connection",
+      "view-info",
+      "copy-id"
+    ]);
   });
 
   it("builds graph profile actions for canvas inspection", () => {

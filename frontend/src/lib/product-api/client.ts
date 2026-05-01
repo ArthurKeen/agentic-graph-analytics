@@ -1,10 +1,12 @@
 import type {
   ChartSpec,
   ConnectionProfileSummary,
+  ConnectionVerificationResult,
   CreateConnectionProfileInput,
   GraphProfileSummary,
   ProductAPIClient,
   RawConnectionProfileSummary,
+  RawConnectionVerificationResult,
   RawGraphProfileSummary,
   RawReportBundle,
   RawSourceDocumentSummary,
@@ -52,6 +54,16 @@ export function createProductAPIClient(
         await postJSON<RawConnectionProfileSummary>(
           `${normalizedBaseUrl}/api/workspaces/${workspaceId}/connection-profiles`,
           createConnectionProfilePayload(input)
+        )
+      );
+    },
+    async verifyConnectionProfile(
+      connectionProfileId: string
+    ): Promise<ConnectionVerificationResult> {
+      return mapConnectionVerificationResult(
+        await postJSON<RawConnectionVerificationResult>(
+          `${normalizedBaseUrl}/api/connection-profiles/${connectionProfileId}/verify`,
+          {}
         )
       );
     },
@@ -120,6 +132,20 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
+  };
+}
+
+export function mapConnectionVerificationResult(
+  raw: RawConnectionVerificationResult
+): ConnectionVerificationResult {
+  return {
+    connectionProfileId: raw.connection_profile_id,
+    workspaceId: raw.workspace_id,
+    status: raw.status,
+    verifiedAt: raw.verified_at,
+    endpoint: raw.endpoint,
+    database: raw.database,
+    errorMessage: raw.error_message
   };
 }
 

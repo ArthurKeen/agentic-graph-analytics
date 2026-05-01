@@ -1,6 +1,7 @@
 "use client";
 
 import { CanvasLensLegend } from "./CanvasLensLegend";
+import { ConnectionProfileCanvas } from "./ConnectionProfileCanvas";
 import { DynamicReportCanvas } from "./DynamicReportCanvas";
 import { EmptyCanvasState } from "./EmptyCanvasState";
 import { GraphProfileCanvas } from "./GraphProfileCanvas";
@@ -12,6 +13,8 @@ import { buildCanvasContextMenu } from "./contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
 import type {
+  ConnectionProfileSummary,
+  ConnectionVerificationResult,
   ReportBundle,
   GraphProfileSummary,
   SourceDocumentSummary,
@@ -23,17 +26,22 @@ import type {
 interface WorkspaceCanvasProps {
   selectedAsset: WorkspaceAsset | null;
   selectedStep: WorkflowDAGNode | null;
+  connectionProfile: ConnectionProfileSummary | null;
+  connectionVerificationResult: ConnectionVerificationResult | null;
   dagView: WorkflowDAGView | null;
   graphProfile: GraphProfileSummary | null;
   sourceDocument: SourceDocumentSummary | null;
   reportBundle: ReportBundle | null;
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
+  isVerifyingConnection: boolean;
+  connectionVerificationErrorMessage: string | null;
   showHelp: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onRequestCreateConnectionProfile: () => void;
+  onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onShowHelp: () => void;
   onCloseHelp: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
@@ -42,17 +50,22 @@ interface WorkspaceCanvasProps {
 export function WorkspaceCanvas({
   selectedAsset,
   selectedStep,
+  connectionProfile,
+  connectionVerificationResult,
   dagView,
   graphProfile,
   sourceDocument,
   reportBundle,
   dataStatus,
   dataErrorMessage,
+  isVerifyingConnection,
+  connectionVerificationErrorMessage,
   showHelp,
   onSelectStep,
   onClearAssetSelection,
   onClearSelection,
   onRequestCreateConnectionProfile,
+  onVerifyConnectionProfile,
   onShowHelp,
   onCloseHelp,
   onOpenMenu
@@ -60,11 +73,13 @@ export function WorkspaceCanvas({
   const lensName =
     selectedAsset?.kind === "report"
       ? "Dynamic Report"
-      : selectedAsset?.kind === "graph-profile"
-        ? "Graph Profile"
-        : selectedAsset?.kind === "document"
-          ? "Source Document"
-          : "Operational DAG";
+      : selectedAsset?.kind === "connection-profile"
+        ? "Connection Profile"
+        : selectedAsset?.kind === "graph-profile"
+          ? "Graph Profile"
+          : selectedAsset?.kind === "document"
+            ? "Source Document"
+            : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateConnectionProfile: onRequestCreateConnectionProfile,
@@ -130,7 +145,15 @@ export function WorkspaceCanvas({
         {dataErrorMessage ? ` (${dataErrorMessage})` : ""}
       </p>
 
-      {sourceDocument && selectedAsset.kind === "document" ? (
+      {connectionProfile && selectedAsset.kind === "connection-profile" ? (
+        <ConnectionProfileCanvas
+          connectionProfile={connectionProfile}
+          verificationResult={connectionVerificationResult}
+          isVerifying={isVerifyingConnection}
+          verificationErrorMessage={connectionVerificationErrorMessage}
+          onVerify={onVerifyConnectionProfile}
+        />
+      ) : sourceDocument && selectedAsset.kind === "document" ? (
         <SourceDocumentCanvas document={sourceDocument} />
       ) : graphProfile && selectedAsset.kind === "graph-profile" ? (
         <GraphProfileCanvas graphProfile={graphProfile} />

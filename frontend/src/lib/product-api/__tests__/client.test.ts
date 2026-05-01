@@ -311,4 +311,39 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("verifies connection profiles through the product API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connection_profile_id: "connection-1",
+        workspace_id: "workspace-1",
+        status: "success",
+        verified_at: "2026-01-01T00:00:00Z",
+        endpoint: "http://localhost:8529",
+        database: "customer_graph",
+        error_message: null
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient(
+      "http://api.example"
+    ).verifyConnectionProfile("connection-1");
+
+    expect(result).toMatchObject({
+      connectionProfileId: "connection-1",
+      status: "success",
+      errorMessage: null
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/connection-profiles/connection-1/verify",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({})
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });

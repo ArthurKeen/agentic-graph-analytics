@@ -9,7 +9,11 @@ import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOve
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
-import type { WorkflowDAGNode, WorkspaceAsset } from "@/lib/product-api/types";
+import type {
+  ConnectionVerificationResult,
+  WorkflowDAGNode,
+  WorkspaceAsset
+} from "@/lib/product-api/types";
 
 interface WorkspaceShellProps {
   initialWorkspaceId?: string;
@@ -19,6 +23,7 @@ interface WorkspaceShellProps {
 export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceShellProps) {
   const {
     assets,
+    connectionProfileById,
     graphProfileById,
     documentById,
     dagByRunId,
@@ -27,6 +32,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     status,
     errorMessage,
     createConnectionProfile,
+    verifyConnectionProfile,
     publishReport
   } = useWorkspaceData({
     initialWorkspaceId,
@@ -43,6 +49,15 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     null
   );
   const [isCreatingConnectionProfile, setIsCreatingConnectionProfile] = useState(false);
+  const [verifyingConnectionProfileId, setVerifyingConnectionProfileId] = useState<string | null>(
+    null
+  );
+  const [connectionVerificationById, setConnectionVerificationById] = useState<
+    Record<string, ConnectionVerificationResult>
+  >({});
+  const [connectionVerificationErrorMessage, setConnectionVerificationErrorMessage] = useState<
+    string | null
+  >(null);
   const [publishErrorMessage, setPublishErrorMessage] = useState<string | null>(null);
   const [publishingReportId, setPublishingReportId] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
@@ -81,6 +96,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     () => (selectedAsset?.kind === "report" ? reportById[selectedAsset.id] ?? null : null),
     [reportById, selectedAsset]
   );
+  const connectionProfile = useMemo(
+    () =>
+      selectedAsset?.kind === "connection-profile"
+        ? connectionProfileById[selectedAsset.id] ?? null
+        : null,
+    [connectionProfileById, selectedAsset]
+  );
   const graphProfile = useMemo(
     () =>
       selectedAsset?.kind === "graph-profile"
@@ -108,12 +130,31 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setPendingPublishReport(null);
       setShowCreateConnectionProfile(false);
       setCreateConnectionErrorMessage(null);
+      setConnectionVerificationErrorMessage(null);
       setPublishErrorMessage(null);
     }
 
     window.addEventListener("keydown", closePanels);
     return () => window.removeEventListener("keydown", closePanels);
   }, []);
+
+  function verifySelectedConnectionProfile(connectionProfileId: string) {
+    setConnectionVerificationErrorMessage(null);
+    setVerifyingConnectionProfileId(connectionProfileId);
+    void verifyConnectionProfile(connectionProfileId)
+      .then((result) =>
+        setConnectionVerificationById((current) => ({
+          ...current,
+          [connectionProfileId]: result
+        }))
+      )
+      .catch((error) =>
+        setConnectionVerificationErrorMessage(
+          error instanceof Error ? error.message : "Failed to verify connection profile"
+        )
+      )
+      .finally(() => setVerifyingConnectionProfileId(null));
+  }
 
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
@@ -123,6 +164,21 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onSelectAsset={(asset) => {
           setSelectedAsset(asset);
           setSelectedStep(null);
+        }}
+        onOpenConnectionProfile={(connectionProfileId) => {
+          const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
+          if (connectionAsset) {
+            setSelectedAsset(connectionAsset);
+            setSelectedStep(null);
+          }
+        }}
+        onVerifyConnectionProfile={(connectionProfileId) => {
+          const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
+          if (connectionAsset) {
+            setSelectedAsset(connectionAsset);
+            setSelectedStep(null);
+          }
+          verifySelectedConnectionProfile(connectionProfileId);
         }}
         onOpenDocument={(documentId) => {
           const documentAsset = visibleAssets.find((asset) => asset.id === documentId);
@@ -159,12 +215,23 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       <WorkspaceCanvas
         selectedAsset={selectedAsset}
         selectedStep={selectedStep}
+        connectionProfile={connectionProfile}
+        connectionVerificationResult={
+          selectedAsset?.kind === "connection-profile"
+            ? connectionVerificationById[selectedAsset.id] ?? null
+            : null
+        }
         dagView={dagView}
         graphProfile={graphProfile}
         sourceDocument={sourceDocument}
         reportBundle={reportBundle}
         dataStatus={status}
         dataErrorMessage={errorMessage}
+        isVerifyingConnection={
+          selectedAsset?.kind === "connection-profile" &&
+          verifyingConnectionProfileId === selectedAsset.id
+        }
+        connectionVerificationErrorMessage={connectionVerificationErrorMessage}
         showHelp={showHelp}
         onSelectStep={setSelectedStep}
         onClearAssetSelection={() => {
@@ -176,6 +243,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setCreateConnectionErrorMessage(null);
           setShowCreateConnectionProfile(true);
         }}
+        onVerifyConnectionProfile={verifySelectedConnectionProfile}
         onShowHelp={() => setShowHelp(true)}
         onCloseHelp={() => setShowHelp(false)}
         onOpenMenu={setMenu}
