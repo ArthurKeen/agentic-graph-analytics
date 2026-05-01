@@ -29,6 +29,13 @@ export function WorkspaceHelpOverlay({ onClose }: WorkspaceHelpOverlayProps) {
             <dd>Opens actions for the specific asset, step, or canvas.</dd>
           </div>
           <div>
+            <dt>Canvas actions</dt>
+            <dd>
+              Use canvas actions to create workflow runs, switch back to the
+              operational DAG, or export/import workspace metadata bundles.
+            </dd>
+          </div>
+          <div>
             <dt>Esc</dt>
             <dd>Closes open help and detail overlays.</dd>
           </div>

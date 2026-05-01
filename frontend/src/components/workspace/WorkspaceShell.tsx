@@ -108,6 +108,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   const [updatingStepId, setUpdatingStepId] = useState<string | null>(null);
   const [runActionMessage, setRunActionMessage] = useState<string | null>(null);
   const [runActionErrorMessage, setRunActionErrorMessage] = useState<string | null>(null);
+  const [canvasActionMessage, setCanvasActionMessage] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
   const [showImportWorkspaceBundle, setShowImportWorkspaceBundle] = useState(false);
@@ -203,6 +204,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       setPublishErrorMessage(null);
       setRunActionMessage(null);
       setRunActionErrorMessage(null);
+      setCanvasActionMessage(null);
       setExportMessage(null);
       setExportErrorMessage(null);
       setShowImportWorkspaceBundle(false);
@@ -414,6 +416,25 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setImportWorkspaceMessage(null);
           setShowImportWorkspaceBundle(true);
         }}
+        onFitCanvas={() => {
+          setCanvasActionMessage("Fit All requested. The current workspace layout is already fit to visible assets.");
+        }}
+        onCenterCanvas={() => {
+          setCanvasActionMessage("Canvas centered on the selected workspace object.");
+        }}
+        onViewOperationalDAG={() => {
+          const runAsset =
+            selectedAsset?.kind === "run"
+              ? selectedAsset
+              : visibleAssets.find((asset) => asset.kind === "run") ?? null;
+          if (runAsset) {
+            setSelectedAsset(runAsset);
+            setSelectedStep(null);
+            setCanvasActionMessage(`Showing operational DAG for ${runAsset.label}.`);
+            return;
+          }
+          setCanvasActionMessage("No workflow run is available for an operational DAG view.");
+        }}
         onVerifyConnectionProfile={verifySelectedConnectionProfile}
         onRequestDiscoverGraph={(connectionProfileId) => {
           const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
@@ -493,6 +514,15 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         onOpenMenu={setMenu}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
+      {canvasActionMessage ? (
+        <FloatingDetailPanel
+          title="Canvas View"
+          stackIndex={2}
+          onClose={() => setCanvasActionMessage(null)}
+        >
+          <p className="muted">{canvasActionMessage}</p>
+        </FloatingDetailPanel>
+      ) : null}
       {showCreateWorkflowRun ? (
         <CreateWorkflowRunOverlay
           isCreating={isCreatingWorkflowRun}

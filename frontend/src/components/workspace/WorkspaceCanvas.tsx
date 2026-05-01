@@ -57,6 +57,9 @@ interface WorkspaceCanvasProps {
   onRequestCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
   onRequestImportWorkspace: () => void;
+  onFitCanvas: () => void;
+  onCenterCanvas: () => void;
+  onViewOperationalDAG: () => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onRequestDiscoverGraph: (connectionProfileId: string) => void;
   onRequestStartRequirementsCopilot: (graphProfileId: string) => void;
@@ -107,6 +110,9 @@ export function WorkspaceCanvas({
   onRequestCreateWorkflowRun,
   onExportWorkspace,
   onRequestImportWorkspace,
+  onFitCanvas,
+  onCenterCanvas,
+  onViewOperationalDAG,
   onVerifyConnectionProfile,
   onRequestDiscoverGraph,
   onRequestStartRequirementsCopilot,
@@ -134,9 +140,9 @@ export function WorkspaceCanvas({
       onCreateWorkflowRun: onRequestCreateWorkflowRun,
       onExportWorkspace,
       onImportWorkspace: onRequestImportWorkspace,
-      onFitAll: () => undefined,
-      onCenterView: () => undefined,
-      onViewAsOperational: () => undefined,
+      onFitAll: onFitCanvas,
+      onCenterView: onCenterCanvas,
+      onViewAsOperational: onViewOperationalDAG,
       onShowHelp
     });
 
