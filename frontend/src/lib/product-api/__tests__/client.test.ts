@@ -395,6 +395,52 @@ describe("product API client mappers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("lists named graphs available on a connection profile", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        connection_profile_id: "connection-1",
+        workspace_id: "workspace-1",
+        database: "customer_graph",
+        graphs: [
+          {
+            name: "CustomerGraph",
+            is_system: false,
+            vertex_collections: ["customers"],
+            edge_collections: ["transactions"],
+            orphan_collections: [],
+            edge_definitions: [],
+            vertex_count: 100,
+            edge_count: 250
+          }
+        ]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient(
+      "http://api.example"
+    ).listConnectionProfileGraphs("connection-1");
+
+    expect(result).toMatchObject({
+      connectionProfileId: "connection-1",
+      database: "customer_graph"
+    });
+    expect(result.graphs).toHaveLength(1);
+    expect(result.graphs[0]).toMatchObject({
+      name: "CustomerGraph",
+      isSystem: false,
+      vertexCount: 100,
+      edgeCount: 250
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/connection-profiles/connection-1/graphs",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
   it("discovers graph profiles through the product API", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

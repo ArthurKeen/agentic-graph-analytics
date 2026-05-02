@@ -11,6 +11,7 @@ import {
   demoSourceDocument
 } from "@/lib/product-api/demoData";
 import type {
+  ConnectionGraphsResult,
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
@@ -69,6 +70,9 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     input: CreateConnectionProfileInput
   ) => Promise<ConnectionProfileSummary>;
   verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
+  listConnectionProfileGraphs: (
+    connectionProfileId: string
+  ) => Promise<ConnectionGraphsResult>;
   discoverGraphProfile: (
     connectionProfileId: string,
     input: DiscoverGraphProfileInput
@@ -124,15 +128,36 @@ export function useWorkspaceData({
   });
 
   useEffect(() => {
-    if (!initialWorkspaceId) {
-      return;
-    }
-
-    const workspaceId = initialWorkspaceId;
     let cancelled = false;
     setState((current) => ({ ...current, status: "loading", errorMessage: undefined }));
 
+    async function resolveWorkspaceId(): Promise<string | null> {
+      if (initialWorkspaceId) {
+        return initialWorkspaceId;
+      }
+      try {
+        const workspaces = await apiClient.listWorkspaces();
+        if (workspaces.length === 0) {
+          return null;
+        }
+        return workspaces[0].workspaceId;
+      } catch {
+        return null;
+      }
+    }
+
     async function loadWorkspace() {
+      const workspaceId = await resolveWorkspaceId();
+      if (cancelled) {
+        return;
+      }
+      if (!workspaceId) {
+        // No real workspaces in the Product API yet — fall back to the canned
+        // demo data the initial state was seeded with.
+        setState((current) => ({ ...current, status: "demo", errorMessage: undefined }));
+        return;
+      }
+
       try {
         const [overview, health] = await Promise.all([
           apiClient.getWorkspaceOverview(workspaceId),
@@ -368,6 +393,15 @@ export function useWorkspaceData({
     return verification;
   };
 
+  const listConnectionProfileGraphs = async (
+    connectionProfileId: string
+  ): Promise<ConnectionGraphsResult> => {
+    if (initialWorkspaceId || state.status !== "demo") {
+      return apiClient.listConnectionProfileGraphs(connectionProfileId);
+    }
+    return statefulDemoListConnectionProfileGraphs(connectionProfileId);
+  };
+
   const discoverGraphProfile = async (
     connectionProfileId: string,
     input: DiscoverGraphProfileInput
@@ -554,6 +588,7 @@ export function useWorkspaceData({
     publishReport,
     createConnectionProfile,
     verifyConnectionProfile,
+    listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
     answerRequirementsCopilotQuestion,
@@ -635,6 +670,28 @@ function statefulDemoVerifyConnectionProfile(
     endpoint: demoConnectionProfile.endpoint,
     database: demoConnectionProfile.database,
     errorMessage: null
+  };
+}
+
+function statefulDemoListConnectionProfileGraphs(
+  connectionProfileId: string
+): ConnectionGraphsResult {
+  return {
+    connectionProfileId,
+    workspaceId: "workspace-demo",
+    database: demoConnectionProfile.database,
+    graphs: [
+      {
+        name: demoGraphProfile.graphName,
+        isSystem: false,
+        vertexCollections: demoGraphProfile.vertexCollections,
+        edgeCollections: demoGraphProfile.edgeCollections,
+        orphanCollections: [],
+        edgeDefinitions: demoGraphProfile.edgeDefinitions,
+        vertexCount: demoGraphProfile.counts?.total_documents ?? null,
+        edgeCount: demoGraphProfile.counts?.total_edges ?? null
+      }
+    ]
   };
 }
 

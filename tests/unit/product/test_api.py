@@ -28,6 +28,10 @@ def test_product_api_contract_includes_core_ui_routes():
         "POST",
         "/api/connection-profiles/{connection_profile_id}/verify",
     ) in route_keys
+    assert (
+        "GET",
+        "/api/connection-profiles/{connection_profile_id}/graphs",
+    ) in route_keys
     assert ("GET", "/api/runs/{run_id}/workflow-dag") in route_keys
     assert (
         "POST",
@@ -46,6 +50,7 @@ def test_product_api_contract_maps_to_service_methods():
     assert "create_workspace" in service_methods
     assert "create_connection_profile" in service_methods
     assert "verify_connection_profile" in service_methods
+    assert "list_connection_profile_graphs" in service_methods
     assert "discover_graph_profile" in service_methods
     assert "start_requirements_copilot" in service_methods
     assert "update_workflow_step" in service_methods

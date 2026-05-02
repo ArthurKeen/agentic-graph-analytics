@@ -1,5 +1,7 @@
 import type {
   ChartSpec,
+  ConnectionGraphSummary,
+  ConnectionGraphsResult,
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
@@ -10,6 +12,8 @@ import type {
   GraphDiscoveryResult,
   GraphProfileSummary,
   ProductAPIClient,
+  RawConnectionGraphSummary,
+  RawConnectionGraphsResult,
   RawConnectionProfileSummary,
   RawConnectionVerificationResult,
   RawGraphDiscoveryResult,
@@ -65,6 +69,12 @@ export function createProductAPIClient(
         )
       );
     },
+    async listWorkspaces(): Promise<WorkspaceSummary[]> {
+      const raw = await getJSON<RawWorkspaceSummary[]>(
+        `${normalizedBaseUrl}/api/workspaces`
+      );
+      return Array.isArray(raw) ? raw.map(mapWorkspaceSummary) : [];
+    },
     async getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview> {
       return mapWorkspaceOverview(
         await getJSON<RawWorkspaceOverview>(
@@ -97,6 +107,15 @@ export function createProductAPIClient(
         await postJSON<RawConnectionVerificationResult>(
           `${normalizedBaseUrl}/api/connection-profiles/${connectionProfileId}/verify`,
           {}
+        )
+      );
+    },
+    async listConnectionProfileGraphs(
+      connectionProfileId: string
+    ): Promise<ConnectionGraphsResult> {
+      return mapConnectionGraphsResult(
+        await getJSON<RawConnectionGraphsResult>(
+          `${normalizedBaseUrl}/api/connection-profiles/${connectionProfileId}/graphs`
         )
       );
     },
@@ -308,6 +327,32 @@ export function mapGraphDiscoveryResult(raw: RawGraphDiscoveryResult): GraphDisc
   return {
     graphProfile: mapGraphProfileSummary(raw.graph_profile),
     schemaSummary: raw.schema_summary
+  };
+}
+
+export function mapConnectionGraphSummary(
+  raw: RawConnectionGraphSummary
+): ConnectionGraphSummary {
+  return {
+    name: raw.name,
+    isSystem: raw.is_system ?? raw.name.startsWith("_"),
+    vertexCollections: raw.vertex_collections ?? [],
+    edgeCollections: raw.edge_collections ?? [],
+    orphanCollections: raw.orphan_collections ?? [],
+    edgeDefinitions: raw.edge_definitions ?? [],
+    vertexCount: raw.vertex_count ?? null,
+    edgeCount: raw.edge_count ?? null
+  };
+}
+
+export function mapConnectionGraphsResult(
+  raw: RawConnectionGraphsResult
+): ConnectionGraphsResult {
+  return {
+    connectionProfileId: raw.connection_profile_id,
+    workspaceId: raw.workspace_id,
+    database: raw.database,
+    graphs: (raw.graphs ?? []).map(mapConnectionGraphSummary)
   };
 }
 

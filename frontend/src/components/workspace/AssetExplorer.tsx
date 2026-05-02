@@ -48,7 +48,18 @@ export function AssetExplorer({
 }: AssetExplorerProps) {
   return (
     <aside className="asset-explorer" aria-label="Workspace assets">
-      <h1>Graph Analytics Workspace</h1>
+      <div className="workspace-brand">
+        <img
+          className="workspace-brand-logo"
+          src="/arango-logo.png"
+          alt="Arango"
+          width={343}
+          height={76}
+        />
+        <div>
+          <h1>Graph Analytics Workspace</h1>
+        </div>
+      </div>
       <p>Left-click selects. Right-click opens object actions.</p>
       <WorkspaceHealthSummary health={health} />
       <RecentAuditEvents events={auditEvents} />

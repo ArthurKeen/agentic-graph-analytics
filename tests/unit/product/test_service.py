@@ -938,6 +938,188 @@ def test_discover_graph_profile_persists_schema_summary():
     assert connector_calls[0]["password"] == "resolved-secret"
 
 
+def test_discover_graph_profile_scopes_to_named_graph():
+    """Graph discovery scopes vertex/edge collections to the requested named graph."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+
+    class FakeExtractor:
+        def __init__(self, db, sample_size=100, max_samples_per_collection=3):
+            self.db = db
+
+        def extract(self):
+            schema = GraphSchema(database_name="customer_graph")
+            # Database has 2 graphs but we request only one
+            schema.graph_names = ["AdtechGraph", "RagCorpus"]
+            schema.vertex_collections = {
+                "Device": CollectionSchema(
+                    name="Device", type=CollectionType.VERTEX, document_count=10
+                ),
+                "IP": CollectionSchema(
+                    name="IP", type=CollectionType.VERTEX, document_count=5
+                ),
+                "RagDoc": CollectionSchema(
+                    name="RagDoc", type=CollectionType.VERTEX, document_count=99
+                ),
+            }
+            schema.edge_collections = {
+                "SEEN_ON_IP": CollectionSchema(
+                    name="SEEN_ON_IP", type=CollectionType.EDGE, document_count=20
+                ),
+                "RagEmbeds": CollectionSchema(
+                    name="RagEmbeds", type=CollectionType.EDGE, document_count=300
+                ),
+            }
+            return schema
+
+    class FakeGraphHandle:
+        def edge_definitions(self):
+            return [
+                {
+                    "edge_collection": "SEEN_ON_IP",
+                    "from_vertex_collections": ["Device"],
+                    "to_vertex_collections": ["IP"],
+                }
+            ]
+
+        def orphan_collections(self):
+            return []
+
+    class FakeCollection:
+        def __init__(self, count_value):
+            self._count_value = count_value
+
+        def count(self):
+            return self._count_value
+
+    class FakeDB:
+        def graph(self, name):
+            assert name == "AdtechGraph"
+            return FakeGraphHandle()
+
+        def collection(self, name):
+            return FakeCollection({"Device": 10, "IP": 5, "SEEN_ON_IP": 20}[name])
+
+    def fake_connector(**kwargs):
+        return FakeDB()
+
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=fake_connector,
+        schema_extractor_factory=FakeExtractor,
+    ).discover_graph_profile(
+        connection_profile_id=profile.connection_profile_id,
+        graph_name="AdtechGraph",
+    )
+
+    persisted_profile = repository.graph_profiles[0]
+    assert persisted_profile.graph_name == "AdtechGraph"
+    assert persisted_profile.vertex_collections == ["Device", "IP"]
+    assert persisted_profile.edge_collections == ["SEEN_ON_IP"]
+    assert persisted_profile.counts["total_documents"] == 15
+    assert persisted_profile.counts["total_edges"] == 20
+    assert persisted_profile.metadata["scope"] == "named_graph"
+    assert sorted(persisted_profile.metadata["available_graphs"]) == [
+        "AdtechGraph",
+        "RagCorpus",
+    ]
+    assert result.graph_profile["graph_name"] == "AdtechGraph"
+
+
+def test_list_connection_profile_graphs_returns_metadata_per_graph():
+    """Listing graphs returns scoped metadata per named graph, skipping system graphs."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+
+    class FakeCollection:
+        def __init__(self, count_value):
+            self._count_value = count_value
+
+        def count(self):
+            return self._count_value
+
+    class FakeDB:
+        def graphs(self):
+            return [
+                {
+                    "name": "AdtechGraph",
+                    "edge_definitions": [
+                        {
+                            "edge_collection": "SEEN_ON_IP",
+                            "from_vertex_collections": ["Device"],
+                            "to_vertex_collections": ["IP"],
+                        }
+                    ],
+                    "orphan_collections": [],
+                },
+                {
+                    "name": "RagCorpus",
+                    "edge_definitions": [
+                        {
+                            "edge_collection": "RagEmbeds",
+                            "from_vertex_collections": ["RagDoc"],
+                            "to_vertex_collections": ["RagDoc"],
+                        }
+                    ],
+                    "orphan_collections": [],
+                },
+                {
+                    "name": "_viewpointGraph",
+                    "edge_definitions": [],
+                    "orphan_collections": [],
+                },
+            ]
+
+        def collection(self, name):
+            return FakeCollection(
+                {"Device": 10, "IP": 5, "SEEN_ON_IP": 20, "RagDoc": 99, "RagEmbeds": 300}[
+                    name
+                ]
+            )
+
+    def fake_connector(**kwargs):
+        return FakeDB()
+
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=fake_connector,
+    ).list_connection_profile_graphs(profile.connection_profile_id)
+
+    assert result.connection_profile_id == profile.connection_profile_id
+    assert result.workspace_id == profile.workspace_id
+    assert result.database == profile.database
+    names = [graph.name for graph in result.graphs]
+    assert names == ["AdtechGraph", "RagCorpus"]
+    adtech = result.graphs[0]
+    assert adtech.vertex_collections == ["Device", "IP"]
+    assert adtech.edge_collections == ["SEEN_ON_IP"]
+    assert adtech.vertex_count == 15
+    assert adtech.edge_count == 20
+    assert adtech.is_system is False
+
+
 def test_discover_graph_profile_rejects_unknown_requested_graph():
     """Graph discovery validates explicit graph names when named graphs exist."""
 

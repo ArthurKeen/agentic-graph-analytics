@@ -20,7 +20,7 @@ export function AssetInfoPanel({ asset, onClose }: AssetInfoPanelProps) {
   return (
     <FloatingDetailPanel
       title={`${assetKindLabels[asset.kind]} Info`}
-      placement="mainColumnTopLeft"
+      placement="viewportTopRight"
       onClose={onClose}
     >
       <dl className="detail-list">

@@ -218,6 +218,52 @@ class GraphDiscoveryResult:
 
 
 @dataclass
+class ConnectionGraphSummary:
+    """Lightweight named-graph descriptor for a connection profile."""
+
+    name: str
+    is_system: bool
+    vertex_collections: List[str]
+    edge_collections: List[str]
+    orphan_collections: List[str]
+    edge_definitions: List[Dict[str, Any]]
+    vertex_count: Optional[int] = None
+    edge_count: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an API-friendly dictionary."""
+
+        return {
+            "name": self.name,
+            "is_system": self.is_system,
+            "vertex_collections": self.vertex_collections,
+            "edge_collections": self.edge_collections,
+            "orphan_collections": self.orphan_collections,
+            "edge_definitions": self.edge_definitions,
+            "vertex_count": self.vertex_count,
+            "edge_count": self.edge_count,
+        }
+
+
+@dataclass
+class ConnectionGraphsResult:
+    """Result of enumerating named graphs for a connection profile."""
+
+    connection_profile_id: str
+    workspace_id: str
+    database: str
+    graphs: List[ConnectionGraphSummary]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "connection_profile_id": self.connection_profile_id,
+            "workspace_id": self.workspace_id,
+            "database": self.database,
+            "graphs": [graph.to_dict() for graph in self.graphs],
+        }
+
+
+@dataclass
 class RequirementsDraftResult:
     """Result of generating a Requirements Copilot draft."""
 
@@ -269,6 +315,54 @@ class WorkspaceHealthResult:
             "counts": self.counts,
             "issues": self.issues,
         }
+
+
+def _collections_from_edge_definitions(
+    edge_definitions: List[Dict[str, Any]],
+    orphan_collections: List[str],
+) -> tuple[List[str], List[str]]:
+    """Derive deduplicated vertex/edge collection lists from edge definitions."""
+
+    vertex: Dict[str, None] = {}
+    edge: Dict[str, None] = {}
+    for definition in edge_definitions:
+        name = definition.get("edge_collection") or definition.get("collection")
+        if name:
+            edge[str(name)] = None
+        for source in definition.get("from_vertex_collections") or []:
+            vertex[str(source)] = None
+        for source in definition.get("from") or []:
+            vertex[str(source)] = None
+        for target in definition.get("to_vertex_collections") or []:
+            vertex[str(target)] = None
+        for target in definition.get("to") or []:
+            vertex[str(target)] = None
+    for orphan in orphan_collections or []:
+        vertex[str(orphan)] = None
+    return list(vertex.keys()), list(edge.keys())
+
+
+def _safe_collection_total(db: Any, collection_names: List[str]) -> Optional[int]:
+    """Sum LENGTH() over the named collections, returning None on failure."""
+
+    if not collection_names:
+        return 0
+    total = 0
+    try:
+        for name in collection_names:
+            try:
+                collection = db.collection(name)
+                count = collection.count()
+            except Exception:
+                cursor = db.aql.execute(
+                    "RETURN LENGTH(@@col)",
+                    bind_vars={"@col": name},
+                )
+                count = next(iter(cursor), 0)
+            total += int(count or 0)
+    except Exception:
+        return None
+    return total
 
 
 class ProductService:
@@ -324,6 +418,15 @@ class ProductService:
             )
         )
         return workspace
+
+    def list_workspaces(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Workspace]:
+        """List workspaces visible to the caller."""
+
+        return self.repository.list_workspaces(status=status, limit=limit)
 
     def get_workspace_overview(
         self,
@@ -626,6 +729,82 @@ class ProductService:
             database=profile.database,
         )
 
+    def list_connection_profile_graphs(
+        self,
+        connection_profile_id: str,
+        password_secret_key: str = "password",
+        verify_system: bool = True,
+        include_system: bool = False,
+        include_counts: bool = True,
+    ) -> ConnectionGraphsResult:
+        """Enumerate named graphs available on a connection profile."""
+
+        profile = self.repository.get_connection_profile(connection_profile_id)
+        password_ref = profile.secret_refs.get(password_secret_key)
+        if not password_ref:
+            raise ValidationError(
+                f"Connection profile is missing secret ref: {password_secret_key}"
+            )
+
+        password = self.secret_resolver.resolve(password_ref)
+        db = self.db_connector(
+            endpoint=profile.endpoint,
+            username=profile.username,
+            password=password,
+            database=profile.database,
+            verify_ssl=profile.verify_ssl,
+            verify_system=verify_system,
+        )
+
+        try:
+            raw_graphs = list(db.graphs() or [])
+        except Exception as exc:  # pragma: no cover - depends on driver
+            raise ValidationError(
+                f"Failed to enumerate graphs on '{profile.database}': {exc}"
+            ) from exc
+
+        summaries: List[ConnectionGraphSummary] = []
+        for raw in raw_graphs:
+            name = raw.get("name") or ""
+            if not name:
+                continue
+            is_system = name.startswith("_")
+            if is_system and not include_system:
+                continue
+            edge_definitions = list(raw.get("edge_definitions") or [])
+            orphan_collections = list(raw.get("orphan_collections") or [])
+            vertex_collections, edge_collections = _collections_from_edge_definitions(
+                edge_definitions, orphan_collections
+            )
+
+            vertex_count: Optional[int] = None
+            edge_count: Optional[int] = None
+            if include_counts:
+                vertex_count = _safe_collection_total(db, vertex_collections)
+                edge_count = _safe_collection_total(db, edge_collections)
+
+            summaries.append(
+                ConnectionGraphSummary(
+                    name=name,
+                    is_system=is_system,
+                    vertex_collections=vertex_collections,
+                    edge_collections=edge_collections,
+                    orphan_collections=orphan_collections,
+                    edge_definitions=edge_definitions,
+                    vertex_count=vertex_count,
+                    edge_count=edge_count,
+                )
+            )
+
+        summaries.sort(key=lambda graph: (graph.is_system, graph.name.lower()))
+
+        return ConnectionGraphsResult(
+            connection_profile_id=profile.connection_profile_id,
+            workspace_id=profile.workspace_id,
+            database=profile.database,
+            graphs=summaries,
+        )
+
     def discover_graph_profile(
         self,
         connection_profile_id: str,
@@ -662,25 +841,38 @@ class ProductService:
         schema = extractor.extract()
 
         selected_graph_name = self._select_graph_name(schema, graph_name, profile.database)
+
+        graph_scope = self._scope_to_named_graph(db, schema, selected_graph_name)
+        scoped_vertex_collections = sorted(graph_scope["vertex_collections"])
+        scoped_edge_collections = sorted(graph_scope["edge_collections"])
+        scoped_edge_definitions = (
+            graph_scope["edge_definitions"]
+            or self._schema_edge_definitions(schema)
+        )
+        scoped_counts: Dict[str, int] = {
+            "vertex_collections": len(scoped_vertex_collections),
+            "edge_collections": len(scoped_edge_collections),
+            "document_collections": len(schema.document_collections),
+            "total_documents": graph_scope.get(
+                "total_documents", schema.total_documents
+            ),
+            "total_edges": graph_scope.get("total_edges", schema.total_edges),
+            "relationships": len(scoped_edge_definitions),
+        }
+
         graph_profile = create_graph_profile(
             workspace_id=profile.workspace_id,
             connection_profile_id=profile.connection_profile_id,
             graph_name=selected_graph_name,
-            vertex_collections=sorted(schema.vertex_collections.keys()),
-            edge_collections=sorted(schema.edge_collections.keys()),
-            edge_definitions=self._schema_edge_definitions(schema),
-            counts={
-                "vertex_collections": len(schema.vertex_collections),
-                "edge_collections": len(schema.edge_collections),
-                "document_collections": len(schema.document_collections),
-                "total_documents": schema.total_documents,
-                "total_edges": schema.total_edges,
-                "relationships": len(schema.relationships),
-            },
+            vertex_collections=scoped_vertex_collections,
+            edge_collections=scoped_edge_collections,
+            edge_definitions=scoped_edge_definitions,
+            counts=scoped_counts,
             created_by=created_by,
             metadata={
                 "database": schema.database_name,
                 "available_graphs": schema.graph_names,
+                "scope": graph_scope.get("scope", "named_graph"),
                 "schema_summary": schema.to_summary_dict(),
                 "discovered_at": current_timestamp().isoformat(),
             },
@@ -1187,6 +1379,69 @@ class ProductService:
                 }
             )
         return definitions
+
+    def _scope_to_named_graph(
+        self,
+        db: Any,
+        schema: GraphSchema,
+        graph_name: str,
+    ) -> Dict[str, Any]:
+        """Resolve the vertex/edge collections for a named graph.
+
+        Falls back to the full schema if the graph is the database name (no real
+        named graph) or if the driver cannot fetch graph metadata.
+        """
+
+        scope: Dict[str, Any] = {
+            "vertex_collections": list(schema.vertex_collections.keys()),
+            "edge_collections": list(schema.edge_collections.keys()),
+            "edge_definitions": [],
+            "scope": "database",
+            "total_documents": schema.total_documents,
+            "total_edges": schema.total_edges,
+        }
+
+        if not graph_name or graph_name not in (schema.graph_names or []):
+            return scope
+
+        try:
+            graph_handle = db.graph(graph_name)
+            edge_definitions = list(graph_handle.edge_definitions() or [])
+        except Exception:
+            return scope
+
+        try:
+            orphan_collections = list(graph_handle.orphan_collections() or [])
+        except Exception:
+            orphan_collections = []
+
+        vertex_collections, edge_collections = _collections_from_edge_definitions(
+            edge_definitions, orphan_collections
+        )
+        if not vertex_collections and not edge_collections:
+            return scope
+
+        total_documents = _safe_collection_total(db, vertex_collections)
+        total_edges = _safe_collection_total(db, edge_collections)
+
+        scope.update(
+            {
+                "vertex_collections": vertex_collections,
+                "edge_collections": edge_collections,
+                "edge_definitions": edge_definitions,
+                "scope": "named_graph",
+                "total_documents": (
+                    total_documents if total_documents is not None else 0
+                )
+                + sum(
+                    schema.document_collections[name].document_count
+                    for name in schema.document_collections
+                    if name in orphan_collections
+                ),
+                "total_edges": total_edges if total_edges is not None else 0,
+            }
+        )
+        return scope
 
     def _workspace_health_issues(
         self,

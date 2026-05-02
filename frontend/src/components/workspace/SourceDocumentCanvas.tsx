@@ -1,9 +1,18 @@
 "use client";
 
 import type { SourceDocumentSummary } from "@/lib/product-api/types";
+import { MarkdownView } from "./MarkdownView";
 
 interface SourceDocumentCanvasProps {
   document: SourceDocumentSummary;
+}
+
+function isMarkdown(doc: SourceDocumentSummary): boolean {
+  const mime = (doc.mimeType ?? "").toLowerCase();
+  if (mime.includes("markdown")) {
+    return true;
+  }
+  return /\.(md|markdown)$/i.test(doc.filename ?? "");
 }
 
 export function SourceDocumentCanvas({ document }: SourceDocumentCanvasProps) {
@@ -36,9 +45,13 @@ export function SourceDocumentCanvas({ document }: SourceDocumentCanvasProps) {
       </section>
 
       <section className="source-document-card">
-        <h4>Extracted Text Preview</h4>
+        <h4>{isMarkdown(document) ? "Document" : "Extracted Text Preview"}</h4>
         {document.extractedText ? (
-          <p>{document.extractedText}</p>
+          isMarkdown(document) ? (
+            <MarkdownView text={document.extractedText} />
+          ) : (
+            <p className="source-document-extracted">{document.extractedText}</p>
+          )
         ) : (
           <p className="muted">No extracted text preview is available.</p>
         )}

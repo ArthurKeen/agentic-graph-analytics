@@ -43,6 +43,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     errorMessage,
     createWorkspace,
     createConnectionProfile,
+    listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
     answerRequirementsCopilotQuestion,
@@ -61,6 +62,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
   });
   const [selectedAsset, setSelectedAsset] = useState<WorkspaceAsset | null>(null);
   const [selectedStep, setSelectedStep] = useState<WorkflowDAGNode | null>(null);
+  const [isAssetInfoOpen, setIsAssetInfoOpen] = useState(true);
+  const [lastDismissedAssetInfoId, setLastDismissedAssetInfoId] = useState<string | null>(
+    null
+  );
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
@@ -151,6 +156,15 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     setSelectedAsset(initialAsset);
     setSelectedStep(null);
   }, [initialRunId, selectedAsset, visibleAssets]);
+
+  useEffect(() => {
+    if (!selectedAsset) {
+      return;
+    }
+    if (selectedAsset.id !== lastDismissedAssetInfoId) {
+      setIsAssetInfoOpen(true);
+    }
+  }, [selectedAsset, lastDismissedAssetInfoId]);
 
   const dagView = useMemo(
     () => (selectedAsset?.kind === "run" ? dagByRunId[selectedAsset.id] ?? null : null),
@@ -243,8 +257,36 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
       .finally(() => setVerifyingConnectionProfileId(null));
   }
 
+  const activeGraphProfile = useMemo(() => {
+    const fromOverview = overview?.latestGraphProfiles?.[0];
+    if (fromOverview) {
+      return fromOverview;
+    }
+    const profiles = Object.values(graphProfileById);
+    return profiles.length > 0 ? profiles[0] : null;
+  }, [graphProfileById, overview]);
+  const activeConnectionProfile = useMemo(() => {
+    if (!activeGraphProfile) {
+      return null;
+    }
+    return (
+      connectionProfileById[activeGraphProfile.connectionProfileId] ??
+      overview?.latestConnectionProfiles?.find(
+        (profile) => profile.connectionProfileId === activeGraphProfile.connectionProfileId
+      ) ??
+      null
+    );
+  }, [activeGraphProfile, connectionProfileById, overview]);
+
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
+      <DataSourceBanner
+        status={status}
+        errorMessage={errorMessage}
+        workspaceName={overview?.workspace?.customer_name}
+        graphName={activeGraphProfile?.graphName ?? null}
+        databaseName={activeConnectionProfile?.database ?? null}
+      />
       <AssetExplorer
         assets={visibleAssets}
         health={health}
@@ -390,9 +432,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             .finally(() => setUpdatingStepId(null));
         }}
         onClearAssetSelection={() => {
-          setSelectedAsset(null);
-          setSelectedStep(null);
+          setIsAssetInfoOpen(false);
+          setLastDismissedAssetInfoId(selectedAsset?.id ?? null);
         }}
+        isAssetInfoOpen={isAssetInfoOpen}
         onClearSelection={() => setSelectedStep(null)}
         onRequestCreateWorkspace={() => {
           setCreateWorkspaceErrorMessage(null);
@@ -686,6 +729,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           isDiscovering={discoveringGraphConnectionProfileId === pendingDiscoverGraph.id}
           errorMessage={discoverGraphErrorMessage}
           onCancel={() => setPendingDiscoverGraph(null)}
+          onLoadGraphs={listConnectionProfileGraphs}
           onSubmit={async (input) => {
             setDiscoverGraphErrorMessage(null);
             setDiscoveringGraphConnectionProfileId(pendingDiscoverGraph.id);
@@ -801,6 +845,77 @@ function FloatingExportStatusPanel({
         Exports include product metadata only. Runtime secrets remain referenced, not resolved.
       </p>
     </FloatingDetailPanel>
+  );
+}
+
+function DataSourceBanner({
+  status,
+  errorMessage,
+  workspaceName,
+  graphName,
+  databaseName
+}: {
+  status: "demo" | "loading" | "ready" | "error";
+  errorMessage?: string;
+  workspaceName?: string;
+  graphName?: string | null;
+  databaseName?: string | null;
+}) {
+  if (status === "ready") {
+    return (
+      <div className="data-source-banner data-source-banner-ready" role="status">
+        <strong>Live</strong>
+        <span>
+          Loaded from Product API{workspaceName ? ` — ${workspaceName}` : ""}
+          {graphName ? (
+            <>
+              {" · Analyzing "}
+              <span className="data-source-banner-graph">{graphName}</span>
+              {databaseName ? (
+                <>
+                  {" in "}
+                  <code className="data-source-banner-database">{databaseName}</code>
+                </>
+              ) : null}
+            </>
+          ) : null}
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <div className="data-source-banner data-source-banner-loading" role="status">
+        <strong>Loading…</strong>
+        <span>Fetching workspace from Product API</span>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="data-source-banner data-source-banner-error" role="alert">
+        <strong>Error</strong>
+        <span>{errorMessage ?? "Failed to load workspace from Product API"}. Showing demo data.</span>
+        <button type="button" onClick={() => window.location.reload()}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="data-source-banner data-source-banner-demo" role="status">
+      <strong>Demo data</strong>
+      <span>
+        Product API has no workspaces yet, or this tab is showing a stale bundle. Hard-reload the
+        page (⌘⇧R) to fetch live data.
+      </span>
+      <button type="button" onClick={() => window.location.reload()}>
+        Reload
+      </button>
+    </div>
   );
 }
 

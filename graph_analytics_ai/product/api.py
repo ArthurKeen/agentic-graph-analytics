@@ -50,6 +50,14 @@ PRODUCT_API_ENDPOINTS = [
     ),
     ProductAPIEndpoint(
         method="GET",
+        path="/api/workspaces",
+        service_method="list_workspaces",
+        summary="List workspaces",
+        tags=["workspaces"],
+        response_model="List[Workspace]",
+    ),
+    ProductAPIEndpoint(
+        method="GET",
         path="/api/workspaces/{workspace_id}/overview",
         service_method="get_workspace_overview",
         summary="Get workspace dashboard overview",
@@ -81,6 +89,14 @@ PRODUCT_API_ENDPOINTS = [
         tags=["connection-profiles"],
         request_model="ConnectionVerificationRequest",
         response_model="ConnectionVerificationResult",
+    ),
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/connection-profiles/{connection_profile_id}/graphs",
+        service_method="list_connection_profile_graphs",
+        summary="List named graphs visible on a connection profile",
+        tags=["connection-profiles", "graph-profiles"],
+        response_model="ConnectionGraphsResult",
     ),
     ProductAPIEndpoint(
         method="POST",

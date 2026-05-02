@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReportBundle } from "@/lib/product-api/types";
+import { MarkdownView } from "./MarkdownView";
 
 interface DynamicReportCanvasProps {
   report: ReportBundle;
@@ -36,9 +37,11 @@ export function DynamicReportCanvas({ report }: DynamicReportCanvasProps) {
           <h4>Charts</h4>
           {report.charts.map((chart) => (
             <article key={chart.chartId} className="report-chart">
-              <strong>{chart.title}</strong>
-              <span>{chart.chartType}</span>
-              <pre>{JSON.stringify(chart.data, null, 2)}</pre>
+              <header className="report-chart-header">
+                <strong>{chart.title}</strong>
+                <span>{chart.chartType}</span>
+              </header>
+              <ChartBody chart={chart} />
             </article>
           ))}
         </section>
@@ -50,8 +53,57 @@ export function DynamicReportCanvas({ report }: DynamicReportCanvasProps) {
 function ReportContent({ content }: { content: Record<string, unknown> }) {
   const text = content.text;
   if (typeof text === "string") {
-    return <p>{text}</p>;
+    return <MarkdownView text={text} className="report-text" />;
   }
 
   return <pre>{JSON.stringify(content, null, 2)}</pre>;
+}
+
+const PLOTLY_CDN_URL = "https://cdn.plot.ly/plotly-2.35.2.min.js";
+
+function ensurePlotlyRuntime(html: string): string {
+  // The agent often emits Plotly fragments with `include_plotlyjs=False`,
+  // i.e. inline `Plotly.newPlot(...)` calls but no <script> that loads
+  // Plotly.js. Detect that case and inject the CDN runtime so the iframe
+  // can actually render the chart.
+  const hasPlotlyRuntime =
+    /plotly[^"']*\.js/i.test(html) ||
+    /cdn\.plot\.ly/i.test(html) ||
+    /plotly\.min\.js/i.test(html);
+
+  if (hasPlotlyRuntime) {
+    return html;
+  }
+
+  const cdnTag = `<script src="${PLOTLY_CDN_URL}" charset="utf-8"></script>`;
+
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head([^>]*)>/i, `<head$1>${cdnTag}`);
+  }
+
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html([^>]*)>/i, `<html$1><head>${cdnTag}</head>`);
+  }
+
+  return `<!doctype html><html><head><meta charset="utf-8"/>${cdnTag}<style>body{margin:0;padding:8px;font-family:sans-serif;background:#fff;}</style></head><body>${html}</body></html>`;
+}
+
+function ChartBody({ chart }: { chart: ReportBundle["charts"][number] }) {
+  const data = chart.data ?? {};
+  const kind = typeof data.kind === "string" ? data.kind : undefined;
+  const html = typeof data.html === "string" ? data.html : undefined;
+
+  if (kind === "plotly_html" && html) {
+    return (
+      <iframe
+        className="report-chart-frame"
+        title={chart.title || "Plotly chart"}
+        sandbox="allow-scripts allow-same-origin"
+        srcDoc={ensurePlotlyRuntime(html)}
+        loading="lazy"
+      />
+    );
+  }
+
+  return <pre>{JSON.stringify(data, null, 2)}</pre>;
 }

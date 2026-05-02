@@ -63,6 +63,7 @@ class AnalysisConfig:
     edge_collections: List[str] = field(default_factory=list)
     vertex_attributes: Optional[List[str]] = None  # Attributes to load (e.g., ['_key'])
     database: Optional[str] = None  # None = use default from config
+    graph_name: Optional[str] = None  # Optional named graph (preferred over collection lists)
 
     # Algorithm configuration
     algorithm_params: Dict[str, Any] = field(default_factory=dict)
@@ -520,6 +521,8 @@ class GAEOrchestrator:
         )
 
         self._log(f"Loading graph from {result.config.database}...")
+        if result.config.graph_name:
+            self._log(f"  Named graph: {result.config.graph_name}")
         self._log(f"  Vertices: {result.config.vertex_collections}")
         self._log(f"  Edges: {result.config.edge_collections}")
         if result.config.vertex_attributes:
@@ -532,7 +535,7 @@ class GAEOrchestrator:
             vertex_collections=result.config.vertex_collections,
             edge_collections=result.config.edge_collections,
             vertex_attributes=result.config.vertex_attributes,
-            graph_name=None,  # Explicitly no named graph - use collection list
+            graph_name=result.config.graph_name,
         )
 
         result.graph_id = graph_info.get("graph_id") or graph_info.get("id")

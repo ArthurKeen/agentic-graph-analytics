@@ -49,6 +49,7 @@ interface WorkspaceCanvasProps {
   activeRequirementInterview: RequirementInterview | null;
   approvedRequirementVersion: RequirementVersion | null;
   showHelp: boolean;
+  isAssetInfoOpen: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onRetryWorkflowStep: (step: WorkflowDAGNode) => void;
   onClearAssetSelection: () => void;
@@ -103,6 +104,7 @@ export function WorkspaceCanvas({
   activeRequirementInterview,
   approvedRequirementVersion,
   showHelp,
+  isAssetInfoOpen,
   onSelectStep,
   onRetryWorkflowStep,
   onClearAssetSelection,
@@ -269,7 +271,9 @@ export function WorkspaceCanvas({
 
       <CanvasLensLegend lensName={lensName} />
 
-      <AssetInfoPanel asset={selectedAsset} onClose={onClearAssetSelection} />
+      {isAssetInfoOpen && !selectedStep ? (
+        <AssetInfoPanel asset={selectedAsset} onClose={onClearAssetSelection} />
+      ) : null}
 
       {selectedStep ? (
         <FloatingDetailPanel title={selectedStep.label} onClose={onClearSelection}>

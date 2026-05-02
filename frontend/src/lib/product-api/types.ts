@@ -113,6 +113,24 @@ export interface GraphDiscoveryResult {
   schemaSummary: Record<string, unknown>;
 }
 
+export interface ConnectionGraphSummary {
+  name: string;
+  isSystem: boolean;
+  vertexCollections: string[];
+  edgeCollections: string[];
+  orphanCollections: string[];
+  edgeDefinitions: Array<Record<string, unknown>>;
+  vertexCount?: number | null;
+  edgeCount?: number | null;
+}
+
+export interface ConnectionGraphsResult {
+  connectionProfileId: string;
+  workspaceId: string;
+  database: string;
+  graphs: ConnectionGraphSummary[];
+}
+
 export interface StartRequirementsCopilotInput {
   domain?: string;
   createdBy?: string;
@@ -300,6 +318,7 @@ export interface WorkspaceImportResult {
 
 export interface ProductAPIClient {
   createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceSummary>;
+  listWorkspaces(): Promise<WorkspaceSummary[]>;
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   createConnectionProfile(
@@ -307,6 +326,9 @@ export interface ProductAPIClient {
     input: CreateConnectionProfileInput
   ): Promise<ConnectionProfileSummary>;
   verifyConnectionProfile(connectionProfileId: string): Promise<ConnectionVerificationResult>;
+  listConnectionProfileGraphs(
+    connectionProfileId: string
+  ): Promise<ConnectionGraphsResult>;
   discoverGraphProfile(
     connectionProfileId: string,
     input: DiscoverGraphProfileInput
@@ -571,4 +593,22 @@ export interface RawWorkspaceBundle {
 export interface RawWorkspaceImportResult {
   workspace_id: string;
   counts: Record<string, number>;
+}
+
+export interface RawConnectionGraphSummary {
+  name: string;
+  is_system?: boolean;
+  vertex_collections?: string[];
+  edge_collections?: string[];
+  orphan_collections?: string[];
+  edge_definitions?: Array<Record<string, unknown>>;
+  vertex_count?: number | null;
+  edge_count?: number | null;
+}
+
+export interface RawConnectionGraphsResult {
+  connection_profile_id: string;
+  workspace_id: string;
+  database: string;
+  graphs: RawConnectionGraphSummary[];
 }
