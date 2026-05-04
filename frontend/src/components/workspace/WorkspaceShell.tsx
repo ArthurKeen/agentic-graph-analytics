@@ -26,9 +26,18 @@ import type {
 interface WorkspaceShellProps {
   initialWorkspaceId?: string;
   initialRunId?: string;
+  /** Deep-link target: render the Requirements canvas with this specific
+   * version selected (read-only history mode if it isn't the active version).
+   * Sourced from `?requirementVersion=` in the URL; once the user changes the
+   * dropdown the URL is rewritten to match. */
+  initialRequirementVersionId?: string;
 }
 
-export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceShellProps) {
+export function WorkspaceShell({
+  initialWorkspaceId,
+  initialRunId,
+  initialRequirementVersionId
+}: WorkspaceShellProps) {
   const {
     assets,
     connectionProfileById,
@@ -55,23 +64,33 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     importWorkspaceBundle,
     createWorkflowRun,
     startWorkflowRun,
-    updateWorkflowStep
+    updateWorkflowStep,
+    requirementVersions,
+    approvedRequirementVersion: activeApprovedRequirementVersion,
+    refreshOverview
   } = useWorkspaceData({
     initialWorkspaceId,
     initialRunId
   });
   const [selectedAsset, setSelectedAsset] = useState<WorkspaceAsset | null>(null);
   const [selectedStep, setSelectedStep] = useState<WorkflowDAGNode | null>(null);
-  const [isAssetInfoOpen, setIsAssetInfoOpen] = useState(true);
-  const [lastDismissedAssetInfoId, setLastDismissedAssetInfoId] = useState<string | null>(
-    null
-  );
+  // The asset info panel is opt-in (right-click → View Info) so it does not
+  // obscure per-canvas action buttons like "Start Requirements Copilot".
+  const [isAssetInfoOpen, setIsAssetInfoOpen] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
+  // When non-null, the start overlay is invoked in "reopen" mode; the
+  // basedOnVersion is passed through to the backend so the new interview is
+  // pre-populated from this approved RequirementVersion and the prior version
+  // gets flipped to SUPERSEDED on approve.
+  const [pendingReopenVersion, setPendingReopenVersion] = useState<{
+    requirementVersionId: string;
+    version: number;
+  } | null>(null);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
   const [showCreateWorkflowRun, setShowCreateWorkflowRun] = useState(false);
@@ -157,15 +176,6 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
     setSelectedStep(null);
   }, [initialRunId, selectedAsset, visibleAssets]);
 
-  useEffect(() => {
-    if (!selectedAsset) {
-      return;
-    }
-    if (selectedAsset.id !== lastDismissedAssetInfoId) {
-      setIsAssetInfoOpen(true);
-    }
-  }, [selectedAsset, lastDismissedAssetInfoId]);
-
   const dagView = useMemo(
     () => (selectedAsset?.kind === "run" ? dagByRunId[selectedAsset.id] ?? null : null),
     [dagByRunId, selectedAsset]
@@ -201,6 +211,67 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         : null,
     [documentById, selectedAsset]
   );
+  const requirementVersionById = useMemo(
+    () =>
+      Object.fromEntries(
+        requirementVersions.map((version) => [
+          version.requirementVersionId,
+          version
+        ])
+      ),
+    [requirementVersions]
+  );
+  // The Assets panel exposes ONE consolidated "Requirements" row per
+  // workspace; the canvas owns version selection via a dropdown. `null` means
+  // "follow the active version" — newly approved versions auto-advance the
+  // view without forcing the user to re-pick. URL deep-links seed this with
+  // an explicit id; the URL is rewritten whenever the user picks a different
+  // version (see effect below).
+  const [selectedRequirementVersionId, setSelectedRequirementVersionId] = useState<
+    string | null
+  >(initialRequirementVersionId ?? null);
+
+  // Keep the URL in sync with the dropdown so the current view is shareable
+  // and the back/forward buttons make sense. We use replaceState (not push)
+  // so the dropdown doesn't pollute browser history with one entry per
+  // version pick. SSR guards: only touch `window` on the client.
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const url = new URL(window.location.href);
+    if (selectedRequirementVersionId) {
+      url.searchParams.set("requirementVersion", selectedRequirementVersionId);
+    } else {
+      url.searchParams.delete("requirementVersion");
+    }
+    if (url.toString() !== window.location.href) {
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [selectedRequirementVersionId]);
+
+  // Pre-fill value for the StartRequirementsCopilotOverlay's "Domain" input.
+  // Priority:
+  //   1. The prior version's metadata.domain (set by the service when the
+  //      version was approved through the Copilot — see service.py).
+  //   2. The workspace's customer_name with a trailing " Demo" stripped
+  //      (covers seeded demos like "AdTech Demo" → "AdTech").
+  //   3. Empty string (first-time interview, no signal — user types it).
+  // The user can always overwrite the prefilled value in the form.
+  const startCopilotDefaultDomain = useMemo(() => {
+    if (pendingReopenVersion) {
+      const priorVersion = requirementVersionById[pendingReopenVersion.requirementVersionId];
+      const priorDomain = priorVersion?.metadata?.domain;
+      if (typeof priorDomain === "string" && priorDomain.trim().length > 0) {
+        return priorDomain;
+      }
+    }
+    const customerName = overview?.workspace?.customer_name?.trim();
+    if (customerName) {
+      return customerName.replace(/\s+demo$/i, "").trim();
+    }
+    return "";
+  }, [pendingReopenVersion, requirementVersionById, overview]);
 
   useEffect(() => {
     function closePanels(event: KeyboardEvent) {
@@ -332,6 +403,36 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           setStartCopilotErrorMessage(null);
           setPendingStartCopilot(asset);
         }}
+        onRequestAssetInfo={(asset) => {
+          setSelectedAsset(asset);
+          setSelectedStep(null);
+          setIsAssetInfoOpen(true);
+        }}
+        onRequestReopenRequirementsCopilot={(asset) => {
+          // The Assets panel surfaces the consolidated "Requirements" row, so
+          // `asset.id` is `requirements:<workspaceId>` and reopen always means
+          // "produce v(N+1) from the current ACTIVE version" — historical
+          // versions are read-only via the canvas dropdown. We resolve the
+          // active version here and anchor the new interview on the
+          // workspace's first graph profile (BRD-seeded workspaces have one).
+          const graphProfileAsset =
+            visibleAssets.find((profile) => profile.kind === "graph-profile") ?? null;
+          const priorVersion = activeApprovedRequirementVersion;
+          if (!graphProfileAsset || !priorVersion) {
+            setStartCopilotErrorMessage(
+              "Cannot reopen the Requirements Copilot without an active version and a graph profile in this workspace."
+            );
+            return;
+          }
+          setStartCopilotErrorMessage(null);
+          setSelectedAsset(asset);
+          setSelectedStep(null);
+          setPendingReopenVersion({
+            requirementVersionId: priorVersion.requirementVersionId,
+            version: priorVersion.version
+          });
+          setPendingStartCopilot(graphProfileAsset);
+        }}
         onOpenRun={(runId) => {
           const run = visibleAssets.find((asset) => asset.id === runId);
           if (run) {
@@ -382,6 +483,8 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
         selectedStepRecoveryActions={selectedStepRecoveryActions}
         graphProfile={graphProfile}
         sourceDocument={sourceDocument}
+        requirementVersions={requirementVersions}
+        selectedRequirementVersionId={selectedRequirementVersionId}
         reportBundle={reportBundle}
         dataStatus={status}
         dataErrorMessage={errorMessage}
@@ -394,8 +497,10 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           discoveringGraphConnectionProfileId === selectedAsset.id
         }
         isStartingRequirementsCopilot={
-          selectedAsset?.kind === "graph-profile" &&
-          startingCopilotGraphProfileId === selectedAsset.id
+          (selectedAsset?.kind === "graph-profile" &&
+            startingCopilotGraphProfileId === selectedAsset.id) ||
+          (selectedAsset?.kind === "requirements" &&
+            startingCopilotGraphProfileId !== null)
         }
         isSavingCopilotAnswer={isSavingCopilotAnswer}
         isGeneratingRequirementsDraft={isGeneratingRequirementsDraft}
@@ -431,10 +536,7 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
             )
             .finally(() => setUpdatingStepId(null));
         }}
-        onClearAssetSelection={() => {
-          setIsAssetInfoOpen(false);
-          setLastDismissedAssetInfoId(selectedAsset?.id ?? null);
-        }}
+        onClearAssetSelection={() => setIsAssetInfoOpen(false)}
         isAssetInfoOpen={isAssetInfoOpen}
         onClearSelection={() => setSelectedStep(null)}
         onRequestCreateWorkspace={() => {
@@ -503,9 +605,33 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           const graphProfileAsset = visibleAssets.find((asset) => asset.id === graphProfileId);
           if (graphProfileAsset) {
             setStartCopilotErrorMessage(null);
+            setPendingReopenVersion(null);
             setPendingStartCopilot(graphProfileAsset);
           }
         }}
+        onRequestReopenRequirementsCopilot={(basedOnVersionId) => {
+          const priorVersion = requirementVersionById[basedOnVersionId];
+          // Reopen requires a graph profile to anchor the copilot session.
+          // Prefer the graph profile referenced by the prior interview if we
+          // can resolve it; otherwise fall back to the first graph profile in
+          // the workspace (typical AdTech / BRD-driven workspaces have only
+          // one anyway).
+          const graphProfileAsset =
+            visibleAssets.find((asset) => asset.kind === "graph-profile") ?? null;
+          if (!priorVersion || !graphProfileAsset) {
+            setStartCopilotErrorMessage(
+              "Cannot reopen the Requirements Copilot without a graph profile in this workspace."
+            );
+            return;
+          }
+          setStartCopilotErrorMessage(null);
+          setPendingReopenVersion({
+            requirementVersionId: priorVersion.requirementVersionId,
+            version: priorVersion.version
+          });
+          setPendingStartCopilot(graphProfileAsset);
+        }}
+        onSelectRequirementVersion={setSelectedRequirementVersionId}
         onAnswerRequirementsCopilotQuestion={async (
           requirementInterviewId,
           questionId,
@@ -556,6 +682,13 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
                 ? { ...current, status: "approved" }
                 : current
             );
+            // Re-fetch the overview so the consolidated "Requirements" row
+            // reflects the new version count + active label, and clear the
+            // canvas's pinned version so it follows the new active by default
+            // (avoids the user being stuck looking at v1 after they just
+            // approved v2).
+            setSelectedRequirementVersionId(null);
+            await refreshOverview();
           } catch (error) {
             setRequirementsCopilotErrorMessage(
               error instanceof Error ? error.message : "Failed to approve requirements draft"
@@ -758,17 +891,31 @@ export function WorkspaceShell({ initialWorkspaceId, initialRunId }: WorkspaceSh
           graphProfile={pendingStartCopilot}
           isStarting={startingCopilotGraphProfileId === pendingStartCopilot.id}
           errorMessage={startCopilotErrorMessage}
-          onCancel={() => setPendingStartCopilot(null)}
+          basedOnVersion={pendingReopenVersion}
+          defaultDomain={startCopilotDefaultDomain}
+          onCancel={() => {
+            setPendingStartCopilot(null);
+            setPendingReopenVersion(null);
+          }}
           onSubmit={async (input) => {
             setStartCopilotErrorMessage(null);
             setStartingCopilotGraphProfileId(pendingStartCopilot.id);
             try {
-              const interview = await startRequirementsCopilot(pendingStartCopilot.id, input);
+              const interview = await startRequirementsCopilot(
+                pendingStartCopilot.id,
+                {
+                  ...input,
+                  basedOnVersionId:
+                    input.basedOnVersionId ??
+                    pendingReopenVersion?.requirementVersionId
+                }
+              );
               setActiveRequirementInterview(interview);
               setApprovedRequirementVersion(null);
               setSelectedAsset(pendingStartCopilot);
               setSelectedStep(null);
               setPendingStartCopilot(null);
+              setPendingReopenVersion(null);
             } catch (error) {
               setStartCopilotErrorMessage(
                 error instanceof Error

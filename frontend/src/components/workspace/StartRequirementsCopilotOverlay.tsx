@@ -7,6 +7,16 @@ interface StartRequirementsCopilotOverlayProps {
   graphProfile: WorkspaceAsset;
   isStarting: boolean;
   errorMessage: string | null;
+  /** When set, the new interview is pre-populated from this prior version,
+   * the new approval will be `priorVersion + 1`, and the prior version will
+   * be flipped to SUPERSEDED on approve. The overlay also surfaces a
+   * confirmation banner so the user knows v1 won't be lost in place. */
+  basedOnVersion?: { requirementVersionId: string; version: number } | null;
+  /** Pre-fill the Domain field. Caller supplies the best-known value:
+   * prior version's metadata.domain when reopening, else a workspace-derived
+   * fallback (e.g. derived from customer_name / tags). The user can still
+   * edit it before submitting. */
+  defaultDomain?: string;
   onCancel: () => void;
   onSubmit: (input: StartRequirementsCopilotInput) => Promise<void>;
 }
@@ -15,12 +25,15 @@ export function StartRequirementsCopilotOverlay({
   graphProfile,
   isStarting,
   errorMessage,
+  basedOnVersion = null,
+  defaultDomain = "",
   onCancel,
   onSubmit
 }: StartRequirementsCopilotOverlayProps) {
   const [form, setForm] = useState<StartRequirementsCopilotInput>({
-    domain: "",
-    createdBy: "workspace-ui"
+    domain: defaultDomain,
+    createdBy: "workspace-ui",
+    basedOnVersionId: basedOnVersion?.requirementVersionId
   });
 
   const updateField = <K extends keyof StartRequirementsCopilotInput>(
@@ -44,7 +57,11 @@ export function StartRequirementsCopilotOverlay({
         <header>
           <div>
             <p className="muted">Graph Profile</p>
-            <h2>Start Requirements Copilot</h2>
+            <h2>
+              {basedOnVersion
+                ? `Reopen Requirements Copilot (v${basedOnVersion.version} → v${basedOnVersion.version + 1})`
+                : "Start Requirements Copilot"}
+            </h2>
           </div>
           <button
             className="secondary-button"
@@ -56,10 +73,20 @@ export function StartRequirementsCopilotOverlay({
           </button>
         </header>
 
-        <p className="muted">
-          Start a schema-aware interview for {graphProfile.label}. The copilot will use
-          discovered collections and graph metadata to generate starter questions.
-        </p>
+        {basedOnVersion ? (
+          <p className="warning-text">
+            Your existing Requirements v{basedOnVersion.version} answers will be
+            pre-filled into this interview. On approve, a new
+            Requirements v{basedOnVersion.version + 1} is created and
+            v{basedOnVersion.version} is automatically marked
+            <strong> superseded</strong> (kept for history; it is not deleted).
+          </p>
+        ) : (
+          <p className="muted">
+            Start a schema-aware interview for {graphProfile.label}. The copilot will use
+            discovered collections and graph metadata to generate starter questions.
+          </p>
+        )}
 
         <label>
           Domain

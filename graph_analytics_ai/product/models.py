@@ -64,10 +64,18 @@ class RequirementInterviewStatus(Enum):
 
 
 class RequirementVersionStatus(Enum):
-    """Lifecycle status for requirement versions."""
+    """Lifecycle status for requirement versions.
+
+    DRAFT      -> work-in-progress, not yet approved.
+    APPROVED   -> the active, authoritative version for the workspace.
+    SUPERSEDED -> previously approved; replaced by a newer APPROVED version.
+                  Kept for historical/audit traceability; not used downstream.
+    ARCHIVED   -> withdrawn from the workspace; hidden by default.
+    """
 
     DRAFT = "draft"
     APPROVED = "approved"
+    SUPERSEDED = "superseded"
     ARCHIVED = "archived"
 
 

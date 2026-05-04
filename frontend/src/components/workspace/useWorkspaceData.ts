@@ -92,9 +92,19 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   ) => Promise<RequirementsDraftResult>;
   approveRequirementsCopilotDraft: (
     requirementInterviewId: string,
-    version: number,
+    version: number | null,
     approvedBy?: string
   ) => Promise<RequirementVersion>;
+  /** Snapshot of the active (most recent APPROVED) requirement version, if any. */
+  approvedRequirementVersion: RequirementVersion | null;
+  /** All requirement versions known to the workspace (any status). */
+  requirementVersions: RequirementVersion[];
+  /** Re-fetch the workspace overview (assets, latest versions, audit, etc.)
+   * after a mutation. Cheaper than a full reload — does NOT re-fetch run
+   * DAGs or report bundles, just the projection that drives the AssetExplorer
+   * + RequirementVersionCanvas. Returns a no-op promise when the hook is in
+   * demo mode. */
+  refreshOverview: () => Promise<void>;
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<CreateWorkflowRunResult>;
@@ -250,11 +260,24 @@ export function useWorkspaceData({
     };
   }, [apiClient, initialRunId, initialWorkspaceId]);
 
+  // CRITICAL: `initialWorkspaceId` alone is NOT a sufficient signal for "use
+  // the real API". The loader has a fallback (lines 142-150) that discovers a
+  // workspace via `apiClient.listWorkspaces()` when the URL has no
+  // `?workspaceId=...` — in that case `initialWorkspaceId` is undefined but
+  // `state.overview` is real and `state.status` is "ready". Mutating actions
+  // gated only on `initialWorkspaceId` would silently route to the
+  // `statefulDemo*` in-memory mocks instead of POSTing to the backend, which
+  // is exactly the symptom that caused approve/generate/save to look like
+  // they did nothing. Always gate on `isLive`, and reach for
+  // `effectiveWorkspaceId` whenever an actual workspace id is needed.
+  const effectiveWorkspaceId =
+    initialWorkspaceId ?? state.overview?.workspace.workspace_id ?? null;
+  const isLive = effectiveWorkspaceId !== null && state.status !== "demo";
+
   const createWorkspace = async (input: CreateWorkspaceInput): Promise<WorkspaceSummary> => {
-    const workspace =
-      initialWorkspaceId || state.status !== "demo"
-        ? await apiClient.createWorkspace(input)
-        : statefulDemoCreateWorkspace(input);
+    const workspace = isLive
+      ? await apiClient.createWorkspace(input)
+      : statefulDemoCreateWorkspace(input);
     setState((current) => ({
       ...current,
       overview: {
@@ -268,6 +291,7 @@ export function useWorkspaceData({
         latestConnectionProfiles: [],
         latestGraphProfiles: [],
         latestSourceDocuments: [],
+        latestRequirementVersions: [],
         latestWorkflowRuns: [],
         latestReports: [],
         latestAuditEvents: [
@@ -301,7 +325,7 @@ export function useWorkspaceData({
     reportId: string,
     actor = "workspace-ui"
   ): Promise<ReportBundle> => {
-    if (!initialWorkspaceId) {
+    if (!isLive) {
       const report = state.reportById[reportId] ?? statefulDemoPublish(reportId);
       const publishedReport = {
         ...report,
@@ -334,8 +358,8 @@ export function useWorkspaceData({
   const createConnectionProfile = async (
     input: CreateConnectionProfileInput
   ): Promise<ConnectionProfileSummary> => {
-    const profile = initialWorkspaceId
-      ? await apiClient.createConnectionProfile(initialWorkspaceId, input)
+    const profile = isLive && effectiveWorkspaceId
+      ? await apiClient.createConnectionProfile(effectiveWorkspaceId, input)
       : statefulDemoCreateConnectionProfile(input);
     const asset: WorkspaceAsset = {
       id: profile.connectionProfileId,
@@ -358,7 +382,7 @@ export function useWorkspaceData({
   const verifyConnectionProfile = async (
     connectionProfileId: string
   ): Promise<ConnectionVerificationResult> => {
-    const verification = initialWorkspaceId
+    const verification = isLive
       ? await apiClient.verifyConnectionProfile(connectionProfileId)
       : statefulDemoVerifyConnectionProfile(connectionProfileId);
 
@@ -396,7 +420,7 @@ export function useWorkspaceData({
   const listConnectionProfileGraphs = async (
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult> => {
-    if (initialWorkspaceId || state.status !== "demo") {
+    if (isLive) {
       return apiClient.listConnectionProfileGraphs(connectionProfileId);
     }
     return statefulDemoListConnectionProfileGraphs(connectionProfileId);
@@ -406,7 +430,7 @@ export function useWorkspaceData({
     connectionProfileId: string,
     input: DiscoverGraphProfileInput
   ): Promise<GraphDiscoveryResult> => {
-    const discovery = initialWorkspaceId
+    const discovery = isLive
       ? await apiClient.discoverGraphProfile(connectionProfileId, input)
       : statefulDemoDiscoverGraphProfile(connectionProfileId, input);
     const profile = discovery.graphProfile;
@@ -432,7 +456,7 @@ export function useWorkspaceData({
     graphProfileId: string,
     input: StartRequirementsCopilotInput
   ): Promise<RequirementInterview> => {
-    return initialWorkspaceId
+    return isLive
       ? apiClient.startRequirementsCopilot(graphProfileId, input)
       : statefulDemoStartRequirementsCopilot(graphProfileId, input);
   };
@@ -443,7 +467,7 @@ export function useWorkspaceData({
     answer: string,
     actor = "workspace-ui"
   ): Promise<RequirementInterview> => {
-    return initialWorkspaceId
+    return isLive
       ? apiClient.answerRequirementsCopilotQuestion(
           requirementInterviewId,
           questionId,
@@ -461,31 +485,35 @@ export function useWorkspaceData({
   const generateRequirementsCopilotDraft = async (
     requirementInterviewId: string
   ): Promise<RequirementsDraftResult> => {
-    return initialWorkspaceId
+    return isLive
       ? apiClient.generateRequirementsCopilotDraft(requirementInterviewId)
       : statefulDemoGenerateRequirementsCopilotDraft(requirementInterviewId);
   };
 
   const approveRequirementsCopilotDraft = async (
     requirementInterviewId: string,
-    version: number,
+    version: number | null,
     approvedBy = "workspace-ui"
   ): Promise<RequirementVersion> => {
-    return initialWorkspaceId
+    return isLive
       ? apiClient.approveRequirementsCopilotDraft(requirementInterviewId, version, approvedBy)
-      : statefulDemoApproveRequirementsCopilotDraft(requirementInterviewId, version, approvedBy);
+      : statefulDemoApproveRequirementsCopilotDraft(
+          requirementInterviewId,
+          version ?? 1,
+          approvedBy
+        );
   };
 
   const exportWorkspaceBundle = async (): Promise<WorkspaceBundle> => {
-    return initialWorkspaceId
-      ? apiClient.exportWorkspaceBundle(initialWorkspaceId)
+    return isLive && effectiveWorkspaceId
+      ? apiClient.exportWorkspaceBundle(effectiveWorkspaceId)
       : statefulDemoExportWorkspaceBundle(state);
   };
 
   const importWorkspaceBundle = async (
     bundle: WorkspaceBundle
   ): Promise<WorkspaceImportResult> => {
-    return initialWorkspaceId
+    return isLive
       ? apiClient.importWorkspaceBundle(bundle)
       : statefulDemoImportWorkspaceBundle(bundle);
   };
@@ -493,9 +521,8 @@ export function useWorkspaceData({
   const createWorkflowRun = async (
     input: CreateWorkflowRunInput
   ): Promise<CreateWorkflowRunResult> => {
-    const workspaceId =
-      initialWorkspaceId ?? state.overview?.workspace.workspace_id ?? demoDag.workspaceId;
-    const result = initialWorkspaceId
+    const workspaceId = effectiveWorkspaceId ?? demoDag.workspaceId;
+    const result = isLive
       ? await apiClient.createWorkflowRun(workspaceId, input)
       : statefulDemoCreateWorkflowRun(workspaceId, input);
     const asset: WorkspaceAsset = {
@@ -522,7 +549,7 @@ export function useWorkspaceData({
   };
 
   const startWorkflowRun = async (runId: string): Promise<WorkflowRunSummary> => {
-    const workflowRun = initialWorkspaceId
+    const workflowRun = isLive
       ? await apiClient.startWorkflowRun(runId)
       : statefulDemoStartWorkflowRun(runId);
 
@@ -555,7 +582,7 @@ export function useWorkspaceData({
     stepId: string,
     status: WorkflowStepStatus
   ): Promise<WorkflowStepUpdateResult> => {
-    const result = initialWorkspaceId
+    const result = isLive
       ? await apiClient.updateWorkflowStep(runId, stepId, status)
       : statefulDemoUpdateWorkflowStep(runId, stepId, status);
 
@@ -582,6 +609,39 @@ export function useWorkspaceData({
     return result;
   };
 
+  const requirementVersions = state.overview?.latestRequirementVersions ?? [];
+  // The "active" version is the most-recent APPROVED one; if none is APPROVED
+  // (e.g. only DRAFT exists, or all prior versions were SUPERSEDED before a
+  // new one landed) we pick the highest-numbered version as the displayed
+  // version so the UI never shows an empty requirements asset for a workspace
+  // that actually has versions.
+  const approvedRequirementVersion =
+    requirementVersions.find((version) => version.status === "approved") ??
+    requirementVersions[0] ??
+    null;
+
+  // Targeted re-fetch of the workspace overview only. Used after mutations
+  // (currently: approve Requirements Copilot draft) so the AssetExplorer's
+  // consolidated "Requirements" row and the version selector reflect the new
+  // state without forcing a full page reload.
+  const refreshOverview = async (): Promise<void> => {
+    if (!isLive || !effectiveWorkspaceId) {
+      return;
+    }
+    try {
+      const overview = await apiClient.getWorkspaceOverview(effectiveWorkspaceId);
+      const assets = workspaceAssetsFromOverview(overview);
+      setState((current) => ({
+        ...current,
+        overview,
+        assets: assets.length > 0 ? assets : current.assets
+      }));
+    } catch {
+      // Silent: a failed refresh leaves the existing state intact, which is
+      // safer than wiping it. The next user-triggered load will retry.
+    }
+  };
+
   return {
     ...state,
     createWorkspace,
@@ -594,11 +654,14 @@ export function useWorkspaceData({
     answerRequirementsCopilotQuestion,
     generateRequirementsCopilotDraft,
     approveRequirementsCopilotDraft,
+    refreshOverview,
     exportWorkspaceBundle,
     importWorkspaceBundle,
     createWorkflowRun,
     startWorkflowRun,
-    updateWorkflowStep
+    updateWorkflowStep,
+    approvedRequirementVersion,
+    requirementVersions
   };
 }
 

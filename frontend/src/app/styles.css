@@ -36,14 +36,23 @@ button {
 .workspace-shell {
   display: grid;
   grid-template-columns: minmax(280px, 22vw) 1fr;
-  min-height: 100vh;
+  height: 100vh;
+  /* dvh keeps the layout correct on mobile when the URL bar collapses. */
+  height: 100dvh;
+  overflow: hidden;
+  /* Reserve room for the fixed-position .data-source-banner pill so canvas
+   * titles (e.g. long run IDs) can't slide underneath it. */
+  padding-top: 48px;
 }
 
 .asset-explorer {
   border-right: 1px solid var(--aga-border);
   background: var(--aga-panel);
   padding: 16px;
-  overflow: auto;
+  overflow-y: auto;
+  /* Allow the grid track to shrink so this column can scroll independently. */
+  min-height: 0;
+  height: 100%;
 }
 
 .workspace-brand {
@@ -158,6 +167,10 @@ button {
 .workspace-canvas {
   position: relative;
   min-width: 0;
+  /* Allow this column to shrink within the grid so its inner scroll works. */
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
   padding: 20px;
 }
 
@@ -603,6 +616,108 @@ button {
   padding: 12px;
 }
 
+.requirement-version-canvas {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+  max-width: 980px;
+  padding-bottom: 180px;
+}
+
+.requirement-version-canvas > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid var(--aga-border);
+  border-radius: 14px;
+  background: var(--aga-panel-soft);
+  padding: 16px;
+}
+
+.requirement-version-canvas h3,
+.requirement-version-canvas h4,
+.requirement-version-canvas p {
+  margin: 0;
+}
+
+.requirement-version-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.requirement-version-header-actions > span[data-status] {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--aga-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--aga-muted);
+}
+
+.requirement-version-header-actions > span[data-status="approved"] {
+  color: var(--aga-success, #2bb06a);
+  border-color: var(--aga-success, #2bb06a);
+}
+
+.requirement-version-header-actions > span[data-status="superseded"],
+.requirement-version-header-actions > span[data-status="archived"] {
+  color: var(--aga-muted);
+  background: var(--aga-panel-soft);
+}
+
+.requirement-version-history-badge {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--aga-muted);
+}
+
+.requirement-version-card {
+  border: 1px solid var(--aga-border);
+  border-radius: 14px;
+  background: var(--aga-panel-soft);
+  padding: 16px;
+}
+
+.requirement-version-card.requirement-version-meta dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.requirement-item-list {
+  display: grid;
+  gap: 12px;
+  margin: 10px 0 0;
+  padding-left: 18px;
+}
+
+.requirement-item-list li {
+  display: grid;
+  gap: 4px;
+}
+
+.requirement-item-priority {
+  display: inline-block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--aga-border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 6px;
+  color: var(--aga-muted);
+}
+
+.requirement-item-priority[data-priority="high"],
+.requirement-item-priority[data-priority="critical"] {
+  border-color: var(--aga-warning, #d68a2c);
+  color: var(--aga-warning, #d68a2c);
+}
+
 .source-document-canvas {
   display: grid;
   gap: 18px;
@@ -736,10 +851,86 @@ button {
 .copilot-question {
   display: grid;
   gap: 8px;
+  /* Visually distinguish dirty rows so the user can see at a glance which
+   * answers still need to be saved before approving. */
+  border-left: 3px solid transparent;
+  padding-left: 8px;
+  margin-left: -8px;
+  transition: border-color 120ms ease;
+}
+
+.copilot-question[data-status="unsaved"] {
+  border-left-color: var(--aga-warning, #ffc400);
+}
+
+.copilot-question[data-status="saved"] {
+  border-left-color: var(--aga-success);
+}
+
+.copilot-question[data-status="saving"] {
+  border-left-color: var(--aga-accent);
 }
 
 .copilot-question span {
   color: var(--aga-muted);
+  font-size: 13px;
+}
+
+.copilot-question-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.copilot-save-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.copilot-save-badge[data-state="saved"] {
+  color: var(--aga-success);
+}
+
+.copilot-save-badge[data-state="unsaved"] {
+  color: var(--aga-warning, #ffc400);
+}
+
+.copilot-save-badge[data-state="saving"] {
+  color: var(--aga-accent);
+}
+
+.copilot-approval-success {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--aga-success);
+  background: rgba(56, 178, 106, 0.12);
+}
+
+.copilot-approval-success p {
+  margin: 0;
+}
+
+.requirement-version-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.requirement-version-selector select {
+  border: 1px solid var(--aga-border);
+  border-radius: 8px;
+  background: var(--aga-bg);
+  color: var(--aga-text);
+  padding: 4px 8px;
   font-size: 13px;
 }
 

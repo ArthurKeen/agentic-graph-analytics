@@ -121,6 +121,19 @@ class FakeProductRepository:
         self.requirement_versions.append(version)
         return version.requirement_version_id
 
+    def get_requirement_version(self, requirement_version_id):
+        for version in self.requirement_versions:
+            if version.requirement_version_id == requirement_version_id:
+                return version
+        raise KeyError(requirement_version_id)
+
+    def update_requirement_version(self, version):
+        for index, existing in enumerate(self.requirement_versions):
+            if existing.requirement_version_id == version.requirement_version_id:
+                self.requirement_versions[index] = version
+                return version.requirement_version_id
+        raise KeyError(version.requirement_version_id)
+
     def list_requirement_interviews(self, workspace_id):
         return [
             interview
@@ -1236,6 +1249,148 @@ def test_requirements_copilot_generates_and_approves_draft():
     assert version.requirements[0]["text"] == "Rank identity clusters"
     assert version.constraints[0]["text"] == "Finish in 15 minutes"
     assert version.metadata["approved_by"] == "approver@example.com"
+
+
+def test_requirements_copilot_auto_increments_and_supersedes_prior():
+    """Approving a new draft auto-increments version and flips priors to SUPERSEDED."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="AdtechGraph",
+        vertex_collections=["Audience"],
+        edge_collections=["targets"],
+    )
+    repository.graph_profiles.append(graph_profile)
+    service = ProductService(repository)
+
+    def _approve(answers, *, expected_version, based_on=None):
+        interview = service.start_requirements_copilot(
+            graph_profile_id=graph_profile.graph_profile_id,
+            domain="AdTech",
+            based_on_version_id=based_on,
+        )
+        for question_id, answer in answers.items():
+            service.answer_requirements_copilot_question(
+                interview.requirement_interview_id,
+                question_id=question_id,
+                answer=answer,
+            )
+        service.generate_requirements_copilot_draft(interview.requirement_interview_id)
+        approved = service.approve_requirements_copilot_draft(
+            interview.requirement_interview_id,
+            approved_by="approver@example.com",
+        )
+        assert approved.version == expected_version
+        return approved, interview
+
+    v1, _ = _approve(
+        {
+            "business_goal": "Improve audience planning",
+            "analytics_questions": "Rank identity clusters",
+            "constraints": "Finish in 15 minutes",
+        },
+        expected_version=1,
+    )
+    assert v1.status == RequirementVersionStatus.APPROVED
+    # The interview's domain ("AdTech") is stamped onto the version's metadata
+    # so a subsequent "Reopen Copilot to Produce v(N+1)" can prefill the
+    # Domain field instead of forcing the user to retype it.
+    assert v1.metadata["domain"] == "AdTech"
+
+    # Reopen pre-populates the new interview from v1's content. Crucially, the
+    # caller is NOT passing `domain=` here — the service must inherit it from
+    # v1's metadata so the v2 interview is still tagged "AdTech".
+    interview_v2 = service.start_requirements_copilot(
+        graph_profile_id=graph_profile.graph_profile_id,
+        based_on_version_id=v1.requirement_version_id,
+    )
+    assert interview_v2.domain == "AdTech"
+    answer_map = {
+        str(answer["question_id"]): str(answer["answer"])
+        for answer in interview_v2.answers
+    }
+    assert answer_map.get("business_goal") == "Improve audience planning"
+    assert "Rank identity clusters" in answer_map.get("analytics_questions", "")
+    assert interview_v2.metadata["based_on_version_id"] == v1.requirement_version_id
+    assert interview_v2.metadata["based_on_version"] == 1
+
+    # Approve a second version (still no explicit version number passed).
+    service.answer_requirements_copilot_question(
+        interview_v2.requirement_interview_id,
+        question_id="business_goal",
+        answer="Improve audience planning and personalisation",
+    )
+    service.generate_requirements_copilot_draft(interview_v2.requirement_interview_id)
+    v2 = service.approve_requirements_copilot_draft(
+        interview_v2.requirement_interview_id,
+        approved_by="approver@example.com",
+    )
+    assert v2.version == 2
+    assert v2.metadata["based_on_version_id"] == v1.requirement_version_id
+    assert v2.metadata["based_on_version"] == 1
+    # Domain must continue to propagate so v2 → v3 still prefills correctly.
+    assert v2.metadata["domain"] == "AdTech"
+
+    # v1 must now be SUPERSEDED, and only v2 should be APPROVED.
+    versions = sorted(
+        repository.list_requirement_versions("workspace-1"),
+        key=lambda item: item.version,
+    )
+    assert [version.status for version in versions] == [
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.APPROVED,
+    ]
+    assert versions[0].metadata["superseded_by"] == v2.requirement_version_id
+    assert "superseded_at" in versions[0].metadata
+
+
+def test_requirements_copilot_rejects_collision_on_explicit_version():
+    """Passing an existing version explicitly is rejected to prevent silent dupes."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="AdtechGraph",
+    )
+    repository.graph_profiles.append(graph_profile)
+    service = ProductService(repository)
+
+    interview = service.start_requirements_copilot(
+        graph_profile_id=graph_profile.graph_profile_id,
+    )
+    service.answer_requirements_copilot_question(
+        interview.requirement_interview_id,
+        question_id="business_goal",
+        answer="Goal",
+    )
+    service.generate_requirements_copilot_draft(interview.requirement_interview_id)
+    service.approve_requirements_copilot_draft(
+        interview.requirement_interview_id, version=1
+    )
+
+    interview_two = service.start_requirements_copilot(
+        graph_profile_id=graph_profile.graph_profile_id,
+    )
+    service.answer_requirements_copilot_question(
+        interview_two.requirement_interview_id,
+        question_id="business_goal",
+        answer="Goal",
+    )
+    service.generate_requirements_copilot_draft(
+        interview_two.requirement_interview_id
+    )
+
+    try:
+        service.approve_requirements_copilot_draft(
+            interview_two.requirement_interview_id, version=1
+        )
+    except ValidationError as exc:
+        assert "v1" in str(exc) or "already exists" in str(exc)
+    else:
+        raise AssertionError("Expected ValidationError on version collision")
 
 
 def test_requirements_copilot_approval_requires_draft():

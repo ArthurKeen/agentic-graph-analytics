@@ -7,6 +7,7 @@ import { buildDocumentContextMenu } from "../contextMenus/document";
 import { buildGraphProfileContextMenu } from "../contextMenus/graphProfile";
 import { buildPipelineStepContextMenu } from "../contextMenus/pipelineStep";
 import { buildReportContextMenu } from "../contextMenus/report";
+import { buildRequirementsContextMenu } from "../contextMenus/requirements";
 import { buildRunContextMenu } from "../contextMenus/run";
 
 function noop() {
@@ -78,6 +79,25 @@ describe("workspace context menu builders", () => {
     expect(items.map((item) => item.id)).toEqual([
       "open-in-canvas",
       "start-requirements-copilot",
+      "view-info",
+      "copy-id"
+    ]);
+  });
+
+  it("offers Reopen Copilot from the consolidated Requirements asset", () => {
+    // The Assets panel surfaces ONE Requirements row regardless of how many
+    // RequirementVersion records exist; Reopen always targets the active
+    // version. Per-version inspection (incl. read-only history) lives in the
+    // canvas-side dropdown, not the right-click menu.
+    const items = buildRequirementsContextMenu({
+      onOpenInCanvas: noop,
+      onReopenCopilot: noop,
+      onViewInfo: noop,
+      onCopyId: noop
+    });
+    expect(items.map((item) => item.id)).toEqual([
+      "open-in-canvas",
+      "reopen-requirements-copilot",
       "view-info",
       "copy-id"
     ]);

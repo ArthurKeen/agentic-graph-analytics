@@ -104,6 +104,18 @@ describe("product API client mappers", () => {
           metadata: { source: "upload" }
         }
       ],
+      latest_requirement_versions: [
+        {
+          requirement_version_id: "requirement-version-1",
+          workspace_id: "workspace-1",
+          version: 1,
+          status: "approved",
+          summary: "Approved BRD",
+          objectives: [],
+          requirements: [],
+          constraints: []
+        }
+      ],
       latest_workflow_runs: [
         {
           run_id: "run-1",
@@ -138,6 +150,11 @@ describe("product API client mappers", () => {
       storageMode: "inline_text",
       metadata: { source: "upload" }
     });
+    expect(overview.latestRequirementVersions[0]).toMatchObject({
+      requirementVersionId: "requirement-version-1",
+      version: 1,
+      status: "approved"
+    });
     expect(workspaceAssetsFromOverview(overview)).toEqual([
       {
         id: "connection-1",
@@ -150,6 +167,12 @@ describe("product API client mappers", () => {
         kind: "graph-profile",
         label: "CustomerGraph",
         description: "Graph profile (active)"
+      },
+      {
+        id: "requirements:workspace-1",
+        kind: "requirements",
+        label: "Requirements",
+        description: "v1 (approved)"
       },
       {
         id: "document-1",
@@ -170,6 +193,71 @@ describe("product API client mappers", () => {
         description: "Report (draft)"
       }
     ]);
+  });
+
+  it("consolidates multiple RequirementVersion records into one Requirements asset", () => {
+    // Regression test for the IA refactor: the AssetExplorer should never
+    // grow one row per approved/superseded version. Instead, it surfaces a
+    // single "Requirements" row whose description names the active version
+    // and counts the prior ones; the canvas-side dropdown is responsible for
+    // exposing history.
+    const overview = mapWorkspaceOverview({
+      workspace: { workspace_id: "workspace-2", customer_name: "Acme", project_name: "Households", environment: "prod" },
+      counts: {},
+      latest_connection_profiles: [],
+      latest_graph_profiles: [],
+      latest_source_documents: [],
+      latest_requirement_versions: [
+        {
+          requirement_version_id: "requirement-version-2",
+          workspace_id: "workspace-2",
+          version: 2,
+          status: "approved",
+          summary: "Refined v2",
+          objectives: [],
+          requirements: [],
+          constraints: []
+        },
+        {
+          requirement_version_id: "requirement-version-1",
+          workspace_id: "workspace-2",
+          version: 1,
+          status: "superseded",
+          summary: "Initial",
+          objectives: [],
+          requirements: [],
+          constraints: []
+        }
+      ],
+      latest_workflow_runs: [],
+      latest_reports: []
+    });
+
+    const assets = workspaceAssetsFromOverview(overview);
+    const requirementsAssets = assets.filter((asset) => asset.kind === "requirements");
+    expect(requirementsAssets).toHaveLength(1);
+    expect(requirementsAssets[0]).toEqual({
+      id: "requirements:workspace-2",
+      kind: "requirements",
+      label: "Requirements",
+      description: "v2 (approved) · 1 prior version"
+    });
+  });
+
+  it("omits the Requirements asset when the workspace has no versions yet", () => {
+    const overview = mapWorkspaceOverview({
+      workspace: { workspace_id: "workspace-3", customer_name: "Acme", project_name: "Empty", environment: "prod" },
+      counts: {},
+      latest_connection_profiles: [],
+      latest_graph_profiles: [],
+      latest_source_documents: [],
+      latest_requirement_versions: [],
+      latest_workflow_runs: [],
+      latest_reports: []
+    });
+
+    const assets = workspaceAssetsFromOverview(overview);
+    expect(assets.find((asset) => asset.kind === "requirements")).toBeUndefined();
   });
 
   it("maps workflow DAG payloads into canvas-friendly shape", () => {
@@ -649,8 +737,77 @@ describe("product API client mappers", () => {
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
-          version: 3,
-          approved_by: "analyst@example.com"
+          approved_by: "analyst@example.com",
+          version: 3
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("omits the version field when null is passed so the backend auto-increments", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requirement_version_id: "requirement-version-7",
+        workspace_id: "workspace-1",
+        requirement_interview_id: "interview-1",
+        version: 7,
+        status: "approved",
+        summary: "Auto-incremented"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProductAPIClient("http://api.example").approveRequirementsCopilotDraft(
+      "interview-1",
+      null,
+      "analyst@example.com"
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/requirements-copilot/sessions/interview-1/approve",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ approved_by: "analyst@example.com" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("forwards based_on_version_id when reopening a Requirements Copilot session", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        requirement_interview_id: "interview-2",
+        workspace_id: "workspace-1",
+        graph_profile_id: "graph-1",
+        status: "draft",
+        questions: [],
+        answers: []
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProductAPIClient("http://api.example").startRequirementsCopilot(
+      "graph-1",
+      {
+        domain: "AdTech",
+        createdBy: "analyst@example.com",
+        basedOnVersionId: "requirement-version-1"
+      }
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/graph-profiles/graph-1/requirements-copilot/sessions",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          domain: "AdTech",
+          created_by: "analyst@example.com",
+          based_on_version_id: "requirement-version-1"
         })
       })
     );

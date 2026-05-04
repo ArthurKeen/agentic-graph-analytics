@@ -10,6 +10,13 @@ export type WorkspaceAssetKind =
   | "connection-profile"
   | "document"
   | "graph-profile"
+  // The Assets panel surfaces ONE consolidated "Requirements" row per
+  // workspace, even when several RequirementVersion records exist (v1, v2,…).
+  // The asset id is synthetic — `requirements:<workspaceId>` — and the canvas
+  // exposes a version selector dropdown to view active or any historical
+  // version. This avoids the v1/v2/v3/… clutter the per-version model
+  // produced and matches how users think about "the Requirements doc."
+  | "requirements"
   | "run"
   | "report";
 
@@ -134,6 +141,11 @@ export interface ConnectionGraphsResult {
 export interface StartRequirementsCopilotInput {
   domain?: string;
   createdBy?: string;
+  /** When set, the new interview is pre-populated with answers synthesised from
+   * the named prior RequirementVersion so the user is editing rather than
+   * retyping. The new interview still produces a fresh RequirementVersion on
+   * approve; the prior one is flipped to SUPERSEDED automatically. */
+  basedOnVersionId?: string;
 }
 
 export interface RequirementInterview {
@@ -149,6 +161,7 @@ export interface RequirementInterview {
   assumptions: Array<Record<string, unknown>>;
   draftBrd?: string | null;
   provenanceLabels: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RequirementsDraftResult {
@@ -236,6 +249,7 @@ export interface WorkspaceOverview {
   latestConnectionProfiles: ConnectionProfileSummary[];
   latestGraphProfiles: GraphProfileSummary[];
   latestSourceDocuments: SourceDocumentSummary[];
+  latestRequirementVersions: RequirementVersion[];
   latestWorkflowRuns: Array<{
     run_id: string;
     status: string;
@@ -348,7 +362,10 @@ export interface ProductAPIClient {
   ): Promise<RequirementsDraftResult>;
   approveRequirementsCopilotDraft(
     requirementInterviewId: string,
-    version: number,
+    /** Pass `null` (recommended) to auto-increment to max(existing.version)+1.
+     * Passing a specific number that collides with an existing version raises
+     * a validation error from the backend. */
+    version: number | null,
     approvedBy?: string
   ): Promise<RequirementVersion>;
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
@@ -375,6 +392,7 @@ export interface RawWorkspaceOverview {
   latest_connection_profiles?: RawConnectionProfileSummary[];
   latest_graph_profiles?: RawGraphProfileSummary[];
   latest_source_documents?: RawSourceDocumentSummary[];
+  latest_requirement_versions?: RawRequirementVersion[];
   latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
   latest_reports: WorkspaceOverview["latestReports"];
   latest_audit_events?: Array<Record<string, unknown>>;
@@ -433,6 +451,7 @@ export interface RawRequirementInterview {
   assumptions?: Array<Record<string, unknown>>;
   draft_brd?: string | null;
   provenance_labels?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RawRequirementsDraftResult {

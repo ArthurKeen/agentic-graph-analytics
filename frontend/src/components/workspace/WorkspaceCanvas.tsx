@@ -6,6 +6,7 @@ import { DynamicReportCanvas } from "./DynamicReportCanvas";
 import { EmptyCanvasState } from "./EmptyCanvasState";
 import { GraphProfileCanvas } from "./GraphProfileCanvas";
 import { RequirementsCopilotPanel } from "./RequirementsCopilotPanel";
+import { RequirementVersionCanvas } from "./RequirementVersionCanvas";
 import { SourceDocumentCanvas } from "./SourceDocumentCanvas";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
@@ -35,6 +36,14 @@ interface WorkspaceCanvasProps {
   selectedStepRecoveryActions: string[];
   graphProfile: GraphProfileSummary | null;
   sourceDocument: SourceDocumentSummary | null;
+  /** All requirement versions known to the workspace. The canvas computes
+   * the active and currently-displayed versions itself based on
+   * `selectedRequirementVersionId`. */
+  requirementVersions: RequirementVersion[];
+  /** Which version the user has selected in the canvas dropdown. `null` means
+   * "follow the active version" — useful so that approving a new version
+   * automatically advances the view without forcing the user to re-pick. */
+  selectedRequirementVersionId: string | null;
   reportBundle: ReportBundle | null;
   dataStatus: "demo" | "loading" | "ready" | "error";
   dataErrorMessage?: string;
@@ -65,6 +74,13 @@ interface WorkspaceCanvasProps {
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
   onRequestDiscoverGraph: (connectionProfileId: string) => void;
   onRequestStartRequirementsCopilot: (graphProfileId: string) => void;
+  /** Reopen the Requirements Copilot pre-populated from a prior approved
+   * RequirementVersion. The current AdtechGraph profile is used as the
+   * graph context. */
+  onRequestReopenRequirementsCopilot: (basedOnVersionId: string) => void;
+  /** Change the version displayed by `RequirementVersionCanvas`. Pass `null`
+   * to revert to "follow active". */
+  onSelectRequirementVersion: (versionId: string | null) => void;
   onAnswerRequirementsCopilotQuestion: (
     requirementInterviewId: string,
     questionId: string,
@@ -73,7 +89,7 @@ interface WorkspaceCanvasProps {
   onGenerateRequirementsDraft: (requirementInterviewId: string) => Promise<void>;
   onApproveRequirementsDraft: (
     requirementInterviewId: string,
-    version: number
+    version: number | null
   ) => Promise<void>;
   onCloseRequirementsCopilot: () => void;
   onShowHelp: () => void;
@@ -90,6 +106,8 @@ export function WorkspaceCanvas({
   selectedStepRecoveryActions,
   graphProfile,
   sourceDocument,
+  requirementVersions,
+  selectedRequirementVersionId,
   reportBundle,
   dataStatus,
   dataErrorMessage,
@@ -120,6 +138,8 @@ export function WorkspaceCanvas({
   onVerifyConnectionProfile,
   onRequestDiscoverGraph,
   onRequestStartRequirementsCopilot,
+  onRequestReopenRequirementsCopilot,
+  onSelectRequirementVersion,
   onAnswerRequirementsCopilotQuestion,
   onGenerateRequirementsDraft,
   onApproveRequirementsDraft,
@@ -137,7 +157,9 @@ export function WorkspaceCanvas({
           ? "Graph Profile"
           : selectedAsset?.kind === "document"
             ? "Source Document"
-            : "Operational DAG";
+            : selectedAsset?.kind === "requirements"
+              ? "Requirements"
+              : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateWorkspace: onRequestCreateWorkspace,
@@ -225,6 +247,14 @@ export function WorkspaceCanvas({
           isStartingRequirementsCopilot={isStartingRequirementsCopilot}
           onStartRequirementsCopilot={onRequestStartRequirementsCopilot}
         />
+      ) : selectedAsset.kind === "requirements" ? (
+        <RequirementVersionCanvas
+          versions={requirementVersions}
+          selectedVersionId={selectedRequirementVersionId}
+          isStartingRequirementsCopilot={isStartingRequirementsCopilot}
+          onSelectVersion={onSelectRequirementVersion}
+          onReopenCopilot={onRequestReopenRequirementsCopilot}
+        />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section className="pipeline-dag" aria-label="Workflow DAG">
           {dagView.nodes.map((node, index) => (
@@ -299,6 +329,7 @@ export function WorkspaceCanvas({
           isApprovingDraft={isApprovingRequirementsDraft}
           errorMessage={requirementsCopilotErrorMessage}
           approvedRequirementVersion={approvedRequirementVersion}
+          existingRequirementVersions={requirementVersions}
           onAnswerQuestion={(questionId, answer) =>
             onAnswerRequirementsCopilotQuestion(
               activeRequirementInterview.requirementInterviewId,

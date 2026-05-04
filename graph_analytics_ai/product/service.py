@@ -60,6 +60,7 @@ class WorkspaceOverview:
     latest_connection_profiles: List[Dict[str, Any]] = field(default_factory=list)
     latest_graph_profiles: List[Dict[str, Any]] = field(default_factory=list)
     latest_source_documents: List[Dict[str, Any]] = field(default_factory=list)
+    latest_requirement_versions: List[Dict[str, Any]] = field(default_factory=list)
     latest_workflow_runs: List[Dict[str, Any]] = field(default_factory=list)
     latest_reports: List[Dict[str, Any]] = field(default_factory=list)
     latest_audit_events: List[Dict[str, Any]] = field(default_factory=list)
@@ -73,6 +74,7 @@ class WorkspaceOverview:
             "latest_connection_profiles": self.latest_connection_profiles,
             "latest_graph_profiles": self.latest_graph_profiles,
             "latest_source_documents": self.latest_source_documents,
+            "latest_requirement_versions": self.latest_requirement_versions,
             "latest_workflow_runs": self.latest_workflow_runs,
             "latest_reports": self.latest_reports,
             "latest_audit_events": self.latest_audit_events,
@@ -456,6 +458,11 @@ class ProductService:
             "reports": len(reports),
         }
 
+        sorted_requirement_versions = sorted(
+            requirement_versions,
+            key=lambda v: (v.version, v.created_at),
+            reverse=True,
+        )
         return WorkspaceOverview(
             workspace=workspace.to_dict(),
             counts=counts,
@@ -467,6 +474,10 @@ class ProductService:
             ],
             latest_source_documents=[
                 document.to_dict() for document in source_documents[:recent_limit]
+            ],
+            latest_requirement_versions=[
+                version.to_dict()
+                for version in sorted_requirement_versions[:recent_limit]
             ],
             latest_workflow_runs=[
                 run.to_dict() for run in workflow_runs[:recent_limit]
@@ -889,21 +900,114 @@ class ProductService:
         graph_profile_id: str,
         domain: Optional[str] = None,
         created_by: Optional[str] = None,
+        based_on_version_id: Optional[str] = None,
     ) -> RequirementInterview:
-        """Start a schema-aware Requirements Copilot interview."""
+        """Start a schema-aware Requirements Copilot interview.
+
+        When ``based_on_version_id`` is provided, the new interview is
+        pre-populated with synthesised answers derived from that version's
+        summary / objectives / requirements / constraints, so the user is
+        revising rather than retyping. The new interview is still tied to a
+        fresh ``requirement_interview_id``; on approve, a new
+        ``RequirementVersion`` is created and any prior APPROVED versions in
+        the same workspace are flipped to ``SUPERSEDED``.
+        """
 
         graph_profile = self.repository.get_graph_profile(graph_profile_id)
         schema_observations = self._schema_observations_from_graph_profile(graph_profile)
+        questions = self._requirements_copilot_questions(schema_observations)
+
+        prefilled_answers: List[Dict[str, Any]] = []
+        prior_version_metadata: Dict[str, Any] = {}
+        if based_on_version_id:
+            prior = self.repository.get_requirement_version(based_on_version_id)
+            if prior.workspace_id != graph_profile.workspace_id:
+                raise ValidationError(
+                    "based_on_version_id must belong to the same workspace as the graph profile"
+                )
+            prefilled_answers = self._prefill_answers_from_version(prior, questions)
+            prior_version_metadata = {
+                "based_on_version_id": prior.requirement_version_id,
+                "based_on_version": prior.version,
+            }
+            # Inherit the prior version's domain when the caller didn't pass
+            # one explicitly. The approve flow stamps `metadata["domain"]` onto
+            # each new version, so this chains forward across v1 → v2 → vN
+            # without the user retyping "AdTech" every time.
+            if domain is None:
+                prior_domain = prior.metadata.get("domain") if prior.metadata else None
+                if isinstance(prior_domain, str) and prior_domain.strip():
+                    domain = prior_domain
+
+        metadata: Dict[str, Any] = {}
+        if created_by:
+            metadata["created_by"] = created_by
+        metadata.update(prior_version_metadata)
+
         interview = create_requirement_interview(
             workspace_id=graph_profile.workspace_id,
             graph_profile_id=graph_profile.graph_profile_id,
             domain=domain,
-            questions=self._requirements_copilot_questions(schema_observations),
+            questions=questions,
             schema_observations=schema_observations,
-            metadata={"created_by": created_by} if created_by else {},
+            answers=prefilled_answers,
+            metadata=metadata,
         )
         self.repository.create_requirement_interview(interview)
         return interview
+
+    def _prefill_answers_from_version(
+        self,
+        version: RequirementVersion,
+        questions: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Synthesise interview answers from a prior approved RequirementVersion.
+
+        Maps the structured fields of the prior version back onto the
+        question_ids the copilot will ask, so users see their previous answers
+        already filled in (and editable) rather than starting from a blank
+        interview.
+        """
+
+        def _items_to_text(items: List[Dict[str, Any]]) -> str:
+            # Items can come in two shapes:
+            #   - Copilot-derived: {"id", "text", "source"}
+            #   - BRD-imported:    {"id", "title", "description", "priority"}
+            # Prefer the most descriptive field available, then fall back.
+            lines: List[str] = []
+            for item in items:
+                text = str(item.get("text") or "").strip()
+                title = str(item.get("title") or "").strip()
+                description = str(item.get("description") or "").strip()
+                if text:
+                    lines.append(f"- {text}")
+                elif title and description and title != description:
+                    lines.append(f"- {title}: {description}")
+                elif title:
+                    lines.append(f"- {title}")
+                elif description:
+                    lines.append(f"- {description}")
+            return "\n".join(lines)
+
+        synthesised: Dict[str, str] = {
+            "business_goal": (version.summary or "").strip(),
+            "analytics_questions": _items_to_text(version.requirements),
+            "constraints": _items_to_text(version.constraints),
+        }
+        # Some deployments may add extra question_ids; we only pre-fill the
+        # ones we recognise to avoid leaking stale text into unrelated fields.
+        valid_ids = {str(q.get("id")) for q in questions if q.get("id")}
+        timestamp = current_timestamp().isoformat()
+        return [
+            {
+                "question_id": qid,
+                "answer": text,
+                "actor": "system:prefilled-from-version",
+                "answered_at": timestamp,
+            }
+            for qid, text in synthesised.items()
+            if qid in valid_ids and text
+        ]
 
     def answer_requirements_copilot_question(
         self,
@@ -960,18 +1064,49 @@ class ProductService:
     def approve_requirements_copilot_draft(
         self,
         requirement_interview_id: str,
-        version: int,
+        version: Optional[int] = None,
         approved_by: Optional[str] = None,
     ) -> RequirementVersion:
-        """Approve a generated BRD draft into a requirement version."""
+        """Approve a generated BRD draft into a requirement version.
+
+        Behaviour:
+        - If ``version`` is omitted, the next version number is computed as
+          ``max(existing.version) + 1`` for the workspace (or 1 if none).
+        - If ``version`` is provided AND collides with an existing version
+          number for this workspace, ``ValidationError`` is raised; pass
+          ``None`` (or omit) to take the auto-incremented value.
+        - All currently APPROVED versions in the workspace are flipped to
+          ``SUPERSEDED`` so there is always exactly one active version.
+        """
 
         interview = self.repository.get_requirement_interview(requirement_interview_id)
         if not interview.draft_brd:
             raise ValidationError("Requirements Copilot draft must be generated first")
 
+        existing_versions = self.repository.list_requirement_versions(
+            interview.workspace_id
+        )
+        existing_numbers = {prior.version for prior in existing_versions}
+
+        if version is None:
+            next_version = max(existing_numbers, default=0) + 1
+        else:
+            if version in existing_numbers:
+                raise ValidationError(
+                    f"RequirementVersion v{version} already exists in this workspace; "
+                    "omit the 'version' field to auto-increment."
+                )
+            next_version = version
+
+        prior_version_metadata: Dict[str, Any] = {}
+        if interview.metadata:
+            for key in ("based_on_version_id", "based_on_version"):
+                if interview.metadata.get(key) is not None:
+                    prior_version_metadata[key] = interview.metadata[key]
+
         requirement_version = create_requirement_version(
             workspace_id=interview.workspace_id,
-            version=version,
+            version=next_version,
             status=RequirementVersionStatus.APPROVED,
             requirement_interview_id=interview.requirement_interview_id,
             summary=self._answer_for_question(interview, "business_goal")
@@ -997,9 +1132,26 @@ class ProductService:
                 "source": "requirements_copilot",
                 "draft_brd": interview.draft_brd,
                 "provenance_labels": interview.provenance_labels,
+                # Persist the interview's domain on the version so a later
+                # "Reopen Copilot to Produce v(N+1)" can pre-fill the Domain
+                # field instead of asking the user to retype it.
+                **({"domain": interview.domain} if interview.domain else {}),
+                **prior_version_metadata,
             },
         )
         self.repository.create_requirement_version(requirement_version)
+
+        # Flip any prior APPROVED versions to SUPERSEDED so the workspace has
+        # exactly one active set of requirements.
+        for prior in existing_versions:
+            if prior.status is RequirementVersionStatus.APPROVED:
+                prior.status = RequirementVersionStatus.SUPERSEDED
+                prior.metadata = {
+                    **(prior.metadata or {}),
+                    "superseded_by": requirement_version.requirement_version_id,
+                    "superseded_at": current_timestamp().isoformat(),
+                }
+                self.repository.update_requirement_version(prior)
 
         interview.status = RequirementInterviewStatus.APPROVED
         self.repository.update_requirement_interview(interview)

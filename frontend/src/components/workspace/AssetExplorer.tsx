@@ -6,6 +6,7 @@ import { buildConnectionProfileContextMenu } from "./contextMenus/connectionProf
 import { buildDocumentContextMenu } from "./contextMenus/document";
 import { buildGraphProfileContextMenu } from "./contextMenus/graphProfile";
 import { buildReportContextMenu } from "./contextMenus/report";
+import { buildRequirementsContextMenu } from "./contextMenus/requirements";
 import { buildRunContextMenu } from "./contextMenus/run";
 import type { ContextMenuState } from "./contextMenus/types";
 
@@ -20,6 +21,12 @@ interface AssetExplorerProps {
   onOpenDocument: (documentId: string) => void;
   onOpenGraphProfile: (graphProfileId: string) => void;
   onRequestStartRequirementsCopilot: (asset: WorkspaceAsset) => void;
+  /** Reopen the Requirements Copilot pre-populated from the workspace's active
+   * RequirementVersion. The Assets panel surfaces ONE consolidated
+   * "Requirements" row, so this handler always implies "reopen from active";
+   * the shell resolves the active version id from its own state. */
+  onRequestReopenRequirementsCopilot: (asset: WorkspaceAsset) => void;
+  onRequestAssetInfo: (asset: WorkspaceAsset) => void;
   onOpenRun: (runId: string) => void;
   onStartRun: (asset: WorkspaceAsset) => void;
   onOpenReport: (reportId: string) => void;
@@ -39,6 +46,8 @@ export function AssetExplorer({
   onOpenDocument,
   onOpenGraphProfile,
   onRequestStartRequirementsCopilot,
+  onRequestReopenRequirementsCopilot,
+  onRequestAssetInfo,
   onOpenRun,
   onStartRun,
   onOpenReport,
@@ -75,8 +84,12 @@ export function AssetExplorer({
               onClick={() => onSelectAsset(asset)}
               onContextMenu={(event) => {
                 event.preventDefault();
+                const openInfo = () => {
+                  onSelectAsset(asset);
+                  onRequestAssetInfo(asset);
+                };
                 const baseArgs = {
-                  onViewInfo: () => onSelectAsset(asset),
+                  onViewInfo: openInfo,
                   onCopyId: () => void navigator.clipboard?.writeText(asset.id)
                 };
                 if (asset.kind !== "run") {
@@ -88,7 +101,7 @@ export function AssetExplorer({
                         onOpenInCanvas: () => onOpenConnectionProfile(asset.id),
                         onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
                         onDiscoverGraph: () => onRequestDiscoverGraph(asset),
-                        onViewInfo: () => onSelectAsset(asset),
+                        onViewInfo: openInfo,
                         onCopyId: baseArgs.onCopyId
                       })
                     });
@@ -100,7 +113,7 @@ export function AssetExplorer({
                       y: event.clientY,
                       items: buildDocumentContextMenu({
                         onOpenInCanvas: () => onOpenDocument(asset.id),
-                        onViewInfo: () => onSelectAsset(asset),
+                        onViewInfo: openInfo,
                         onCopyId: baseArgs.onCopyId
                       })
                     });
@@ -114,7 +127,7 @@ export function AssetExplorer({
                         onOpenInCanvas: () => onOpenGraphProfile(asset.id),
                         onStartRequirementsCopilot: () =>
                           onRequestStartRequirementsCopilot(asset),
-                        onViewInfo: () => onSelectAsset(asset),
+                        onViewInfo: openInfo,
                         onCopyId: baseArgs.onCopyId
                       })
                     });
@@ -128,6 +141,19 @@ export function AssetExplorer({
                         onViewReport: () => onOpenReport(asset.id),
                         onCopyReportId: baseArgs.onCopyId,
                         onPublishReport: () => onRequestPublishReport(asset)
+                      })
+                    });
+                    return;
+                  }
+                  if (asset.kind === "requirements") {
+                    onOpenMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      items: buildRequirementsContextMenu({
+                        onOpenInCanvas: () => onSelectAsset(asset),
+                        onReopenCopilot: () => onRequestReopenRequirementsCopilot(asset),
+                        onViewInfo: openInfo,
+                        onCopyId: baseArgs.onCopyId
                       })
                     });
                     return;

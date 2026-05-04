@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import unquote
 
 from dotenv import load_dotenv
 
@@ -384,6 +385,21 @@ ALG_RESULT_FIELDS = {
 }
 
 
+def _split_encoded_id(raw_key: str) -> Tuple[str, str]:
+    """Split a GAE result _key like 'Location%2F60602' into (collection, key).
+
+    GAE stores results back with the source vertex `_id` URL-encoded into the
+    result collection's `_key` (because `/` is not a legal `_key` character).
+    We undo that here so downstream summaries can show real collection names
+    and readable identifiers (`Location/60602`, not `Location%2F60602`).
+    """
+    decoded = unquote(raw_key)
+    if "/" in decoded:
+        collection, _, ident = decoded.partition("/")
+        return collection, ident
+    return "node", decoded
+
+
 def summarize_ranking(db, patch: UseCasePatch, field: str) -> Dict[str, Any]:
     aql = f"""
     FOR doc IN {patch.target_collection}
@@ -392,7 +408,7 @@ def summarize_ranking(db, patch: UseCasePatch, field: str) -> Dict[str, Any]:
         LIMIT 25
         RETURN {{ key: doc._key, value: doc[@field] }}
     """
-    top = list(db.aql.execute(aql, bind_vars={"field": field}))
+    raw_top = list(db.aql.execute(aql, bind_vars={"field": field}))
 
     totals = next(
         db.aql.execute(
@@ -409,10 +425,13 @@ def summarize_ranking(db, patch: UseCasePatch, field: str) -> Dict[str, Any]:
             bind_vars={"field": field},
         )
     )
+    top: List[Dict[str, Any]] = []
     by_collection: Dict[str, int] = {}
-    for entry in top:
-        col = entry["key"].split("/", 1)[0] if "/" in entry["key"] else "?"
-        by_collection[col] = by_collection.get(col, 0) + 1
+    for entry in raw_top:
+        collection, ident = _split_encoded_id(entry["key"])
+        display = f"{collection}/{ident}"
+        top.append({"key": display, "raw_key": entry["key"], "value": entry["value"]})
+        by_collection[collection] = by_collection.get(collection, 0) + 1
     sum_top = float(totals.get("sum_top") or 0)
     sum_all = float(totals.get("sum_all") or 0)
     return {
@@ -753,7 +772,83 @@ def group_key(
     return (tuple(p.vertex_collections), tuple(p.edge_collections), attrs)
 
 
+def regenerate_only(only: Optional[List[str]] = None) -> None:
+    """Re-summarize existing uc_*_results collections and rewrite reports.
+
+    Use this when the GAE jobs have already produced result collections and we
+    only need to fix the markdown / workflow-state narrative (e.g. after a bug
+    in `summarize_ranking`).  No GAE calls, no graph reload — pure read from
+    ArangoDB.
+    """
+    _log("=" * 70)
+    _log("REGENERATING ADTECH REPORTS (no GAE re-run)")
+    _log("=" * 70)
+    _log(f"Database:  {ADTECH_DATABASE} @ {os.environ['ARANGO_ENDPOINT']}")
+    state = json.loads(WORKFLOW_STATE_PATH.read_text(encoding="utf-8"))
+    db = adtech_db()
+
+    selected = (
+        [p for p in PATCHES if p.use_case_id in set(only)] if only else list(PATCHES)
+    )
+    _log(f"Patches:   {len(selected)}  ({', '.join(p.use_case_id for p in selected)})")
+    _log("")
+
+    for patch in selected:
+        if not db.has_collection(patch.target_collection):
+            _log(f"  !! {patch.use_case_id}: collection {patch.target_collection} missing — skipped")
+            continue
+        col = db.collection(patch.target_collection)
+        count = col.count()
+        if not count:
+            _log(f"  !! {patch.use_case_id}: collection {patch.target_collection} empty — skipped")
+            continue
+        _log(f"  >> {patch.use_case_id} | {patch.algorithm} <- {patch.target_collection} ({count:,} rows)")
+        field = ALG_RESULT_FIELDS[patch.algorithm]
+        if patch.algorithm in ("pagerank", "betweenness"):
+            analysis = build_ranking_report(patch, summarize_ranking(db, patch, field))
+        elif patch.algorithm in ("wcc", "scc"):
+            analysis = build_components_report(
+                patch, summarize_components(db, patch, field),
+                "Weakly Connected Component" if patch.algorithm == "wcc"
+                else "Strongly Connected Component",
+            )
+        else:
+            analysis = build_components_report(
+                patch, summarize_components(db, patch, field), "Community"
+            )
+
+        # Re-use the existing job/timing/completed_at from workflow_state when
+        # available so we don't lie about provenance just to fix narrative.
+        prior = next(
+            (r for r in state.get("reports", []) if r.get("title") == patch.title),
+            None,
+        )
+        prior_ds = (prior or {}).get("dataset_info") or {}
+        exec_info = {
+            "job_id": prior_ds.get("job_id"),
+            "execution_time": float(prior_ds.get("execution_time") or 0.0),
+            "result_count": int(prior_ds.get("result_count") or count),
+            "completed_at": prior_ds.get("completed_at") or datetime.utcnow().isoformat(),
+        }
+        _persist(patch, exec_info, analysis, state)
+
+    _log("")
+    _log("=" * 70)
+    _log("DONE.  Re-run scripts/seed_adtech_workspace.py to refresh the UI.")
+    _log("=" * 70)
+    LOG_FH.close()
+
+
 def main() -> None:
+    args = sys.argv[1:]
+    if "--regenerate-only" in args:
+        only_flag = None
+        for i, a in enumerate(args):
+            if a == "--only" and i + 1 < len(args):
+                only_flag = [s.strip() for s in args[i + 1].split(",") if s.strip()]
+        regenerate_only(only=only_flag)
+        return
+
     _log("=" * 70)
     _log("PATCHING EMPTY ADTECH REPORTS")
     _log("=" * 70)

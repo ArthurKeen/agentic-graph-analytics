@@ -170,16 +170,19 @@ export function createProductAPIClient(
     },
     async approveRequirementsCopilotDraft(
       requirementInterviewId: string,
-      version: number,
+      version: number | null,
       approvedBy = "workspace-ui"
     ): Promise<RequirementVersion> {
+      // Pass `version` only when explicitly provided so the backend can
+      // auto-increment to max(existing.version)+1.
+      const body: Record<string, unknown> = { approved_by: approvedBy };
+      if (version !== null && version !== undefined) {
+        body.version = version;
+      }
       return mapRequirementVersion(
         await postJSON<RawRequirementVersion>(
           `${normalizedBaseUrl}/api/requirements-copilot/sessions/${requirementInterviewId}/approve`,
-          {
-            version,
-            approved_by: approvedBy
-          }
+          body
         )
       );
     },
@@ -305,6 +308,9 @@ export function mapWorkspaceOverview(raw: RawWorkspaceOverview): WorkspaceOvervi
     ),
     latestGraphProfiles: (raw.latest_graph_profiles ?? []).map(mapGraphProfileSummary),
     latestSourceDocuments: (raw.latest_source_documents ?? []).map(mapSourceDocumentSummary),
+    latestRequirementVersions: (raw.latest_requirement_versions ?? []).map(
+      mapRequirementVersion
+    ),
     latestWorkflowRuns: raw.latest_workflow_runs,
     latestReports: raw.latest_reports,
     latestAuditEvents: raw.latest_audit_events ?? []
@@ -369,7 +375,8 @@ export function mapRequirementInterview(raw: RawRequirementInterview): Requireme
     inferences: raw.inferences ?? [],
     assumptions: raw.assumptions ?? [],
     draftBrd: raw.draft_brd,
-    provenanceLabels: raw.provenance_labels ?? []
+    provenanceLabels: raw.provenance_labels ?? [],
+    metadata: raw.metadata ?? {}
   };
 }
 
@@ -598,6 +605,35 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     label: document.filename,
     description: document.mimeType
   }));
+  // Project ONE consolidated "Requirements" row regardless of how many
+  // RequirementVersion records exist (v1, v2,…). The id is synthetic so it
+  // stays stable as new versions are approved and prior versions flip to
+  // SUPERSEDED. Description shows the active version + history depth so the
+  // user gets a one-glance summary without expanding the canvas. When no
+  // versions exist yet the row is omitted entirely (caller decides whether
+  // to surface a "Start Requirements Copilot" affordance elsewhere).
+  const sortedVersions = [...overview.latestRequirementVersions].sort(
+    (a, b) => b.version - a.version
+  );
+  const activeRequirementVersion =
+    sortedVersions.find((version) => version.status === "approved") ??
+    sortedVersions[0] ??
+    null;
+  const requirementsAssets: WorkspaceAsset[] = activeRequirementVersion
+    ? [
+        {
+          id: `requirements:${overview.workspace.workspace_id}`,
+          kind: "requirements" as const,
+          label: "Requirements",
+          description:
+            sortedVersions.length === 1
+              ? `v${activeRequirementVersion.version} (${activeRequirementVersion.status})`
+              : `v${activeRequirementVersion.version} (${activeRequirementVersion.status}) · ${
+                  sortedVersions.length - 1
+                } prior version${sortedVersions.length - 1 === 1 ? "" : "s"}`
+        }
+      ]
+    : [];
   const runAssets = overview.latestWorkflowRuns.map((run) => ({
     id: run.run_id,
     kind: "run" as const,
@@ -614,6 +650,7 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
   return [
     ...connectionProfileAssets,
     ...graphProfileAssets,
+    ...requirementsAssets,
     ...documentAssets,
     ...runAssets,
     ...reportAssets
@@ -667,9 +704,11 @@ function startRequirementsCopilotPayload(
 ): Record<string, unknown> {
   const domain = input.domain?.trim() ?? "";
   const createdBy = input.createdBy?.trim() ?? "";
+  const basedOnVersionId = input.basedOnVersionId?.trim() ?? "";
   return {
     ...(domain ? { domain } : {}),
-    ...(createdBy ? { created_by: createdBy } : {})
+    ...(createdBy ? { created_by: createdBy } : {}),
+    ...(basedOnVersionId ? { based_on_version_id: basedOnVersionId } : {})
   };
 }
 
