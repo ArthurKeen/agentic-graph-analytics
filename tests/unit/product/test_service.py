@@ -337,6 +337,77 @@ def test_workspace_overview_counts_and_recent_items():
     assert overview.latest_audit_events[0]["action"] == "create_report"
 
 
+def test_workspace_overview_returns_all_requirement_versions_uncapped():
+    """FR-17c: every RequirementVersion must appear in the overview.
+
+    The consolidated Requirements asset and its canvas-side version dropdown
+    are projected from ``overview.latest_requirement_versions``. If that list
+    is truncated by ``recent_limit``, older versions silently disappear from
+    the dropdown even though the spec requires that "all historical versions
+    remain queryable and individually addressable". Other ``latest_*`` fields
+    (reports, workflow runs, etc.) must remain capped because they grow
+    unbounded and the cap is a UI affordance, not a correctness requirement.
+    """
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+
+    total_versions = 7
+    statuses = [
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.SUPERSEDED,
+        RequirementVersionStatus.APPROVED,
+    ]
+    for version_number, status in enumerate(statuses, start=1):
+        repository.requirement_versions.append(
+            create_requirement_version(
+                workspace_id=workspace.workspace_id,
+                version=version_number,
+                status=status,
+            )
+        )
+
+    run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+    )
+    repository.workflow_runs[run.run_id] = run
+    cap = 5
+    extra_reports = cap + 3
+    for index in range(extra_reports):
+        report = create_report_manifest(
+            workspace_id=workspace.workspace_id,
+            run_id=run.run_id,
+            title=f"Report {index}",
+        )
+        repository.reports[report.report_id] = report
+
+    overview = ProductService(repository).get_workspace_overview(
+        workspace.workspace_id,
+        recent_limit=cap,
+    )
+
+    assert overview.counts["requirement_versions"] == total_versions
+    assert len(overview.latest_requirement_versions) == total_versions
+    returned_versions = [
+        item["version"] for item in overview.latest_requirement_versions
+    ]
+    assert returned_versions == sorted(returned_versions, reverse=True)
+    assert returned_versions == list(range(total_versions, 0, -1))
+
+    assert len(overview.latest_reports) == cap
+    assert overview.counts["reports"] == extra_reports
+
+
 def test_workspace_health_identifies_missing_and_failed_metadata():
     """Workspace health reports setup gaps and failed product entities."""
 

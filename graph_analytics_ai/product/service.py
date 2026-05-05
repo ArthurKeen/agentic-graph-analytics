@@ -458,6 +458,14 @@ class ProductService:
             "reports": len(reports),
         }
 
+        # FR-17c requires that "all historical versions remain queryable and
+        # individually addressable". The Assets panel surfaces ONE consolidated
+        # Requirements row whose canvas-side dropdown is populated from
+        # `latest_requirement_versions`, so capping this list silently hides
+        # older versions from the UI. Return the full set (sorted desc by
+        # version for convenience; the frontend re-sorts) and keep the
+        # `recent_limit` cap on the other latest_* fields where it is
+        # appropriate.
         sorted_requirement_versions = sorted(
             requirement_versions,
             key=lambda v: (v.version, v.created_at),
@@ -476,8 +484,7 @@ class ProductService:
                 document.to_dict() for document in source_documents[:recent_limit]
             ],
             latest_requirement_versions=[
-                version.to_dict()
-                for version in sorted_requirement_versions[:recent_limit]
+                version.to_dict() for version in sorted_requirement_versions
             ],
             latest_workflow_runs=[
                 run.to_dict() for run in workflow_runs[:recent_limit]
