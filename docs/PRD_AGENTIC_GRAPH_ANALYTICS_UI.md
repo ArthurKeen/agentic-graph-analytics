@@ -526,7 +526,7 @@ version without losing prior context, audit trail, or domain.
 
 - **FR-40:** The system stores report manifests, sections, insights, recommendations, evidence, and chart specs as structured records.
 - **FR-41:** The UI renders reports dynamically from stored records.
-- **FR-42:** Users can export reports to HTML, Markdown, JSON, and PDF.
+- **FR-42:** Users can export reports to HTML, Markdown, JSON, and PDF. *(MVP scope: HTML and Markdown shipped; JSON and PDF deferred until use-case generation produces enough content to make them meaningfully different from the HTML/Markdown exports.)*
 - **FR-43:** Users can publish immutable report snapshots.
 - **FR-44:** Reports link to requirements, use cases, templates, executions, result collections, and graph profile versions.
 

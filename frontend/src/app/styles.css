@@ -297,6 +297,40 @@ button {
   text-transform: uppercase;
 }
 
+.report-canvas-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.report-export-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.report-export-button {
+  padding: 6px 12px;
+  border: 1px solid var(--aga-border);
+  border-radius: 8px;
+  background: var(--aga-panel);
+  color: var(--aga-text, inherit);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.report-export-button:hover:not(:disabled) {
+  background: var(--aga-panel-soft);
+  border-color: var(--aga-accent, var(--aga-border));
+}
+
+.report-export-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .report-sections {
   display: grid;
   gap: 12px;

@@ -60,6 +60,7 @@ export function WorkspaceShell({
     approveRequirementsCopilotDraft,
     verifyConnectionProfile,
     publishReport,
+    exportReport,
     exportWorkspaceBundle,
     importWorkspaceBundle,
     createWorkflowRun,
@@ -701,6 +702,13 @@ export function WorkspaceShell({
         onShowHelp={() => setShowHelp(true)}
         onCloseHelp={() => setShowHelp(false)}
         onOpenMenu={setMenu}
+        onExportReport={async (reportId, format) => {
+          // The shell owns the actual file download because it has a stable
+          // place in the React tree across canvas reloads — handing it to a
+          // child means the click can be aborted by an unrelated rerender.
+          const download = await exportReport(reportId, format);
+          triggerBrowserDownload(download.blob, download.filename);
+        }}
       />
       <ContextMenu menu={menu} onClose={() => setMenu(null)} />
       {showCreateWorkspace ? (
@@ -1066,10 +1074,7 @@ function DataSourceBanner({
   );
 }
 
-function downloadJSON(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], {
-    type: "application/json"
-  });
+function triggerBrowserDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -1078,4 +1083,11 @@ function downloadJSON(filename: string, data: unknown) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadJSON(filename: string, data: unknown) {
+  triggerBrowserDownload(
+    new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+    filename
+  );
 }

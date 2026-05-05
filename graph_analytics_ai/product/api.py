@@ -202,6 +202,14 @@ PRODUCT_API_ENDPOINTS = [
     ),
     ProductAPIEndpoint(
         method="GET",
+        path="/api/reports/{report_id}/export",
+        service_method="export_report",
+        summary="Export a report to HTML or Markdown",
+        tags=["reports"],
+        response_model="ReportExportResult",
+    ),
+    ProductAPIEndpoint(
+        method="GET",
         path="/api/workspaces/{workspace_id}/export",
         service_method="export_workspace_bundle",
         summary="Export a workspace metadata bundle",

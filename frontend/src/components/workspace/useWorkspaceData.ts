@@ -26,6 +26,8 @@ import type {
   RequirementVersion,
   RequirementsDraftResult,
   ReportBundle,
+  ReportExportDownload,
+  ReportExportFormat,
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
   WorkflowDAGView,
@@ -66,6 +68,14 @@ interface WorkspaceDataState {
 interface WorkspaceDataResult extends WorkspaceDataState {
   createWorkspace: (input: CreateWorkspaceInput) => Promise<WorkspaceSummary>;
   publishReport: (reportId: string, actor?: string) => Promise<ReportBundle>;
+  /** Download a rendered report as a Blob (HTML or Markdown). The caller is
+   * responsible for triggering the browser download (e.g. via
+   * createObjectURL + an anchor element). In demo mode this returns a
+   * placeholder Blob so the UI affordance still works. */
+  exportReport: (
+    reportId: string,
+    format: ReportExportFormat
+  ) => Promise<ReportExportDownload>;
   createConnectionProfile: (
     input: CreateConnectionProfileInput
   ) => Promise<ConnectionProfileSummary>;
@@ -353,6 +363,28 @@ export function useWorkspaceData({
       }
     }));
     return publishedReport;
+  };
+
+  const exportReport = async (
+    reportId: string,
+    format: ReportExportFormat
+  ): Promise<ReportExportDownload> => {
+    if (!isLive) {
+      // Demo mode produces a tiny placeholder so the download UI works
+      // end-to-end without a backend. The real backend is the only source
+      // of truth for the rendered HTML/Markdown.
+      const report = state.reportById[reportId] ?? statefulDemoPublish(reportId);
+      const stub = `# ${report.manifest.title}\n\nDemo export — no backend connected.\n`;
+      return {
+        blob: new Blob([stub], {
+          type: format === "markdown" ? "text/markdown" : "text/html"
+        }),
+        filename: `report-${reportId}.${format === "markdown" ? "md" : "html"}`,
+        format
+      };
+    }
+
+    return apiClient.exportReport(reportId, format);
   };
 
   const createConnectionProfile = async (
@@ -646,6 +678,7 @@ export function useWorkspaceData({
     ...state,
     createWorkspace,
     publishReport,
+    exportReport,
     createConnectionProfile,
     verifyConnectionProfile,
     listConnectionProfileGraphs,

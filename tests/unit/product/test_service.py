@@ -1,5 +1,7 @@
 """Unit tests for product UI application services."""
 
+import pytest
+
 from graph_analytics_ai.product import (
     ChartType,
     ConnectionVerificationStatus,
@@ -594,6 +596,119 @@ def test_publish_report_creates_snapshot_updates_manifest_and_audits():
     assert repository.audit_events[0].action == "publish_report"
     assert bundle.manifest["status"] == "published"
     assert bundle.snapshots[0]["published_by"] == "analyst@example.com"
+
+
+def _seed_report_for_export(repository: "FakeProductRepository") -> str:
+    """Helper that builds a small report with a section + chart + lineage."""
+
+    report = create_report_manifest(
+        workspace_id="workspace-1",
+        run_id="run-99",
+        title="Quarterly Risk Report",
+        status=ReportStatus.READY,
+        summary="Top-line risk indicators for Q4.",
+        version=2,
+        requirement_version_id="requirement-version-7",
+        analysis_execution_ids=["analysis-execution-42"],
+        result_collections=["risk_scores"],
+    )
+    repository.reports[report.report_id] = report
+    repository.sections.append(
+        create_report_section(
+            workspace_id="workspace-1",
+            report_id=report.report_id,
+            order=2,
+            type=ReportSectionType.SUMMARY,
+            title="Findings",
+            content={"text": "* Concentration risk in segment **A**."},
+            evidence_refs=[{"type": "row", "ref": "risk_scores/123"}],
+        )
+    )
+    repository.sections.append(
+        create_report_section(
+            workspace_id="workspace-1",
+            report_id=report.report_id,
+            order=1,
+            type=ReportSectionType.SUMMARY,
+            title="Overview",
+            content={"text": "All segments scored within tolerance except A."},
+        )
+    )
+    repository.charts.append(
+        create_chart_spec(
+            workspace_id="workspace-1",
+            report_id=report.report_id,
+            title="Top Scores",
+            chart_type=ChartType.BAR,
+            data_source="risk_scores",
+            data={"rows": [{"name": "A", "score": 0.9}]},
+        )
+    )
+    return report.report_id
+
+
+def test_export_report_markdown_includes_sections_charts_and_lineage():
+    """FR-42 / MVP #14: Markdown export is audit-friendly and self-contained."""
+
+    repository = FakeProductRepository()
+    report_id = _seed_report_for_export(repository)
+
+    result = ProductService(repository).export_report(report_id, format="markdown")
+
+    assert result.media_type == "text/markdown; charset=utf-8"
+    assert result.fmt == "markdown"
+    assert result.filename.endswith(".md")
+    body = result.content
+    assert body.startswith("# Quarterly Risk Report")
+    # Section ordering follows ``order`` (Overview is order=1, Findings order=2).
+    assert body.index("### Overview") < body.index("### Findings")
+    assert "* Concentration risk in segment **A**." in body
+    assert "Top Scores" in body
+    assert "## Lineage" in body
+    assert "`run-99`" in body
+    assert "`requirement-version-7`" in body
+    assert "`analysis-execution-42`" in body
+
+
+def test_export_report_html_is_self_contained_and_escapes_user_content():
+    """HTML export embeds inline CSS and never trusts user content as markup."""
+
+    repository = FakeProductRepository()
+    report_id = _seed_report_for_export(repository)
+    # Inject a section title containing an HTML control character to confirm
+    # the renderer escapes user input rather than interpolating it raw.
+    repository.sections[0].title = "Findings & <script>"
+
+    result = ProductService(repository).export_report(report_id, format="html")
+
+    assert result.media_type == "text/html; charset=utf-8"
+    assert result.fmt == "html"
+    assert result.filename.endswith(".html")
+    body = result.content
+    assert body.startswith("<!DOCTYPE html>")
+    assert "<style>" in body
+    assert "Findings &amp; &lt;script&gt;" in body
+    assert "<script>" not in body.split("</style>")[1]
+    assert "Lineage" in body
+    assert "run-99" in body
+
+
+def test_export_report_defaults_to_html_when_format_omitted():
+    repository = FakeProductRepository()
+    report_id = _seed_report_for_export(repository)
+
+    result = ProductService(repository).export_report(report_id)
+
+    assert result.fmt == "html"
+    assert result.media_type.startswith("text/html")
+
+
+def test_export_report_rejects_unsupported_format():
+    repository = FakeProductRepository()
+    report_id = _seed_report_for_export(repository)
+
+    with pytest.raises(ValidationError, match="Unsupported report export format"):
+        ProductService(repository).export_report(report_id, format="pdf")
 
 
 def test_export_workspace_bundle_omits_connection_secret_refs():

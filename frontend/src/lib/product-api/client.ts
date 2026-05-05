@@ -32,6 +32,8 @@ import type {
   RawWorkspaceOverview,
   RawWorkspaceSummary,
   ReportBundle,
+  ReportExportDownload,
+  ReportExportFormat,
   ReportSection,
   RequirementInterview,
   RequirementVersion,
@@ -207,6 +209,34 @@ export function createProductAPIClient(
           { actor }
         )
       );
+    },
+    async exportReport(
+      reportId: string,
+      format: ReportExportFormat
+    ): Promise<ReportExportDownload> {
+      // Backend returns the rendered document as raw text (HTML or Markdown)
+      // with a Content-Disposition attachment header. We bypass the JSON
+      // helpers and read the response as a Blob so the browser can save it
+      // directly via createObjectURL.
+      const response = await fetch(
+        `${normalizedBaseUrl}/api/reports/${reportId}/export?format=${encodeURIComponent(format)}`,
+        { method: "GET" }
+      );
+      if (!response.ok) {
+        const message = await response.text().catch(() => "");
+        throw new Error(
+          `Report export failed (${response.status}): ${message || response.statusText}`
+        );
+      }
+      // Prefer the server-supplied filename so audit links + downloads agree
+      // on naming. Fall back to a deterministic name when the header is
+      // missing (e.g. cors-stripped responses).
+      const disposition = response.headers.get("Content-Disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const filename =
+        filenameMatch?.[1] ?? `report-${reportId}.${format === "markdown" ? "md" : "html"}`;
+      const blob = await response.blob();
+      return { blob, filename, format };
     },
     async exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle> {
       return mapWorkspaceBundle(

@@ -399,6 +399,84 @@ describe("product API client mappers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("exports a report as Markdown via the product API and surfaces filename + blob", async () => {
+    // FR-42: the export endpoint returns raw text with a filename in the
+    // Content-Disposition header. The client must parse the header so the
+    // browser-side download uses the same filename the server picked.
+    const markdown = "# Risk Report\n\nFindings.\n";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        get: (header: string) =>
+          header.toLowerCase() === "content-disposition"
+            ? 'attachment; filename="risk-report.md"'
+            : null
+      },
+      blob: async () => new Blob([markdown], { type: "text/markdown" }),
+      text: async () => markdown,
+      statusText: "OK",
+      status: 200
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient("http://api.example").exportReport(
+      "report-1",
+      "markdown"
+    );
+
+    expect(result.filename).toBe("risk-report.md");
+    expect(result.format).toBe("markdown");
+    expect(await result.blob.text()).toBe(markdown);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/reports/report-1/export?format=markdown",
+      { method: "GET" }
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to a deterministic export filename when the server omits Content-Disposition", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      blob: async () => new Blob(["<html/>"], { type: "text/html" }),
+      text: async () => "<html/>",
+      statusText: "OK",
+      status: 200
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient("http://api.example").exportReport(
+      "report-7",
+      "html"
+    );
+
+    expect(result.filename).toBe("report-report-7.html");
+    expect(result.format).toBe("html");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("raises a descriptive error when report export fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: "Bad Request",
+      headers: { get: () => null },
+      text: async () => "Unsupported report export format"
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createProductAPIClient("http://api.example").exportReport(
+        "report-1",
+        "markdown"
+      )
+    ).rejects.toThrow(/Report export failed.*400.*Unsupported/);
+
+    vi.unstubAllGlobals();
+  });
+
   it("creates connection profiles through the product API without plaintext secrets", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

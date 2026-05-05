@@ -88,15 +88,39 @@ def _make_route_handler(
     endpoint: ProductAPIEndpoint,
     request_type: Any,
 ) -> Any:
+    # Imported here so the FastAPI adapter remains the only place that knows
+    # which service-layer result types need raw (non-JSON) HTTP responses.
+    # Adding a new raw-response type later is a one-line addition below
+    # rather than a new field on every endpoint contract.
+    from fastapi import Response
+
+    from .service import ReportExportResult
+
     async def route_handler(request: request_type) -> Any:
         body = await _request_json(request)
-        return dispatcher.dispatch(
+        result = dispatcher.dispatch(
             method=endpoint.method,
             path=endpoint.path,
             path_params=dict(request.path_params),
             query=dict(request.query_params),
             body=body,
         )
+
+        if isinstance(result, ReportExportResult):
+            # FR-42: stream the rendered document back as a download. The
+            # service decides media_type + filename so the route handler
+            # stays agnostic of HTML vs Markdown specifics.
+            return Response(
+                content=result.content,
+                media_type=result.media_type,
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{result.filename}"'
+                    )
+                },
+            )
+
+        return result
 
     route_handler.__name__ = _route_handler_name(endpoint)
     return route_handler

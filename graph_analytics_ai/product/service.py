@@ -5,7 +5,9 @@ coupling the core package to a web framework.
 """
 
 import hashlib
+import html
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -127,6 +129,25 @@ class ReportBundle:
             "charts": self.charts,
             "snapshots": self.snapshots,
         }
+
+
+@dataclass
+class ReportExportResult:
+    """Renderable export of a report (HTML or Markdown).
+
+    Deliberately has NO ``to_dict`` method. The framework-neutral dispatcher
+    (``ProductAPIDispatcher._serialize_response``) only auto-serializes
+    objects with ``to_dict``, so by leaving it off we get pass-through
+    behavior. The FastAPI adapter (``fastapi_app.py``) detects this type
+    after dispatch and converts it to a non-JSON HTTP ``Response`` with the
+    correct ``Content-Type`` and ``Content-Disposition`` headers, so the
+    browser triggers a file download.
+    """
+
+    content: str
+    media_type: str
+    filename: str
+    fmt: str
 
 
 @dataclass
@@ -693,6 +714,277 @@ class ProductService:
         snapshots = self.repository.list_published_snapshots(report_id)
 
         return self._report_bundle(manifest, sections, charts, snapshots)
+
+    def export_report(self, report_id: str, format: str = "html") -> ReportExportResult:
+        """Render a report to a downloadable HTML or Markdown document.
+
+        Implements PRD FR-42 / MVP acceptance #14. Returns a
+        :class:`ReportExportResult` so the FastAPI adapter can stream the
+        bytes back as an attachment with the correct media type rather than
+        wrapping them in a JSON envelope.
+
+        Args:
+            report_id: Report manifest identifier.
+            format: ``"html"`` or ``"markdown"`` (case-insensitive). Anything
+                else raises :class:`ValidationError` so callers get a clean
+                4xx instead of a server error.
+        """
+
+        normalized = (format or "html").lower()
+        if normalized not in {"html", "markdown"}:
+            raise ValidationError(
+                f"Unsupported report export format: {format!r} "
+                "(supported: html, markdown)"
+            )
+
+        manifest = self.repository.get_report_manifest(report_id)
+        sections = self.repository.list_report_sections(report_id)
+        charts = self.repository.list_chart_specs(report_id)
+
+        # Sort sections by their ``order`` field so the export reads in the
+        # same flow as the canvas. Charts retain insertion order; the report
+        # canvas does the same.
+        ordered_sections = sorted(sections, key=lambda section: section.order)
+        slug = self._slugify(manifest.title) or manifest.report_id
+        timestamp = current_timestamp().isoformat()
+
+        if normalized == "markdown":
+            content = self._render_report_markdown(
+                manifest=manifest,
+                sections=ordered_sections,
+                charts=charts,
+                exported_at=timestamp,
+            )
+            return ReportExportResult(
+                content=content,
+                media_type="text/markdown; charset=utf-8",
+                filename=f"{slug}.md",
+                fmt="markdown",
+            )
+
+        content = self._render_report_html(
+            manifest=manifest,
+            sections=ordered_sections,
+            charts=charts,
+            exported_at=timestamp,
+        )
+        return ReportExportResult(
+            content=content,
+            media_type="text/html; charset=utf-8",
+            filename=f"{slug}.html",
+            fmt="html",
+        )
+
+    @staticmethod
+    def _slugify(value: str) -> str:
+        """Lowercase, replace runs of non-alphanumerics with single ``-``."""
+
+        cleaned = re.sub(r"[^A-Za-z0-9]+", "-", value or "").strip("-").lower()
+        return cleaned[:80]
+
+    @staticmethod
+    def _section_text(section: ReportSection) -> str:
+        """Best-effort plain text for a section's content payload.
+
+        Sections are stored as free-form dicts. The most common shape is
+        ``{"text": "..."}`` (markdown body); fall back to a JSON dump so
+        unknown shapes are still inspectable rather than silently dropped.
+        """
+
+        text = section.content.get("text") if isinstance(section.content, dict) else None
+        if isinstance(text, str) and text.strip():
+            return text
+        if not section.content:
+            return ""
+        try:
+            return json.dumps(section.content, indent=2, default=str)
+        except (TypeError, ValueError):
+            return repr(section.content)
+
+    def _render_report_markdown(
+        self,
+        *,
+        manifest: ReportManifest,
+        sections: List[ReportSection],
+        charts: List[ChartSpec],
+        exported_at: str,
+    ) -> str:
+        lines: List[str] = []
+        lines.append(f"# {manifest.title}")
+        lines.append("")
+        status_value = getattr(manifest.status, "value", manifest.status)
+        lines.append(
+            f"*Report v{manifest.version} · status: {status_value} · "
+            f"exported {exported_at}*"
+        )
+        lines.append("")
+        if manifest.summary:
+            lines.append(manifest.summary)
+            lines.append("")
+
+        if sections:
+            lines.append("## Sections")
+            lines.append("")
+            for section in sections:
+                lines.append(f"### {section.title}")
+                lines.append("")
+                section_type = getattr(section.type, "value", section.type)
+                lines.append(f"_{section_type}_")
+                lines.append("")
+                body = self._section_text(section)
+                if body:
+                    lines.append(body)
+                    lines.append("")
+                if section.evidence_refs:
+                    lines.append(
+                        f"_{len(section.evidence_refs)} evidence reference(s)._"
+                    )
+                    lines.append("")
+
+        if charts:
+            lines.append("## Charts")
+            lines.append("")
+            for chart in charts:
+                chart_type = getattr(chart.chart_type, "value", chart.chart_type)
+                lines.append(
+                    f"- **{chart.title}** — `{chart_type}` "
+                    f"(data source: `{chart.data_source}`)"
+                )
+            lines.append("")
+
+        # PRD FR-44 lineage: include any populated lineage refs so the export
+        # is auditable on its own (no need to cross-reference the live UI).
+        lineage_lines: List[str] = []
+        if manifest.run_id:
+            lineage_lines.append(f"- Run: `{manifest.run_id}`")
+        if manifest.workspace_id:
+            lineage_lines.append(f"- Workspace: `{manifest.workspace_id}`")
+        if manifest.requirement_version_id:
+            lineage_lines.append(
+                f"- Requirement version: `{manifest.requirement_version_id}`"
+            )
+        for use_case_id in manifest.use_case_ids:
+            lineage_lines.append(f"- Use case: `{use_case_id}`")
+        for template_id in manifest.template_ids:
+            lineage_lines.append(f"- Template: `{template_id}`")
+        for execution_id in manifest.analysis_execution_ids:
+            lineage_lines.append(f"- Execution: `{execution_id}`")
+        for collection in manifest.result_collections:
+            lineage_lines.append(f"- Result collection: `{collection}`")
+
+        if lineage_lines:
+            lines.append("## Lineage")
+            lines.append("")
+            lines.extend(lineage_lines)
+            lines.append("")
+
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _render_report_html(
+        self,
+        *,
+        manifest: ReportManifest,
+        sections: List[ReportSection],
+        charts: List[ChartSpec],
+        exported_at: str,
+    ) -> str:
+        # Self-contained HTML doc — inline minimal CSS so the export is
+        # readable in any browser without external assets. User content is
+        # always escaped via :func:`html.escape` (see calls below) to prevent
+        # injection through report titles or sections.
+        title_html = html.escape(manifest.title or manifest.report_id)
+        status_value = getattr(manifest.status, "value", manifest.status)
+        meta_html = html.escape(
+            f"Report v{manifest.version} · status: {status_value} · "
+            f"exported {exported_at}"
+        )
+
+        body_parts: List[str] = []
+        body_parts.append(f"<h1>{title_html}</h1>")
+        body_parts.append(f'<p class="meta">{meta_html}</p>')
+        if manifest.summary:
+            body_parts.append(f"<p>{html.escape(manifest.summary)}</p>")
+
+        if sections:
+            body_parts.append("<h2>Sections</h2>")
+            for section in sections:
+                section_type = getattr(section.type, "value", section.type)
+                body_parts.append(
+                    f'<section class="report-section">'
+                    f"<h3>{html.escape(section.title)}</h3>"
+                    f'<p class="muted">{html.escape(str(section_type))}</p>'
+                )
+                body = self._section_text(section)
+                if body:
+                    body_parts.append(f"<pre>{html.escape(body)}</pre>")
+                if section.evidence_refs:
+                    body_parts.append(
+                        f'<p class="muted">{len(section.evidence_refs)} '
+                        f"evidence reference(s).</p>"
+                    )
+                body_parts.append("</section>")
+
+        if charts:
+            body_parts.append("<h2>Charts</h2><ul>")
+            for chart in charts:
+                chart_type = getattr(chart.chart_type, "value", chart.chart_type)
+                body_parts.append(
+                    "<li>"
+                    f"<strong>{html.escape(chart.title)}</strong> — "
+                    f"<code>{html.escape(str(chart_type))}</code> "
+                    f"(data source: <code>{html.escape(chart.data_source)}</code>)"
+                    "</li>"
+                )
+            body_parts.append("</ul>")
+
+        lineage_items: List[str] = []
+        if manifest.run_id:
+            lineage_items.append(f"<li>Run: <code>{html.escape(manifest.run_id)}</code></li>")
+        if manifest.workspace_id:
+            lineage_items.append(
+                f"<li>Workspace: <code>{html.escape(manifest.workspace_id)}</code></li>"
+            )
+        if manifest.requirement_version_id:
+            lineage_items.append(
+                "<li>Requirement version: "
+                f"<code>{html.escape(manifest.requirement_version_id)}</code></li>"
+            )
+        for use_case_id in manifest.use_case_ids:
+            lineage_items.append(f"<li>Use case: <code>{html.escape(use_case_id)}</code></li>")
+        for template_id in manifest.template_ids:
+            lineage_items.append(f"<li>Template: <code>{html.escape(template_id)}</code></li>")
+        for execution_id in manifest.analysis_execution_ids:
+            lineage_items.append(f"<li>Execution: <code>{html.escape(execution_id)}</code></li>")
+        for collection in manifest.result_collections:
+            lineage_items.append(
+                f"<li>Result collection: <code>{html.escape(collection)}</code></li>"
+            )
+        if lineage_items:
+            body_parts.append("<h2>Lineage</h2><ul>")
+            body_parts.extend(lineage_items)
+            body_parts.append("</ul>")
+
+        style = (
+            "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+            "max-width:880px;margin:32px auto;padding:0 24px;color:#222;line-height:1.5;}"
+            "h1{margin-bottom:4px;}"
+            ".meta{color:#666;font-size:0.9em;margin-top:0;}"
+            ".muted{color:#888;font-size:0.85em;}"
+            ".report-section{border-top:1px solid #eee;padding-top:16px;margin-top:16px;}"
+            "pre{background:#f6f8fa;padding:12px;border-radius:6px;overflow-x:auto;white-space:pre-wrap;}"
+            "code{background:#f6f8fa;padding:1px 4px;border-radius:3px;font-size:0.9em;}"
+            "ul{padding-left:20px;}"
+        )
+
+        return (
+            "<!DOCTYPE html>\n"
+            "<html lang=\"en\"><head>"
+            f'<meta charset="utf-8"/><title>{title_html}</title>'
+            f"<style>{style}</style>"
+            "</head><body>"
+            + "".join(body_parts)
+            + "</body></html>"
+        )
 
     def verify_connection_profile(
         self,

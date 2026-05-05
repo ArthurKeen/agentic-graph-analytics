@@ -18,6 +18,7 @@ import type {
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   ReportBundle,
+  ReportExportFormat,
   GraphProfileSummary,
   RequirementInterview,
   RequirementVersion,
@@ -95,6 +96,10 @@ interface WorkspaceCanvasProps {
   onShowHelp: () => void;
   onCloseHelp: () => void;
   onOpenMenu: (menu: ContextMenuState) => void;
+  /** Trigger an HTML or Markdown export of the currently displayed report.
+   * The shell handles the actual download (Blob → object URL → anchor click)
+   * so the canvas stays purely declarative. */
+  onExportReport: (reportId: string, format: ReportExportFormat) => Promise<void>;
 }
 
 export function WorkspaceCanvas({
@@ -146,7 +151,8 @@ export function WorkspaceCanvas({
   onCloseRequirementsCopilot,
   onShowHelp,
   onCloseHelp,
-  onOpenMenu
+  onOpenMenu,
+  onExportReport
 }: WorkspaceCanvasProps) {
   const lensName =
     selectedAsset?.kind === "report"
@@ -294,7 +300,10 @@ export function WorkspaceCanvas({
           ))}
         </section>
       ) : reportBundle && selectedAsset.kind === "report" ? (
-        <DynamicReportCanvas report={reportBundle} />
+        <DynamicReportCanvas
+          report={reportBundle}
+          onExport={(format) => onExportReport(reportBundle.manifest.reportId, format)}
+        />
       ) : (
         <EmptyCanvasState />
       )}

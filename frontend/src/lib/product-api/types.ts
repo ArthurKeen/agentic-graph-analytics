@@ -312,6 +312,18 @@ export interface ReportBundle {
   snapshots: Array<Record<string, unknown>>;
 }
 
+/** Supported report export formats (PRD FR-42 / MVP acceptance #14). PDF and
+ * JSON are PRD-named but deferred until use-case generation produces enough
+ * content to make them meaningfully different from the HTML/Markdown
+ * exports. */
+export type ReportExportFormat = "html" | "markdown";
+
+export interface ReportExportDownload {
+  blob: Blob;
+  filename: string;
+  format: ReportExportFormat;
+}
+
 export interface WorkspaceBundle {
   schemaVersion: string;
   workspace: Record<string, unknown>;
@@ -371,6 +383,10 @@ export interface ProductAPIClient {
   getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
   getReportBundle(reportId: string): Promise<ReportBundle>;
   publishReport(reportId: string, actor: string): Promise<ReportBundle>;
+  exportReport(
+    reportId: string,
+    format: ReportExportFormat
+  ): Promise<ReportExportDownload>;
   exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle>;
   importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult>;
   getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions>;

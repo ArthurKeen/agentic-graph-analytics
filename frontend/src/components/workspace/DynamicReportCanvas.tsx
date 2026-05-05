@@ -1,13 +1,41 @@
 "use client";
 
-import type { ReportBundle } from "@/lib/product-api/types";
+import { useState } from "react";
+
+import type { ReportBundle, ReportExportFormat } from "@/lib/product-api/types";
 import { MarkdownView } from "./MarkdownView";
 
 interface DynamicReportCanvasProps {
   report: ReportBundle;
+  /** Optional: when omitted (older callers, tests), the export buttons are
+   * hidden so the canvas remains a pure data view. */
+  onExport?: (format: ReportExportFormat) => Promise<void>;
 }
 
-export function DynamicReportCanvas({ report }: DynamicReportCanvasProps) {
+export function DynamicReportCanvas({ report, onExport }: DynamicReportCanvasProps) {
+  // Track which format is currently downloading so we can disable both
+  // buttons together (avoids double-clicks issuing two downloads) and surface
+  // a per-button "Exporting…" label without flashing the other button.
+  const [exportingFormat, setExportingFormat] = useState<ReportExportFormat | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExport = async (format: ReportExportFormat) => {
+    if (!onExport || exportingFormat) {
+      return;
+    }
+    setExportingFormat(format);
+    setExportError(null);
+    try {
+      await onExport(format);
+    } catch (error) {
+      setExportError(
+        error instanceof Error ? error.message : "Failed to export report"
+      );
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
   return (
     <section className="report-canvas" aria-label="Dynamic report">
       <header>
@@ -15,8 +43,35 @@ export function DynamicReportCanvas({ report }: DynamicReportCanvasProps) {
           <p className="muted">Version {report.manifest.version}</p>
           <h3>{report.manifest.title}</h3>
         </div>
-        <span>{report.manifest.status}</span>
+        <div className="report-canvas-header-actions">
+          <span>{report.manifest.status}</span>
+          {onExport ? (
+            <div className="report-export-actions" role="group" aria-label="Export report">
+              <button
+                type="button"
+                className="report-export-button"
+                disabled={exportingFormat !== null}
+                onClick={() => void handleExport("html")}
+              >
+                {exportingFormat === "html" ? "Exporting…" : "Export HTML"}
+              </button>
+              <button
+                type="button"
+                className="report-export-button"
+                disabled={exportingFormat !== null}
+                onClick={() => void handleExport("markdown")}
+              >
+                {exportingFormat === "markdown" ? "Exporting…" : "Export Markdown"}
+              </button>
+            </div>
+          ) : null}
+        </div>
       </header>
+      {exportError ? (
+        <p className="error-text" role="alert">
+          {exportError}
+        </p>
+      ) : null}
       {report.manifest.summary ? <p>{report.manifest.summary}</p> : null}
 
       <div className="report-sections">
