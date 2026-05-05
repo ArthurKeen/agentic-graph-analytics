@@ -2,6 +2,12 @@ import type { ContextMenuItem } from "./types";
 
 interface BuildCanvasContextMenuArgs {
   onCreateWorkspace: () => void;
+  /** When provided, surfaces an "Edit Workspace" item. Hidden in demo mode
+   * or when no workspace is loaded so we don't expose dead actions. */
+  onEditWorkspace?: () => void;
+  /** When provided, surfaces an "Archive Workspace" item. Hidden when the
+   * workspace is already archived. */
+  onArchiveWorkspace?: () => void;
   onCreateConnectionProfile: () => void;
   onCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
@@ -14,6 +20,8 @@ interface BuildCanvasContextMenuArgs {
 
 export function buildCanvasContextMenu({
   onCreateWorkspace,
+  onEditWorkspace,
+  onArchiveWorkspace,
   onCreateConnectionProfile,
   onCreateWorkflowRun,
   onExportWorkspace,
@@ -23,13 +31,33 @@ export function buildCanvasContextMenu({
   onViewAsOperational,
   onShowHelp
 }: BuildCanvasContextMenuArgs): ContextMenuItem[] {
-  return [
+  const items: ContextMenuItem[] = [
     {
       id: "create-workspace",
       label: "Create Workspace",
       icon: "+",
       onSelect: onCreateWorkspace
-    },
+    }
+  ];
+
+  if (onEditWorkspace) {
+    items.push({
+      id: "edit-workspace",
+      label: "Edit Workspace",
+      icon: "E",
+      onSelect: onEditWorkspace
+    });
+  }
+  if (onArchiveWorkspace) {
+    items.push({
+      id: "archive-workspace",
+      label: "Archive Workspace",
+      icon: "A",
+      onSelect: onArchiveWorkspace
+    });
+  }
+
+  items.push(
     {
       id: "create-connection-profile",
       label: "Create Connection Profile",
@@ -78,5 +106,7 @@ export function buildCanvasContextMenu({
       icon: "?",
       onSelect: onShowHelp
     }
-  ];
+  );
+
+  return items;
 }

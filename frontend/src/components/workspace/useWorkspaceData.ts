@@ -30,6 +30,7 @@ import type {
   ReportExportFormat,
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
+  UpdateWorkspaceInput,
   WorkflowDAGView,
   WorkflowRecoveryActions,
   WorkflowRunSummary,
@@ -67,6 +68,16 @@ interface WorkspaceDataState {
 
 interface WorkspaceDataResult extends WorkspaceDataState {
   createWorkspace: (input: CreateWorkspaceInput) => Promise<WorkspaceSummary>;
+  /** Patch editable workspace metadata. Calls refreshOverview() on success
+   * so the rest of the UI sees the new values without a manual reload. */
+  updateWorkspace: (
+    workspaceId: string,
+    input: UpdateWorkspaceInput
+  ) => Promise<WorkspaceSummary>;
+  /** Soft-delete (archive) a workspace. Lifecycle change emits a typed
+   * audit event server-side; the local overview is refreshed so the UI
+   * can disable mutating actions on the now-archived workspace. */
+  archiveWorkspace: (workspaceId: string, actor?: string) => Promise<WorkspaceSummary>;
   publishReport: (reportId: string, actor?: string) => Promise<ReportBundle>;
   /** Download a rendered report as a Blob (HTML or Markdown). The caller is
    * responsible for triggering the browser download (e.g. via
@@ -329,6 +340,89 @@ export function useWorkspaceData({
       errorMessage: undefined
     }));
     return workspace;
+  };
+
+  const updateWorkspace = async (
+    workspaceId: string,
+    input: UpdateWorkspaceInput
+  ): Promise<WorkspaceSummary> => {
+    if (!isLive) {
+      // Demo mode: shallow merge into the in-memory overview so the UI
+      // immediately reflects the edit. The real backend re-derives this on
+      // the next refreshOverview() call.
+      const existing = state.overview?.workspace;
+      if (!existing) {
+        throw new Error("No workspace loaded");
+      }
+      const next: WorkspaceSummary = {
+        workspaceId,
+        customerName: input.customerName?.trim() || existing.customer_name || "",
+        projectName: input.projectName?.trim() || existing.project_name || "",
+        environment: input.environment?.trim() || existing.environment || "",
+        description: input.description?.trim() ?? existing.description ?? "",
+        status: existing.status ?? "active",
+        tags: input.tags ?? existing.tags ?? []
+      };
+      setState((current) => ({
+        ...current,
+        overview: current.overview
+          ? {
+              ...current.overview,
+              workspace: {
+                ...current.overview.workspace,
+                customer_name: next.customerName,
+                project_name: next.projectName,
+                environment: next.environment,
+                description: next.description,
+                tags: next.tags
+              }
+            }
+          : current.overview
+      }));
+      return next;
+    }
+
+    const updated = await apiClient.updateWorkspace(workspaceId, input);
+    // Re-fetch the overview so any server-side computed fields (counts,
+    // updated_at, audit timeline) stay in sync without forcing a full
+    // workspace reload.
+    await refreshOverview();
+    return updated;
+  };
+
+  const archiveWorkspace = async (
+    workspaceId: string,
+    actor = "workspace-ui"
+  ): Promise<WorkspaceSummary> => {
+    if (!isLive) {
+      const existing = state.overview?.workspace;
+      if (!existing) {
+        throw new Error("No workspace loaded");
+      }
+      const next: WorkspaceSummary = {
+        workspaceId,
+        customerName: existing.customer_name ?? "",
+        projectName: existing.project_name ?? "",
+        environment: existing.environment ?? "",
+        description: existing.description ?? "",
+        status: "archived",
+        tags: existing.tags ?? []
+      };
+      setState((current) => ({
+        ...current,
+        overview: current.overview
+          ? {
+              ...current.overview,
+              workspace: { ...current.overview.workspace, status: "archived" }
+            }
+          : current.overview
+      }));
+      return next;
+    }
+
+    const archived = await apiClient.archiveWorkspace(workspaceId, actor);
+    await refreshOverview();
+    return archived;
   };
 
   const publishReport = async (
@@ -677,6 +771,8 @@ export function useWorkspaceData({
   return {
     ...state,
     createWorkspace,
+    updateWorkspace,
+    archiveWorkspace,
     publishReport,
     exportReport,
     createConnectionProfile,

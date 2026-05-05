@@ -62,6 +62,12 @@ class FakeProductRepository:
         self.workspaces[workspace.workspace_id] = workspace
         return workspace.workspace_id
 
+    def update_workspace(self, workspace):
+        if workspace.workspace_id not in self.workspaces:
+            raise KeyError(workspace.workspace_id)
+        self.workspaces[workspace.workspace_id] = workspace
+        return workspace.workspace_id
+
     def list_connection_profiles(self, workspace_id):
         return [
             profile
@@ -265,6 +271,124 @@ def test_create_workspace_requires_core_fields():
         assert "Customer name" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for missing customer name")
+
+
+def test_update_workspace_patches_only_changed_fields_and_audits_diff():
+    """FR-1: PATCH applies trimmed values, bumps updated_at, and audits diff."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme",
+        project_name="AdTech",
+        environment="dev",
+        description="Original",
+        tags=["adtech"],
+    )
+    repository.audit_events.clear()
+    original_updated_at = workspace.updated_at
+
+    updated = service.update_workspace(
+        workspace.workspace_id,
+        customer_name=" Acme Corp ",
+        description="Refined description",
+        tags=["adtech", "demo", " "],
+        actor="ops@example.com",
+    )
+
+    assert updated.customer_name == "Acme Corp"
+    assert updated.project_name == "AdTech"  # untouched
+    assert updated.environment == "dev"
+    assert updated.description == "Refined description"
+    assert updated.tags == ["adtech", "demo"]
+    assert updated.updated_at > original_updated_at
+
+    assert len(repository.audit_events) == 1
+    event = repository.audit_events[0]
+    assert event.action == "update_workspace"
+    assert event.actor == "ops@example.com"
+    diff = event.details["changes"]
+    assert set(diff.keys()) == {"customer_name", "description", "tags"}
+    assert diff["customer_name"] == {"from": "Acme", "to": "Acme Corp"}
+    assert diff["tags"]["to"] == ["adtech", "demo"]
+
+
+def test_update_workspace_is_noop_when_nothing_changes():
+    """No-op PATCH does not bump updated_at or emit an audit event."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme",
+        project_name="AdTech",
+        environment="dev",
+    )
+    repository.audit_events.clear()
+    original_updated_at = workspace.updated_at
+
+    result = service.update_workspace(
+        workspace.workspace_id,
+        customer_name="Acme",
+        # Same value with surrounding whitespace must still be detected as
+        # equal after trim.
+        project_name=" AdTech ",
+    )
+
+    assert result.updated_at == original_updated_at
+    assert repository.audit_events == []
+
+
+def test_update_workspace_rejects_blank_required_field():
+    """Editable required fields cannot be cleared via PATCH."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme",
+        project_name="AdTech",
+        environment="dev",
+    )
+
+    with pytest.raises(ValidationError, match="Customer name"):
+        service.update_workspace(workspace.workspace_id, customer_name="   ")
+
+
+def test_archive_workspace_flips_status_and_audits():
+    """FR-1: archive sets status=ARCHIVED and records a dedicated audit event."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme",
+        project_name="AdTech",
+        environment="dev",
+    )
+    repository.audit_events.clear()
+
+    archived = service.archive_workspace(workspace.workspace_id, actor="ops@example.com")
+
+    assert archived.status.value == "archived"
+    assert len(repository.audit_events) == 1
+    assert repository.audit_events[0].action == "archive_workspace"
+    assert repository.audit_events[0].actor == "ops@example.com"
+
+
+def test_archive_workspace_is_idempotent():
+    """Re-archiving an archived workspace is a no-op (no duplicate audit row)."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme",
+        project_name="AdTech",
+        environment="dev",
+    )
+    service.archive_workspace(workspace.workspace_id, actor="ops@example.com")
+    repository.audit_events.clear()
+
+    service.archive_workspace(workspace.workspace_id, actor="ops@example.com")
+
+    assert repository.audit_events == []
 
 
 def test_workspace_overview_counts_and_recent_items():

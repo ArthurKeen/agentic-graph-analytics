@@ -46,6 +46,20 @@ export interface CreateWorkspaceInput {
   actor?: string;
 }
 
+/** Patch payload for ``PATCH /api/workspaces/{id}``. Every field is optional;
+ * only the fields explicitly set are updated server-side. ``status`` is
+ * intentionally NOT here — use the dedicated archive route so the lifecycle
+ * change always emits a typed audit event instead of being mixed into a
+ * generic update diff. */
+export interface UpdateWorkspaceInput {
+  customerName?: string;
+  projectName?: string;
+  environment?: string;
+  description?: string;
+  tags?: string[];
+  actor?: string;
+}
+
 export interface GraphProfileSummary {
   graphProfileId: string;
   workspaceId: string;
@@ -244,6 +258,14 @@ export interface WorkspaceOverview {
     customer_name: string;
     project_name: string;
     environment: string;
+    /** Optional fields that the backend always sends as part of
+     * Workspace.to_dict() but were originally omitted from the typed
+     * shape. The Edit/Archive flows need them so the overlays can
+     * pre-fill current values without a separate ``GET /workspaces/{id}``
+     * round trip. */
+    description?: string;
+    status?: string;
+    tags?: string[];
   };
   counts: Record<string, number>;
   latestConnectionProfiles: ConnectionProfileSummary[];
@@ -345,6 +367,14 @@ export interface WorkspaceImportResult {
 export interface ProductAPIClient {
   createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceSummary>;
   listWorkspaces(): Promise<WorkspaceSummary[]>;
+  updateWorkspace(
+    workspaceId: string,
+    input: UpdateWorkspaceInput
+  ): Promise<WorkspaceSummary>;
+  /** Soft-delete a workspace by flipping its status to ``archived``. The
+   * actor argument is recorded on the audit event so administrative actions
+   * remain attributable. */
+  archiveWorkspace(workspaceId: string, actor?: string): Promise<WorkspaceSummary>;
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   createConnectionProfile(

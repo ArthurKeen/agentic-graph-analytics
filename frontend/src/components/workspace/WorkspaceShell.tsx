@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ArchiveWorkspaceConfirmationOverlay } from "./ArchiveWorkspaceConfirmationOverlay";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
@@ -8,6 +9,7 @@ import { CreateWorkspaceOverlay } from "./CreateWorkspaceOverlay";
 import { CreateWorkflowRunOverlay } from "./CreateWorkflowRunOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
+import { EditWorkspaceOverlay } from "./EditWorkspaceOverlay";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { ImportWorkspaceBundleOverlay } from "./ImportWorkspaceBundleOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
@@ -20,7 +22,8 @@ import type {
   RequirementInterview,
   RequirementVersion,
   WorkflowDAGNode,
-  WorkspaceAsset
+  WorkspaceAsset,
+  WorkspaceSummary
 } from "@/lib/product-api/types";
 
 interface WorkspaceShellProps {
@@ -51,6 +54,8 @@ export function WorkspaceShell({
     status,
     errorMessage,
     createWorkspace,
+    updateWorkspace,
+    archiveWorkspace,
     createConnectionProfile,
     listConnectionProfileGraphs,
     discoverGraphProfile,
@@ -93,6 +98,14 @@ export function WorkspaceShell({
     version: number;
   } | null>(null);
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
+  const [showEditWorkspace, setShowEditWorkspace] = useState(false);
+  const [showArchiveWorkspace, setShowArchiveWorkspace] = useState(false);
+  const [editWorkspaceErrorMessage, setEditWorkspaceErrorMessage] = useState<string | null>(null);
+  const [archiveWorkspaceErrorMessage, setArchiveWorkspaceErrorMessage] = useState<string | null>(
+    null
+  );
+  const [isSavingWorkspaceEdit, setIsSavingWorkspaceEdit] = useState(false);
+  const [isArchivingWorkspace, setIsArchivingWorkspace] = useState(false);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
   const [showCreateWorkflowRun, setShowCreateWorkflowRun] = useState(false);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
@@ -273,6 +286,27 @@ export function WorkspaceShell({
     }
     return "";
   }, [pendingReopenVersion, requirementVersionById, overview]);
+
+  // Project the loaded overview into a `WorkspaceSummary` so the edit
+  // overlay and archive confirmation can render current values without
+  // round-tripping through the API. ``null`` means we have nothing to edit
+  // (no workspace loaded, or the loader is still resolving) and the
+  // canvas hides the action.
+  const currentWorkspaceSummary: WorkspaceSummary | null = useMemo(() => {
+    const ws = overview?.workspace;
+    if (!ws?.workspace_id) {
+      return null;
+    }
+    return {
+      workspaceId: ws.workspace_id,
+      customerName: ws.customer_name,
+      projectName: ws.project_name,
+      environment: ws.environment,
+      description: ws.description ?? "",
+      status: ws.status ?? "active",
+      tags: ws.tags ?? []
+    };
+  }, [overview]);
 
   useEffect(() => {
     function closePanels(event: KeyboardEvent) {
@@ -544,6 +578,24 @@ export function WorkspaceShell({
           setCreateWorkspaceErrorMessage(null);
           setShowCreateWorkspace(true);
         }}
+        onRequestEditWorkspace={
+          // Hide the action when there is nothing to edit so the menu
+          // never lists a dead entry.
+          currentWorkspaceSummary
+            ? () => {
+                setEditWorkspaceErrorMessage(null);
+                setShowEditWorkspace(true);
+              }
+            : undefined
+        }
+        onRequestArchiveWorkspace={
+          currentWorkspaceSummary && currentWorkspaceSummary.status !== "archived"
+            ? () => {
+                setArchiveWorkspaceErrorMessage(null);
+                setShowArchiveWorkspace(true);
+              }
+            : undefined
+        }
         onRequestCreateConnectionProfile={() => {
           setCreateConnectionErrorMessage(null);
           setShowCreateConnectionProfile(true);
@@ -734,6 +786,59 @@ export function WorkspaceShell({
             } finally {
               setIsCreatingWorkspace(false);
             }
+          }}
+        />
+      ) : null}
+      {showEditWorkspace && currentWorkspaceSummary ? (
+        <EditWorkspaceOverlay
+          workspace={currentWorkspaceSummary}
+          isSaving={isSavingWorkspaceEdit}
+          errorMessage={editWorkspaceErrorMessage}
+          onCancel={() => setShowEditWorkspace(false)}
+          onSubmit={async (input) => {
+            setEditWorkspaceErrorMessage(null);
+            setIsSavingWorkspaceEdit(true);
+            try {
+              const updated = await updateWorkspace(
+                currentWorkspaceSummary.workspaceId,
+                input
+              );
+              setShowEditWorkspace(false);
+              setCanvasActionMessage(
+                `Updated workspace ${updated.customerName} / ${updated.projectName}.`
+              );
+            } catch (error) {
+              setEditWorkspaceErrorMessage(
+                error instanceof Error ? error.message : "Failed to update workspace"
+              );
+            } finally {
+              setIsSavingWorkspaceEdit(false);
+            }
+          }}
+        />
+      ) : null}
+      {showArchiveWorkspace && currentWorkspaceSummary ? (
+        <ArchiveWorkspaceConfirmationOverlay
+          workspace={currentWorkspaceSummary}
+          isArchiving={isArchivingWorkspace}
+          errorMessage={archiveWorkspaceErrorMessage}
+          onCancel={() => setShowArchiveWorkspace(false)}
+          onConfirm={() => {
+            setArchiveWorkspaceErrorMessage(null);
+            setIsArchivingWorkspace(true);
+            void archiveWorkspace(currentWorkspaceSummary.workspaceId)
+              .then((archived) => {
+                setShowArchiveWorkspace(false);
+                setCanvasActionMessage(
+                  `Archived workspace ${archived.customerName} / ${archived.projectName}.`
+                );
+              })
+              .catch((error) =>
+                setArchiveWorkspaceErrorMessage(
+                  error instanceof Error ? error.message : "Failed to archive workspace"
+                )
+              )
+              .finally(() => setIsArchivingWorkspace(false));
           }}
         />
       ) : null}

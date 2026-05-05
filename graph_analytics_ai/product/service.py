@@ -33,6 +33,7 @@ from .models import (
     RequirementVersionStatus,
     SourceDocument,
     Workspace,
+    WorkspaceStatus,
     WorkflowDAGEdge,
     WorkflowMode,
     WorkflowRun,
@@ -450,6 +451,115 @@ class ProductService:
         """List workspaces visible to the caller."""
 
         return self.repository.list_workspaces(status=status, limit=limit)
+
+    def update_workspace(
+        self,
+        workspace_id: str,
+        customer_name: Optional[str] = None,
+        project_name: Optional[str] = None,
+        environment: Optional[str] = None,
+        description: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        actor: Optional[str] = None,
+    ) -> Workspace:
+        """Patch editable workspace metadata in place.
+
+        Implements PRD FR-1 (workspace identity edit). All editable fields
+        are optional so callers can update one column at a time. ``status``
+        is intentionally NOT editable through this path — use
+        :meth:`archive_workspace` instead so the lifecycle change always
+        emits a dedicated audit event.
+        """
+
+        workspace = self.repository.get_workspace(workspace_id)
+        changes: Dict[str, Any] = {}
+
+        if customer_name is not None:
+            stripped = customer_name.strip()
+            if not stripped:
+                raise ValidationError("Customer name cannot be empty")
+            if stripped != workspace.customer_name:
+                changes["customer_name"] = {"from": workspace.customer_name, "to": stripped}
+                workspace.customer_name = stripped
+
+        if project_name is not None:
+            stripped = project_name.strip()
+            if not stripped:
+                raise ValidationError("Project name cannot be empty")
+            if stripped != workspace.project_name:
+                changes["project_name"] = {"from": workspace.project_name, "to": stripped}
+                workspace.project_name = stripped
+
+        if environment is not None:
+            stripped = environment.strip()
+            if not stripped:
+                raise ValidationError("Environment cannot be empty")
+            if stripped != workspace.environment:
+                changes["environment"] = {"from": workspace.environment, "to": stripped}
+                workspace.environment = stripped
+
+        if description is not None:
+            new_description = description.strip()
+            if new_description != workspace.description:
+                changes["description"] = {"from": workspace.description, "to": new_description}
+                workspace.description = new_description
+
+        if tags is not None:
+            normalized_tags = [tag.strip() for tag in tags if tag and tag.strip()]
+            if normalized_tags != workspace.tags:
+                changes["tags"] = {"from": list(workspace.tags), "to": normalized_tags}
+                workspace.tags = normalized_tags
+
+        # No-op updates do not emit audit events; they would just clutter
+        # the timeline with zero-information rows. We still bump
+        # ``updated_at`` only when something actually changed.
+        if not changes:
+            return workspace
+
+        workspace.updated_at = current_timestamp()
+        self.repository.update_workspace(workspace)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace.workspace_id,
+                actor=actor or "system",
+                action="update_workspace",
+                target_type="workspace",
+                target_id=workspace.workspace_id,
+                details={"changes": changes},
+            )
+        )
+        return workspace
+
+    def archive_workspace(
+        self,
+        workspace_id: str,
+        actor: Optional[str] = None,
+    ) -> Workspace:
+        """Soft-delete a workspace by flipping it to ARCHIVED.
+
+        Idempotent: calling on an already-archived workspace returns it
+        unchanged and does NOT emit a duplicate audit event. PRD FR-1
+        treats archival as a soft-delete so historical reports/runs remain
+        queryable for lineage/audit.
+        """
+
+        workspace = self.repository.get_workspace(workspace_id)
+        if workspace.status == WorkspaceStatus.ARCHIVED:
+            return workspace
+
+        workspace.status = WorkspaceStatus.ARCHIVED
+        workspace.updated_at = current_timestamp()
+        self.repository.update_workspace(workspace)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace.workspace_id,
+                actor=actor or "system",
+                action="archive_workspace",
+                target_type="workspace",
+                target_id=workspace.workspace_id,
+            )
+        )
+        return workspace
 
     def get_workspace_overview(
         self,

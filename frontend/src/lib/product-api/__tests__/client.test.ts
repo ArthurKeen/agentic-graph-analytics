@@ -457,6 +457,83 @@ describe("product API client mappers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("PATCHes only the workspace fields the caller actually set", async () => {
+    // FR-1 (Edit Workspace): the API client must omit unset fields so the
+    // backend can distinguish "patch to empty" from "leave alone". Sending
+    // every field every time would push the diff cost onto the backend.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        customer_name: "Acme Corp",
+        project_name: "AdTech",
+        environment: "dev",
+        description: "Demo",
+        status: "active",
+        tags: ["adtech", "demo"]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const updated = await createProductAPIClient(
+      "http://api.example"
+    ).updateWorkspace("workspace-1", {
+      customerName: "Acme Corp",
+      tags: ["adtech", "demo"],
+      actor: "ops@example.com"
+    });
+
+    expect(updated).toMatchObject({
+      workspaceId: "workspace-1",
+      customerName: "Acme Corp",
+      tags: ["adtech", "demo"]
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          customer_name: "Acme Corp",
+          tags: ["adtech", "demo"],
+          actor: "ops@example.com"
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("archives a workspace via the dedicated lifecycle endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        customer_name: "Acme",
+        project_name: "AdTech",
+        environment: "dev",
+        description: "",
+        status: "archived",
+        tags: []
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const archived = await createProductAPIClient(
+      "http://api.example"
+    ).archiveWorkspace("workspace-1", "ops@example.com");
+
+    expect(archived.status).toBe("archived");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/archive",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ actor: "ops@example.com" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
   it("raises a descriptive error when report export fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,

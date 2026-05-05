@@ -65,6 +65,13 @@ interface WorkspaceCanvasProps {
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onRequestCreateWorkspace: () => void;
+  /** When omitted, the "Edit Workspace" canvas action is hidden. The shell
+   * passes ``undefined`` in demo mode or when no workspace is loaded so we
+   * never expose dead actions. */
+  onRequestEditWorkspace?: () => void;
+  /** When omitted, the "Archive Workspace" canvas action is hidden. The
+   * shell passes ``undefined`` for already-archived workspaces. */
+  onRequestArchiveWorkspace?: () => void;
   onRequestCreateConnectionProfile: () => void;
   onRequestCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
@@ -133,6 +140,8 @@ export function WorkspaceCanvas({
   onClearAssetSelection,
   onClearSelection,
   onRequestCreateWorkspace,
+  onRequestEditWorkspace,
+  onRequestArchiveWorkspace,
   onRequestCreateConnectionProfile,
   onRequestCreateWorkflowRun,
   onExportWorkspace,
@@ -169,6 +178,8 @@ export function WorkspaceCanvas({
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateWorkspace: onRequestCreateWorkspace,
+      onEditWorkspace: onRequestEditWorkspace,
+      onArchiveWorkspace: onRequestArchiveWorkspace,
       onCreateConnectionProfile: onRequestCreateConnectionProfile,
       onCreateWorkflowRun: onRequestCreateWorkflowRun,
       onExportWorkspace,

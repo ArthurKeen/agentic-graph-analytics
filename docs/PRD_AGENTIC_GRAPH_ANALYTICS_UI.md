@@ -412,7 +412,7 @@ version without losing prior context, audit trail, or domain.
 
 ### Workspace Management
 
-- **FR-1:** Users can create, view, update, archive, and export workspaces.
+- **FR-1:** Users can create, view, update, archive, and export workspaces. *(Implemented: `PATCH /api/workspaces/{id}` for editable metadata + `POST /api/workspaces/{id}/archive` for soft-delete; canvas right-click menu surfaces both. Edit emits an audit diff per changed field; archive is idempotent and emits a typed lifecycle event.)*
 - **FR-2:** A workspace includes customer name, project name, environment, description, tags, and status.
 - **FR-3:** A workspace can have multiple connection profiles.
 - **FR-4:** A workspace can have multiple graph profiles.

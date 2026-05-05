@@ -40,6 +40,7 @@ import type {
   RequirementsDraftResult,
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
+  UpdateWorkspaceInput,
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -76,6 +77,40 @@ export function createProductAPIClient(
         `${normalizedBaseUrl}/api/workspaces`
       );
       return Array.isArray(raw) ? raw.map(mapWorkspaceSummary) : [];
+    },
+    async updateWorkspace(
+      workspaceId: string,
+      input: UpdateWorkspaceInput
+    ): Promise<WorkspaceSummary> {
+      // Only forward fields the caller actually set so the backend can tell
+      // a "patch this field to empty" from a "leave it alone" without
+      // additional sentinels. Sending the full payload every time would
+      // push the diff cost onto the backend.
+      const payload: Record<string, unknown> = {};
+      if (input.customerName !== undefined) payload.customer_name = input.customerName;
+      if (input.projectName !== undefined) payload.project_name = input.projectName;
+      if (input.environment !== undefined) payload.environment = input.environment;
+      if (input.description !== undefined) payload.description = input.description;
+      if (input.tags !== undefined) payload.tags = input.tags;
+      if (input.actor !== undefined) payload.actor = input.actor;
+
+      return mapWorkspaceSummary(
+        await patchJSON<RawWorkspaceSummary>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}`,
+          payload
+        )
+      );
+    },
+    async archiveWorkspace(
+      workspaceId: string,
+      actor = "workspace-ui"
+    ): Promise<WorkspaceSummary> {
+      return mapWorkspaceSummary(
+        await postJSON<RawWorkspaceSummary>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/archive`,
+          { actor }
+        )
+      );
     },
     async getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview> {
       return mapWorkspaceOverview(

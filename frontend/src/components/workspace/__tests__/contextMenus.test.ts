@@ -41,6 +41,34 @@ describe("workspace context menu builders", () => {
     ]);
   });
 
+  it("includes Edit and Archive actions when the shell provides handlers", () => {
+    // FR-1: Edit and Archive are conditional. The shell omits the handlers
+    // when the workspace is missing or already archived; the builder must
+    // not surface dead menu rows in those cases (covered by the test
+    // above), and must surface them when handlers ARE provided.
+    const items = buildCanvasContextMenu({
+      onCreateWorkspace: noop,
+      onEditWorkspace: noop,
+      onArchiveWorkspace: noop,
+      onCreateConnectionProfile: noop,
+      onCreateWorkflowRun: noop,
+      onExportWorkspace: noop,
+      onImportWorkspace: noop,
+      onFitAll: noop,
+      onCenterView: noop,
+      onViewAsOperational: noop,
+      onShowHelp: noop
+    });
+
+    const ids = items.map((item) => item.id);
+    expect(ids).toContain("edit-workspace");
+    expect(ids).toContain("archive-workspace");
+    // Edit/archive should appear next to the create-workspace entry so the
+    // workspace lifecycle actions stay visually grouped at the top.
+    expect(ids.indexOf("edit-workspace")).toBe(ids.indexOf("create-workspace") + 1);
+    expect(ids.indexOf("archive-workspace")).toBe(ids.indexOf("edit-workspace") + 1);
+  });
+
   it("builds generic explorer asset actions", () => {
     const items = buildAssetContextMenu({
       onViewInfo: noop,
