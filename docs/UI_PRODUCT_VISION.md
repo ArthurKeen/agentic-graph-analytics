@@ -224,6 +224,20 @@ The copilot should support:
 - Provenance labels for each statement: observed from schema, inferred from schema, user-provided, or assumption requiring confirmation.
 - Human review, editing, and approval before downstream use-case and template generation.
 
+Requirements are not "one-shot." After an initial approved version, users
+should be able to **reopen the copilot from any prior approved version** to
+produce the next version. The reopen flow inherits prior context — domain,
+existing answers, schema observations — so iteration starts from where the
+last conversation ended rather than from a blank interview. Approving the new
+version atomically supersedes the prior one and increments the version
+number, while the full version history remains queryable and auditable.
+
+Users should perceive Requirements as a single, living artifact in the
+workspace, even though every approval mints a new immutable record. The
+Assets explorer should reflect this with one consolidated **Requirements**
+entry per workspace; the canvas surfaces the active version by default and
+exposes a version selector for read-only history navigation.
+
 ### Use-Case Catalog
 
 The use-case catalog is where business intent becomes graph analytics intent. It should show generated and hand-authored use cases with:

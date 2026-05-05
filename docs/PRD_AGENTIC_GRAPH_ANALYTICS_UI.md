@@ -1,10 +1,19 @@
 # Product Requirements Document: Agentic Graph Analytics UI
 
-**Version:** 0.1  
-**Date:** 2026-04-30  
+**Version:** 0.2  
+**Date:** 2026-05-05  
 **Status:** Draft  
 **Target Release:** Product UI MVP  
 **Related Document:** [Agentic Graph Analytics UI Vision](UI_PRODUCT_VISION.md)
+
+**Changelog:**
+
+- **0.2 (2026-05-05)** — Added Requirements iteration via versioning (UC-4B), the
+  consolidated Requirements asset IA with canvas-side version dropdown,
+  domain inheritance across reopen sessions, URL deep-linking for individual
+  versions, and clarified copilot session UX (per-question save state,
+  auto-refresh after approve).
+- **0.1 (2026-04-30)** — Initial draft.
 
 ---
 
@@ -250,6 +259,51 @@ Needs:
 - Approved copilot-generated requirements follow the same immutable versioning rules as uploaded requirements.
 - Downstream use-case generation can only use an approved requirement version.
 
+### UC-4B: Iterate Requirements with Versioning
+
+**Actor:** Business Analyst  
+**Goal:** Refine an approved requirements document into a new immutable
+version without losing prior context, audit trail, or domain.
+
+**Scenario:**
+
+1. User opens the consolidated **Requirements** asset for the workspace.
+2. UI displays the active version in a canvas with a version dropdown listing
+   all prior versions (active + superseded + archived).
+3. User selects "Reopen Copilot to Produce v(N+1)" from the canvas (or from
+   the asset's right-click menu).
+4. System opens a new Requirements Copilot session pre-populated with:
+   - The prior version's domain.
+   - The prior version's answers, mapped to the same questions where they
+     still exist.
+   - Provenance metadata recording the basis version (`based_on_version` /
+     `based_on_version_id`).
+5. User edits answers, regenerates the BRD draft, and approves the new
+   version.
+6. System auto-assigns the next sequential version number (`max(existing) + 1`),
+   marks the basis version as superseded, and records a supersede edge in the
+   audit trail.
+7. The Assets panel's consolidated **Requirements** row updates to display the
+   new active version and prior version count without a page reload.
+
+**Success Criteria:**
+
+- Version numbers are auto-assigned and monotonically increasing per workspace.
+- Prior versions are preserved as immutable, read-only history; their status
+  flips from `approved` to `superseded` exactly when the new version is
+  approved.
+- The Reopen flow inherits the domain from the prior version so the user is
+  not asked to retype it.
+- Pre-filled answers from the prior version are clearly marked as
+  carried-over; editing them creates new state without altering history.
+- The Assets panel surfaces ONE consolidated **Requirements** row per
+  workspace regardless of version count; per-version inspection happens via
+  the canvas dropdown.
+- Each version is individually deep-linkable via URL (e.g.
+  `?requirementVersion=<id>`) so audit links survive sharing across users.
+- Historical versions remain viewable read-only; "Reopen Copilot" is only
+  available when the active version is selected.
+
 ### UC-5: Generate and Approve Use Cases
 
 **Actor:** Business Analyst  
@@ -384,6 +438,24 @@ Needs:
 - **FR-15:** The system extracts structured requirements using existing document extraction logic.
 - **FR-16:** Users can approve requirement versions.
 - **FR-17:** Approved requirement versions are immutable.
+- **FR-17a:** Version numbers are auto-assigned per workspace as
+  `max(existing.version) + 1`. The system rejects any explicit version that
+  would collide with an existing version in the same workspace.
+- **FR-17b:** When a new version is approved, all prior `approved` versions
+  in the same workspace transition to `superseded`. The transition is atomic
+  with the new version's approval and recorded in the audit log
+  (`superseded_by` / `superseded_at` metadata on the prior version).
+- **FR-17c:** All historical versions (any status) remain queryable and
+  individually addressable. The Assets panel surfaces ONE consolidated
+  "Requirements" entry per workspace; per-version inspection happens through
+  the canvas-side selector and via deep-link
+  (`?requirementVersion=<requirement_version_id>`).
+- **FR-17d:** A new requirement version may be created from a prior approved
+  version (the "Reopen Copilot to produce v(N+1)" flow). The new version's
+  metadata records `based_on_version` and `based_on_version_id` for lineage.
+- **FR-17e:** After a successful approval the workspace overview projection
+  must refresh so the consolidated "Requirements" row reflects the new active
+  version and history depth without a manual reload.
 
 ### Requirements Copilot
 
@@ -394,6 +466,27 @@ Needs:
 - **RC-5:** The copilot generates an editable BRD draft with domain description, business objectives, analytics questions, success criteria, assumptions, constraints, and candidate GAE use cases.
 - **RC-6:** Each generated statement is labeled as observed from schema, inferred from schema, user-provided, or assumption requiring confirmation.
 - **RC-7:** Copilot-generated requirements must be reviewed and approved before use-case or template generation.
+- **RC-8:** Users can reopen the Copilot from a prior approved RequirementVersion to produce the next version. The new session pre-fills:
+  - The prior version's domain, so the user is not asked to retype it.
+  - The prior version's answers, mapped to the same questions where they
+    still apply, so iteration starts from the existing context.
+- **RC-9:** Each Copilot session records its basis (`based_on_version_id`,
+  `based_on_version`) on the resulting RequirementVersion's metadata. The
+  domain is also persisted on the RequirementVersion's metadata so it
+  propagates forward through future reopen sessions (`v1 → v2 → vN`) without
+  user intervention.
+- **RC-10:** The Copilot panel exposes per-question save state visibility so
+  that users can tell which answers have been persisted versus typed but not
+  yet saved. Specifically:
+  - Each question shows a status indicator: untouched, unsaved (dirty),
+    saving, or saved.
+  - Saving one answer must not block editing of other answers.
+  - The Approve action is disabled while any answer is unsaved.
+- **RC-11:** After a Copilot draft is generated the UI must visibly surface
+  the Draft BRD (e.g. by scrolling it into view). After approval the panel
+  must clearly acknowledge success (showing the assigned version number) and
+  lock all interactive controls so further typing cannot silently affect a
+  sealed version.
 
 ### Use Cases
 
@@ -793,11 +886,18 @@ The backend should expose versioned HTTP APIs. The exact framework is implementa
 - `GET /api/workspaces/{workspace_id}/documents`
 - `POST /api/documents/{document_id}/extract`
 - `POST /api/workspaces/{workspace_id}/requirements-copilot/sessions`
+  - Accepts an optional `based_on_version_id` to reopen from a prior approved
+    RequirementVersion (UC-4B). When present the new session inherits the
+    prior version's domain and answers and records `based_on_version` /
+    `based_on_version_id` on the resulting RequirementVersion's metadata.
 - `GET /api/requirements-copilot/sessions/{session_id}`
 - `POST /api/requirements-copilot/sessions/{session_id}/answer`
 - `POST /api/requirements-copilot/sessions/{session_id}/generate-draft`
 - `POST /api/workspaces/{workspace_id}/requirement-versions`
 - `POST /api/requirement-versions/{requirement_version_id}/approve`
+  - Accepts an optional `version` parameter; when omitted the backend
+    auto-assigns `max(existing.version) + 1` for the workspace. Approval
+    atomically supersedes any prior `approved` versions (FR-17a, FR-17b).
 
 ### Use Case and Template APIs
 
@@ -896,9 +996,40 @@ Must display:
 - Extracted requirements
 - Editable BRD draft
 - Provenance labels for generated statements
-- Requirement versions
+- Per-question save state (untouched / unsaved / saving / saved) so users
+  can tell which answers have been persisted
 - Approval status
 - Links to generated use cases
+
+#### Requirements Asset and Version Selector
+
+The Assets panel must surface ONE consolidated **Requirements** entry per
+workspace; it must not grow one row per RequirementVersion.
+
+The consolidated row must display:
+
+- The active version (most-recent `approved`).
+- The count of prior versions, e.g. `v2 (approved) · 1 prior version`.
+
+The Requirements canvas (opened by selecting the consolidated row) must
+provide:
+
+- A version selector dropdown listing every RequirementVersion in the
+  workspace, sorted descending by version. The active version is marked.
+- A default selection of the active version, so newly approved versions
+  auto-advance the view without forcing the user to re-pick.
+- A read-only history banner (e.g. `You are viewing v1 (read-only history)`)
+  whenever a non-active version is selected, with a one-click "Return to
+  active (vN)" affordance.
+- A "Reopen Copilot to Produce v(N+1)" action that is only enabled when the
+  active version is selected.
+- Display of basis lineage when present (`Based on v(N-1)`) and supersede
+  metadata for non-active versions.
+
+The URL must reflect the currently-displayed version via a query parameter
+(`?requirementVersion=<requirement_version_id>`) so audit links and shared
+URLs open on the same version. The URL is rewritten in place (no history
+entry per pick).
 
 ### Template Workbench
 
@@ -1181,13 +1312,22 @@ The MVP is complete when:
 4. A user can upload requirements and approve a requirement version.
 5. A user can use Requirements Copilot to create an editable BRD draft from schema context and guided domain/use-case questions.
 6. Copilot-generated statements include provenance labels for observed schema facts, inferred context, user-provided facts, and assumptions requiring confirmation.
-7. A user can generate and approve at least one use case and template.
-8. A user can launch a workflow from the UI.
-9. A user can monitor the workflow through a visual run DAG with step status, dependencies, and artifact links.
-10. A completed run is stored in the Analysis Catalog.
-11. A dynamic report renders from database records.
-12. A report can be exported to at least HTML and Markdown.
-13. A published report links back to requirements, use case, template, execution, and result collection.
-14. AdTech-style YAML/docs and clinical trials/CRO or open source intelligence templates can be imported through a preview-and-apply flow.
-15. Secret values are not stored in product metadata collections.
+7. A user can iterate from an approved Requirements v(N) to v(N+1) via the
+   Reopen Copilot flow, with the prior version's domain and answers
+   pre-filled and the prior version automatically transitioned to
+   `superseded` upon approval.
+8. The Assets panel surfaces ONE consolidated **Requirements** entry per
+   workspace, and the canvas exposes a version selector dropdown that
+   defaults to the active version. Historical versions are viewable
+   read-only and individually deep-linkable via
+   `?requirementVersion=<id>`.
+9. A user can generate and approve at least one use case and template.
+10. A user can launch a workflow from the UI.
+11. A user can monitor the workflow through a visual run DAG with step status, dependencies, and artifact links.
+12. A completed run is stored in the Analysis Catalog.
+13. A dynamic report renders from database records.
+14. A report can be exported to at least HTML and Markdown.
+15. A published report links back to requirements, use case, template, execution, and result collection.
+16. AdTech-style YAML/docs and clinical trials/CRO or open source intelligence templates can be imported through a preview-and-apply flow.
+17. Secret values are not stored in product metadata collections.
 
