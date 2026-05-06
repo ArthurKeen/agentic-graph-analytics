@@ -434,6 +434,14 @@ class TraceCollector:
 
         self._event_counter = 0
         self._active_timers: Dict[str, float] = {}
+        # Listeners are invoked synchronously after each event is appended
+        # to the trace and metrics are updated. Callers can subscribe via
+        # :meth:`add_listener` so they receive a live stream of events
+        # without monkey-patching :meth:`record_event`. Used by the
+        # product-layer ``StepStatusReporter`` to translate the runner's
+        # STEP_START / STEP_END / AGENT_ERROR events into product
+        # WorkflowStep status transitions in real time.
+        self._listeners: List[Any] = []
 
     def record_event(
         self,
@@ -472,7 +480,42 @@ class TraceCollector:
         self.trace.add_event(event)
         self._update_metrics(event)
 
+        # Fan out to listeners after persistence + metrics so listeners
+        # observe the same event the trace has already absorbed. Listener
+        # exceptions are isolated: one bad listener must not break the
+        # workflow run or starve other listeners.
+        for listener in list(self._listeners):
+            try:
+                listener(event)
+            except Exception:  # noqa: BLE001
+                # Intentionally swallow — emit-on-failure is the wrong
+                # default for trace listeners, which are observers.
+                # Production deployments can wrap their own listener in
+                # a logger if they want failure visibility.
+                pass
+
         return event_id
+
+    def add_listener(self, listener: Any) -> Any:
+        """Subscribe a callable to receive each :class:`TraceEvent`.
+
+        Args:
+            listener: A callable taking a single ``TraceEvent`` argument.
+
+        Returns:
+            The listener (for chaining / parity with common pubsub APIs).
+        """
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+        return listener
+
+    def remove_listener(self, listener: Any) -> None:
+        """Unsubscribe a previously-added listener. No-op if not present."""
+
+        try:
+            self._listeners.remove(listener)
+        except ValueError:
+            pass
 
     def start_timer(self, timer_id: str) -> None:
         """Start a named timer."""

@@ -5,11 +5,60 @@ Coordinates all specialized agents and manages workflow execution.
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..llm.base import LLMProvider
 from .base import Agent, AgentType, AgentMessage, AgentState
 from .constants import AgentNames, WorkflowSteps
+
+
+class WorkflowCancelled(Exception):
+    """Raised when a cooperative cancel token is set mid-workflow.
+
+    The orchestrator checks the cancel token between steps. If it is
+    set, the orchestrator raises this exception so the caller (the
+    product-layer ``AgenticRunSupervisor``) can surface a ``cancelled``
+    status without confusing the failure with an agent error. Carries
+    the step name where cancellation was observed so audit logs can
+    distinguish "cancelled before step N" from "step N raised".
+    """
+
+    def __init__(self, observed_at_step: Optional[str] = None) -> None:
+        self.observed_at_step = observed_at_step
+        suffix = f" (observed before step={observed_at_step})" if observed_at_step else ""
+        super().__init__(f"workflow cancelled by cooperative cancel token{suffix}")
+
+
+# A cancel token is anything truthy when the caller wants to cancel.
+# Most callers will pass a ``threading.Event`` and we'll call ``.is_set()``,
+# but plain callables and even raw booleans are accepted so unit tests can
+# stay lightweight.
+CancelToken = Union[Callable[[], bool], Any]
+
+
+def _is_cancel_requested(token: Optional[CancelToken]) -> bool:
+    """Inspect a cancel token in a duck-typed way.
+
+    Accepts None, ``threading.Event``-likes (with ``.is_set()``), plain
+    callables, and bare booleans. Anything we can't recognize as a
+    cancellation signal is treated as "not cancelled" so a misuse never
+    accidentally aborts a real run.
+    """
+
+    if token is None:
+        return False
+    if callable(token):
+        try:
+            return bool(token())
+        except Exception:  # noqa: BLE001
+            return False
+    is_set = getattr(token, "is_set", None)
+    if callable(is_set):
+        try:
+            return bool(is_set())
+        except Exception:  # noqa: BLE001
+            return False
+    return bool(token)
 
 
 class OrchestratorAgent(Agent):
@@ -334,6 +383,11 @@ cost, and providing clear diagnostics on any failures."""
                 content={"error": f"Unknown step: {step}"},
             )
 
+        # Cooperative cancel check before starting the next step. The
+        # token is stashed on state.metadata by run_workflow().
+        if _is_cancel_requested(state.metadata.get("_cancel_token")):
+            raise WorkflowCancelled(observed_at_step=step)
+
         state.current_step = step
 
         # Create task message for agent
@@ -405,6 +459,7 @@ cost, and providing clear diagnostics on any failures."""
         input_documents: Optional[List[Dict[str, Any]]] = None,
         database_config: Optional[Dict[str, Any]] = None,
         workflow_metadata: Optional[Dict[str, Any]] = None,
+        cancel_token: Optional[CancelToken] = None,
     ) -> AgentState:
         """
         Run complete workflow.
@@ -412,6 +467,10 @@ cost, and providing clear diagnostics on any failures."""
         Args:
             input_documents: Input requirement documents
             database_config: Database configuration
+            cancel_token: Optional cooperative cancel token. The
+                orchestrator checks this before delegating to each
+                agent in the message-driven path; if set, raises
+                ``WorkflowCancelled``.
 
         Returns:
             Final workflow state
@@ -422,6 +481,19 @@ cost, and providing clear diagnostics on any failures."""
         )
         if workflow_metadata:
             state.metadata.update(workflow_metadata)
+        # Stash the cancel token on state.metadata under a private key
+        # so :meth:`_delegate_to_agent` (which has no signature for it)
+        # can poll between steps without a wider refactor of the
+        # message-passing layer. The async path uses a parallel
+        # mechanism in :meth:`_run_sequential_workflow` /
+        # :meth:`_run_parallel_workflow`.
+        if cancel_token is not None:
+            state.metadata["_cancel_token"] = cancel_token
+
+        # Check before doing any work so a cancel issued before submit
+        # short-circuits cleanly.
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=None)
 
         # Start workflow
         start_message = self.create_message(
@@ -440,6 +512,7 @@ cost, and providing clear diagnostics on any failures."""
         database_config: Optional[Dict[str, Any]] = None,
         enable_parallelism: bool = True,
         workflow_metadata: Optional[Dict[str, Any]] = None,
+        cancel_token: Optional[CancelToken] = None,
     ) -> AgentState:
         """
         Run complete workflow with parallel execution (async version).
@@ -464,6 +537,12 @@ cost, and providing clear diagnostics on any failures."""
         )
         if workflow_metadata:
             state.metadata.update(workflow_metadata)
+        if cancel_token is not None:
+            state.metadata["_cancel_token"] = cancel_token
+
+        # Pre-flight cancel check.
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=None)
 
         self.log("🚀 Starting parallel agentic workflow orchestration")
 
@@ -478,6 +557,11 @@ cost, and providing clear diagnostics on any failures."""
     async def _run_sequential_workflow(self, state: AgentState):
         """Run workflow sequentially using async agents."""
         for step in self.workflow_steps:
+            # Cooperative cancel check before each step. Raising
+            # WorkflowCancelled lets the caller distinguish cancel
+            # from a step-level agent error.
+            if _is_cancel_requested(state.metadata.get("_cancel_token")):
+                raise WorkflowCancelled(observed_at_step=step)
             self.log(f"Executing step: {step}")
             await self._execute_step_async(step, state)
             state.mark_step_complete(step)
@@ -494,7 +578,16 @@ cost, and providing clear diagnostics on any failures."""
         5. Phase 5 (Parallel): Generate all reports concurrently
         """
 
+        # Cooperative cancel checks happen before each phase. We don't
+        # interrupt mid-phase because individual agents can be inside
+        # blocking LLM/DB I/O — the policy is "best effort cancel
+        # between steps" (Phase 1) and we'll add finer-grained cancel
+        # in FR-31c.
+        cancel_token = state.metadata.get("_cancel_token")
+
         # Phase 1: Run schema analysis and requirements extraction in parallel
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=WorkflowSteps.SCHEMA_ANALYSIS)
         self.log("Phase 1: Parallel schema + requirements analysis")
         schema_task = self._execute_step_async(WorkflowSteps.SCHEMA_ANALYSIS, state)
         requirements_task = self._execute_step_async(
@@ -506,21 +599,29 @@ cost, and providing clear diagnostics on any failures."""
         await state.mark_step_complete_async(WorkflowSteps.REQUIREMENTS_EXTRACTION)
 
         # Phase 2: Generate use cases (sequential - depends on both schema and requirements)
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=WorkflowSteps.USE_CASE_GENERATION)
         self.log("Phase 2: Use case generation")
         await self._execute_step_async(WorkflowSteps.USE_CASE_GENERATION, state)
         await state.mark_step_complete_async(WorkflowSteps.USE_CASE_GENERATION)
 
         # Phase 3: Generate templates (sequential for now, could be parallelized later)
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=WorkflowSteps.TEMPLATE_GENERATION)
         self.log("Phase 3: Template generation")
         await self._execute_step_async(WorkflowSteps.TEMPLATE_GENERATION, state)
         await state.mark_step_complete_async(WorkflowSteps.TEMPLATE_GENERATION)
 
         # Phase 4: Execute all templates in parallel (handled by ExecutionAgent's async method)
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=WorkflowSteps.EXECUTION)
         self.log("Phase 4: Parallel execution of all templates")
         await self._execute_step_async(WorkflowSteps.EXECUTION, state)
         await state.mark_step_complete_async(WorkflowSteps.EXECUTION)
 
         # Phase 5: Generate all reports in parallel (handled by ReportingAgent's async method)
+        if _is_cancel_requested(cancel_token):
+            raise WorkflowCancelled(observed_at_step=WorkflowSteps.REPORTING)
         self.log("Phase 5: Parallel report generation")
         await self._execute_step_async(WorkflowSteps.REPORTING, state)
         await state.mark_step_complete_async(WorkflowSteps.REPORTING)

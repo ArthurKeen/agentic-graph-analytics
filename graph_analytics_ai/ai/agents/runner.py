@@ -147,6 +147,7 @@ class AgenticWorkflowRunner:
         discovery_mode: bool = False,
         epoch_id: Optional[str] = None,
         baseline_epoch_id: Optional[str] = None,
+        cancel_token: Optional[Any] = None,
     ) -> AgentState:
         """
         Run complete agentic workflow.
@@ -155,6 +156,9 @@ class AgenticWorkflowRunner:
             input_documents: Input requirement documents
             database_config: Database configuration
             max_executions: Maximum number of analyses to execute
+            cancel_token: Optional cooperative cancel token (e.g.
+                ``threading.Event``). The orchestrator polls between
+                steps; if set, raises ``WorkflowCancelled``.
 
         Returns:
             Final workflow state with all results
@@ -185,6 +189,7 @@ class AgenticWorkflowRunner:
                 "baseline_epoch_id": baseline_epoch_id,
                 "max_executions": max_executions,
             },
+            cancel_token=cancel_token,
         )
 
         # Record workflow end
@@ -210,6 +215,7 @@ class AgenticWorkflowRunner:
         discovery_mode: bool = False,
         epoch_id: Optional[str] = None,
         baseline_epoch_id: Optional[str] = None,
+        cancel_token: Optional[Any] = None,
     ) -> AgentState:
         """
         Run complete agentic workflow with async/parallel execution.
@@ -261,6 +267,7 @@ class AgenticWorkflowRunner:
                 "baseline_epoch_id": baseline_epoch_id,
                 "max_executions": max_executions,
             },
+            cancel_token=cancel_token,
         )
 
         # Record workflow end
