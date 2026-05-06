@@ -141,6 +141,118 @@ def test_product_fastapi_route_dispatches_request(fake_fastapi_module):
     assert response == {"workspace_id": "workspace-1", "recent_limit": "3"}
 
 
+def test_create_product_fastapi_app_wires_supervisor_when_explicitly_enabled(
+    fake_fastapi_module,
+):
+    """``enable_agentic_supervisor=True`` injects a supervisor + lifespan hooks."""
+
+    class _Service:
+        """Minimal service stub — the factory only assigns the supervisor on it."""
+
+        _agentic_run_supervisor = None
+
+    service = _Service()
+    app = create_product_fastapi_app(service=service, enable_agentic_supervisor=True)
+
+    # Supervisor must be assigned to the service so start_workflow_run /
+    # cancel_workflow_run / get_workflow_run_status route through it.
+    assert service._agentic_run_supervisor is not None
+    supervisor = service._agentic_run_supervisor
+
+    # Lifespan must be registered. We exercise it end-to-end so the
+    # startup-sweep + shutdown-drain hooks are pinned, not just present.
+    assert app.lifespan is not None
+    sweep_calls: list = []
+    shutdown_calls: list = []
+    monkey_supervisor_orig_sweep = supervisor.sweep_orphan_runs
+    monkey_supervisor_orig_shutdown = supervisor.shutdown
+
+    def record_sweep(*args, **kwargs):
+        sweep_calls.append((args, kwargs))
+        return []
+
+    def record_shutdown(*args, **kwargs):
+        shutdown_calls.append((args, kwargs))
+        return monkey_supervisor_orig_shutdown(*args, **kwargs)
+
+    supervisor.sweep_orphan_runs = record_sweep
+    supervisor.shutdown = record_shutdown
+
+    async def drive():
+        async with app.lifespan(app):
+            pass
+
+    asyncio.run(drive())
+
+    assert sweep_calls, "lifespan startup must call sweep_orphan_runs"
+    assert shutdown_calls, "lifespan shutdown must drain the supervisor pool"
+    assert shutdown_calls[0][1].get("wait") is False, (
+        "shutdown should be non-blocking so the API process exits "
+        "promptly even if a worker is mid-step"
+    )
+
+
+def test_create_product_fastapi_app_skips_supervisor_when_disabled(fake_fastapi_module):
+    """When the supervisor is off, no hook is registered and the service is untouched."""
+
+    class _Service:
+        _agentic_run_supervisor = None
+
+    service = _Service()
+    app = create_product_fastapi_app(service=service, enable_agentic_supervisor=False)
+
+    assert service._agentic_run_supervisor is None
+    # Lifespan still exists (it's always passed) but exercising it must
+    # be a no-op — no sweep, no shutdown — when the supervisor was not
+    # constructed.
+    assert app.lifespan is not None
+
+    async def drive():
+        async with app.lifespan(app):
+            pass
+
+    asyncio.run(drive())  # would raise if the lifespan tried to call None.sweep
+
+
+def test_create_product_fastapi_app_resolves_supervisor_from_env(
+    fake_fastapi_module, monkeypatch
+):
+    """``AGA_ENABLE_AGENTIC_SUPERVISOR=1`` enables the supervisor without an arg."""
+
+    monkeypatch.setenv("AGA_ENABLE_AGENTIC_SUPERVISOR", "1")
+
+    class _Service:
+        _agentic_run_supervisor = None
+
+    service = _Service()
+    app = create_product_fastapi_app(service=service)
+
+    assert service._agentic_run_supervisor is not None
+
+    # Drain so the worker pool doesn't leak between tests.
+    service._agentic_run_supervisor.shutdown(wait=False)
+    # Reference ``app`` so the linter sees the test's intent of asserting the
+    # factory didn't raise even when the arg is left to env-resolution.
+    assert app.lifespan is not None
+
+
+def test_create_product_fastapi_app_env_off_keeps_supervisor_disabled(
+    fake_fastapi_module, monkeypatch
+):
+    """Falsy env values (``""``, ``"0"``, ``"off"``) leave the supervisor disabled."""
+
+    monkeypatch.setenv("AGA_ENABLE_AGENTIC_SUPERVISOR", "0")
+
+    class _Service:
+        _agentic_run_supervisor = None
+
+    service = _Service()
+    app = create_product_fastapi_app(service=service)
+
+    assert service._agentic_run_supervisor is None
+    assert app.lifespan is not None
+
+
 def test_create_product_fastapi_app_explains_missing_dependency(monkeypatch):
     """FastAPI adapter gives a clear message when the optional extra is absent."""
 

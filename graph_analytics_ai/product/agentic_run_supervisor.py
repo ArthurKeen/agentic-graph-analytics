@@ -548,10 +548,21 @@ class AgenticRunSupervisor:
             llm_provider = self._llm_provider_factory.for_workspace(run.workspace_id)
             graph_name = self._resolve_graph_name(run)
 
+            # The kwarg name MUST match ``AgenticWorkflowRunner.__init__``
+            # — ``db_connection`` (not ``db``). The fake runner the
+            # tests use accepts arbitrary kwargs, so this bug only
+            # surfaced under live integration. Pinned by
+            # ``test_supervisor_passes_kwargs_compatible_with_real_runner``.
             runner = self._runner_factory(
-                db=db,
+                db_connection=db,
                 llm_provider=llm_provider,
                 graph_name=graph_name,
+                core_collections=self._collection_role_subset(
+                    run, role_keys=("core", "primary", "entity")
+                ),
+                satellite_collections=self._collection_role_subset(
+                    run, role_keys=("satellite", "metadata", "lookup")
+                ),
                 enable_tracing=True,
             )
 
@@ -595,9 +606,9 @@ class AgenticRunSupervisor:
         status: Any,
         error_message: Optional[str] = None,
     ) -> None:
-        """Record final status and outcome on the run."""
+        """Record final status and outcome on the run + audit event."""
 
-        from .models import current_timestamp  # cycle-safe local import
+        from .models import create_audit_event, current_timestamp  # cycle-safe local import
 
         run = self._service.repository.get_workflow_run(run_id)
         run.status = status
@@ -610,6 +621,32 @@ class AgenticRunSupervisor:
         execution_meta.setdefault("executor_kind", "inprocess")
         run.metadata["execution"] = execution_meta
         self._service.repository.update_workflow_run(run)
+
+        # Emit a matching audit event so the run lifecycle is fully
+        # captured. actor="workflow-runner" keeps it distinguishable
+        # from user-initiated cancel events (which carry the user's
+        # email / system identifier).
+        try:
+            self._service.repository.create_audit_event(
+                create_audit_event(
+                    workspace_id=run.workspace_id,
+                    actor="workflow-runner",
+                    action="execute_workflow",
+                    target_type="workflow_run",
+                    target_id=run.run_id,
+                    metadata={
+                        "outcome": outcome,
+                        "executor_kind": execution_meta.get("executor_kind"),
+                        "step_count": len(run.steps or []),
+                        "error_message": error_message,
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            # Audit failure must not mask the actual run outcome —
+            # the visualizer should still see status=COMPLETED even
+            # if audit write hits a transient repo error.
+            logger.exception("Failed to write execute_workflow audit for run=%s", run_id)
 
     def _build_db_connection(self, run: Any) -> Any:
         """Resolve the ArangoDB connection for the run's graph profile."""
@@ -657,6 +694,38 @@ class AgenticRunSupervisor:
 
         graph_profile = self._service.repository.get_graph_profile(run.graph_profile_id)
         return graph_profile.graph_name
+
+    def _collection_role_subset(
+        self, run: Any, *, role_keys: tuple
+    ) -> List[str]:
+        """Pull collection names from the graph profile by role label.
+
+        ``GraphProfile.collection_roles`` is a dict mapping collection
+        name → list of role labels (e.g. ``{"Device": ["core"]}``).
+        The runner's ``core_collections`` / ``satellite_collections``
+        kwargs let the analysis agents reason about which collections
+        carry primary signal vs. which carry metadata. We surface them
+        here so agentic runs benefit from any role tagging the
+        discovery flow has already done; profiles without role labels
+        return an empty list and the runner falls back to its
+        defaults.
+        """
+
+        try:
+            graph_profile = self._service.repository.get_graph_profile(run.graph_profile_id)
+        except Exception:  # noqa: BLE001
+            return []
+        roles = graph_profile.collection_roles or {}
+        normalized_keys = {key.lower() for key in role_keys}
+        result: List[str] = []
+        for collection_name, role_labels in roles.items():
+            if not role_labels:
+                continue
+            for label in role_labels:
+                if isinstance(label, str) and label.lower() in normalized_keys:
+                    result.append(collection_name)
+                    break
+        return result
 
     def _build_input_documents(self, run: Any) -> List[Dict[str, Any]]:
         """Resolve requirement-version BRD content as runner input documents.

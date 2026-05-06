@@ -676,6 +676,190 @@ def test_get_workflow_run_status_combines_persisted_state_and_supervisor_view():
 # ---------------------------------------------------------------------------
 
 
+def test_start_workflow_run_emits_audit_event_with_dispatch_metadata():
+    """start_workflow_run records start in the audit log (FR-31a)."""
+
+    service, repository, run = _seed_workspace_and_run()
+    supervisor_stub_calls: List[str] = []
+
+    class _SupervisorStub:
+        def submit(self, run_id):
+            supervisor_stub_calls.append(run_id)
+
+        def cancel(self, run_id):
+            return False
+
+        def get_status(self, run_id):
+            return {"supervised": True}
+
+    service._agentic_run_supervisor = _SupervisorStub()
+
+    service.start_workflow_run(run.run_id, actor="alice@example.com")
+
+    starts = [e for e in repository.audit_events if e.action == "start_workflow_run"]
+    assert len(starts) == 1
+    event = starts[0]
+    assert event.actor == "alice@example.com"
+    assert event.target_type == "workflow_run"
+    assert event.target_id == run.run_id
+    assert event.metadata["workflow_mode"] == "agentic"
+    assert event.metadata["dispatched_to_supervisor"] is True
+    assert event.metadata["executor_kind"] == "inprocess"
+    assert supervisor_stub_calls == [run.run_id]
+
+
+def test_supervisor_finalize_emits_execute_workflow_audit_for_completed_run():
+    """The supervisor records an execute_workflow audit on completion."""
+
+    service, repository, run = _seed_workspace_and_run()
+
+    def runner_factory(**kwargs):
+        return _FakeRunner(events=[])
+
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=runner_factory,
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+        max_workers=1,
+    )
+    service._agentic_run_supervisor = supervisor
+
+    service.start_workflow_run(run.run_id)
+    supervisor._handles[run.run_id].future.result(timeout=5)
+    supervisor.shutdown(wait=True, timeout_seconds=2)
+
+    executes = [e for e in repository.audit_events if e.action == "execute_workflow"]
+    assert len(executes) == 1
+    event = executes[0]
+    assert event.actor == "workflow-runner"
+    assert event.metadata["outcome"] == RUN_OUTCOME_COMPLETED
+    assert event.metadata["step_count"] == 6
+    assert event.metadata["error_message"] is None
+
+
+def test_supervisor_finalize_emits_execute_workflow_audit_with_error_for_failed_run():
+    """Failed runs record the error message in the audit metadata."""
+
+    service, repository, run = _seed_workspace_and_run()
+    boom = RuntimeError("LLM provider disconnected")
+
+    def runner_factory(**kwargs):
+        return _FakeRunner(events=[], raise_at=boom)
+
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=runner_factory,
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+        max_workers=1,
+    )
+    service._agentic_run_supervisor = supervisor
+
+    service.start_workflow_run(run.run_id)
+    supervisor._handles[run.run_id].future.result(timeout=5)
+    supervisor.shutdown(wait=True, timeout_seconds=2)
+
+    executes = [e for e in repository.audit_events if e.action == "execute_workflow"]
+    assert len(executes) == 1
+    event = executes[0]
+    assert event.metadata["outcome"] == RUN_OUTCOME_FAILED
+    assert "LLM provider disconnected" in event.metadata["error_message"]
+
+
+def test_supervisor_passes_kwargs_compatible_with_real_runner():
+    """Pin the supervisor → AgenticWorkflowRunner contract.
+
+    The fake runner used by the other tests accepts ``**kwargs``, so a
+    typo like ``db=db`` instead of ``db_connection=db`` (which is the
+    actual parameter name on AgenticWorkflowRunner.__init__) wouldn't
+    surface there. This test introspects the real runner signature
+    and asserts every kwarg the supervisor sends is a parameter the
+    runner declares — so a future rename on either side fails loudly
+    at the unit-test level instead of silently at run time inside a
+    worker thread.
+    """
+
+    import inspect
+
+    from graph_analytics_ai.ai.agents.runner import AgenticWorkflowRunner
+
+    real_signature = inspect.signature(AgenticWorkflowRunner.__init__)
+    declared_params = set(real_signature.parameters.keys())
+
+    # Spy runner factory captures the kwargs the supervisor sends so
+    # we can compare them against the real ctor signature.
+    sent_kwargs: Dict[str, Any] = {}
+
+    def spy_runner_factory(**kwargs):
+        sent_kwargs.update(kwargs)
+        return _FakeRunner(events=[])
+
+    service, repository, run = _seed_workspace_and_run()
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=spy_runner_factory,
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+        max_workers=1,
+    )
+    service._agentic_run_supervisor = supervisor
+
+    service.start_workflow_run(run.run_id)
+    supervisor._handles[run.run_id].future.result(timeout=5)
+    supervisor.shutdown(wait=True, timeout_seconds=2)
+
+    assert sent_kwargs, "supervisor must call its runner factory"
+    unknown = set(sent_kwargs.keys()) - declared_params
+    assert not unknown, (
+        f"supervisor passed kwargs {unknown!r} that AgenticWorkflowRunner.__init__ "
+        f"does not accept. Real signature: {sorted(declared_params)}"
+    )
+
+    # Spot-check that the critical wiring made it through with the
+    # correct names — these are the ones a typo would break first.
+    assert "db_connection" in sent_kwargs
+    assert "llm_provider" in sent_kwargs
+    assert "graph_name" in sent_kwargs
+    assert "enable_tracing" in sent_kwargs
+
+
+def test_supervisor_pulls_core_and_satellite_collections_from_graph_profile_roles():
+    """Role-tagged collections flow into the runner ctor by category."""
+
+    service, repository, run = _seed_workspace_and_run()
+
+    # Tag the graph profile with role labels and update through the
+    # repository so the supervisor reads the updated copy.
+    graph_profile = next(iter(repository.graph_profiles))
+    graph_profile.collection_roles = {
+        "Device": ["core"],
+        "Account": ["primary"],
+        "AuditLog": ["satellite"],
+        "Region": ["lookup"],
+        "Misc": ["unrelated"],
+    }
+
+    captured: Dict[str, Any] = {}
+
+    def spy_runner_factory(**kwargs):
+        captured.update(kwargs)
+        return _FakeRunner(events=[])
+
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=spy_runner_factory,
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+        max_workers=1,
+    )
+    service._agentic_run_supervisor = supervisor
+
+    service.start_workflow_run(run.run_id)
+    supervisor._handles[run.run_id].future.result(timeout=5)
+    supervisor.shutdown(wait=True, timeout_seconds=2)
+
+    # Order isn't guaranteed (dict iteration), so compare sets.
+    assert set(captured["core_collections"]) == {"Device", "Account"}
+    assert set(captured["satellite_collections"]) == {"AuditLog", "Region"}
+
+
 def test_step_status_reporter_translates_each_event_type():
     """Pin down the exact translation from trace event → step update."""
 

@@ -805,7 +805,7 @@ class ProductService:
             )
         return steps, edges
 
-    def start_workflow_run(self, run_id: str) -> WorkflowRun:
+    def start_workflow_run(self, run_id: str, actor: Optional[str] = None) -> WorkflowRun:
         """Mark a queued workflow run as running.
 
         FR-31a: when the run is in AGENTIC mode and a supervisor is
@@ -814,6 +814,11 @@ class ProductService:
         returns immediately after flipping status to RUNNING — actual
         completion is reflected via per-step updates streamed by the
         :class:`StepStatusReporter`.
+
+        Always emits a ``start_workflow_run`` audit event. For agentic
+        runs the metadata records whether the supervisor accepted the
+        submission, so audit logs can later distinguish "started but
+        the supervisor wasn't wired" from "started and dispatched."
         """
 
         run = self.repository.get_workflow_run(run_id)
@@ -821,6 +826,7 @@ class ProductService:
         run.started_at = run.started_at or current_timestamp()
         self.repository.update_workflow_run(run)
 
+        dispatched = False
         if (
             run.workflow_mode == WorkflowMode.AGENTIC
             and self._agentic_run_supervisor is not None
@@ -828,6 +834,23 @@ class ProductService:
             # Submit to the supervisor. submit() is idempotent so a
             # double-start (e.g. user clicks twice) is safe.
             self._agentic_run_supervisor.submit(run_id)
+            dispatched = True
+
+        execution_meta = (run.metadata or {}).get("execution") or {}
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=run.workspace_id,
+                actor=actor or "workspace-ui",
+                action="start_workflow_run",
+                target_type="workflow_run",
+                target_id=run.run_id,
+                metadata={
+                    "workflow_mode": run.workflow_mode.value,
+                    "dispatched_to_supervisor": dispatched,
+                    "executor_kind": execution_meta.get("executor_kind"),
+                },
+            )
+        )
 
         return run
 
