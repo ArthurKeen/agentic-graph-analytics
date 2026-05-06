@@ -1,13 +1,29 @@
 # Product Requirements Document: Agentic Graph Analytics UI
 
-**Version:** 0.2  
-**Date:** 2026-05-05  
+**Version:** 0.4  
+**Date:** 2026-05-06  
 **Status:** Draft  
 **Target Release:** Product UI MVP  
 **Related Document:** [Agentic Graph Analytics UI Vision](UI_PRODUCT_VISION.md)
 
 **Changelog:**
 
+- **0.4 (2026-05-06)** — FR-31a Phase 1 design decisions locked and
+  implementation begun. Confirmed: (1) agentic runs use a fixed
+  six-step canonical layout instead of free-form labels; (2) execution
+  uses an in-process `ThreadPoolExecutor` with a hard pre-commit to
+  FR-31b before public availability; (3) LLM provider is env-only in
+  Phase 1 with an `LLMProviderFactory.for_workspace` seam for future
+  per-workspace `LLMProfile` records; (4) the new components are named
+  `AgenticRunSupervisor` and `StepStatusReporter` to avoid colliding
+  with the existing `OrchestratorAgent` / `AgenticWorkflowRunner`
+  vocabulary.
+- **0.3 (2026-05-05)** — Documented the deterministic-orchestration gap
+  in the workflow runs section (workflow runs are persisted state, not
+  executed agents) and added FR-31a "Planned: Live Agentic Execution"
+  with full architecture, step-layout, API, cancellation, audit, and
+  phasing plan for wiring `AgenticWorkflowRunner` into
+  `start_workflow_run`.
 - **0.2 (2026-05-05)** — Added Requirements iteration via versioning (UC-4B), the
   consolidated Requirements asset IA with canvas-side version dropdown,
   domain inheritance across reopen sessions, URL deep-linking for individual
@@ -510,6 +526,44 @@ version without losing prior context, audit trail, or domain.
 - **FR-29:** Users can view run progress and GAE job IDs.
 - **FR-30:** Users can cancel, retry, or resume runs where supported.
 - **FR-31:** Completed executions are recorded in the Analysis Catalog.
+
+#### Known limitation: workflow runs are currently deterministic state, not executed agents
+
+**Status as of v0.2:** `WorkflowMode.AGENTIC` is descriptive metadata only.
+The product workflow API (`POST /api/runs`, `POST /api/runs/{id}/start`,
+`PATCH /api/runs/{id}/steps/{step_id}`) is a **persisted DAG plus state
+machine**, not an executor:
+
+- Step labels and the linear DAG are built client-side in
+  `frontend/src/lib/product-api/client.ts:createWorkflowRunPayload` from
+  whatever text the user types in the Create Workflow Run overlay.
+- `ProductService.start_workflow_run` only flips run status to `RUNNING`
+  and stamps `started_at`; it does **not** invoke
+  `AgenticWorkflowRunner` or any agent.
+- Step transitions to `succeeded`/`failed` are driven by the UI calling
+  `PATCH .../steps/{id}`. There is no execution callback that produces
+  these transitions today, so the visualizer reflects user actions
+  rather than real agent progress.
+- `RequirementsCopilot` questions are a hardcoded list and the draft is
+  template-rendered (`graph_analytics_ai/product/service.py:_requirements_copilot_questions`,
+  `_build_requirements_draft`). It is intentionally deterministic for
+  MVP; LLM-backed question generation and draft synthesis are not wired.
+- Real LLM-backed reasoning **does** exist in
+  `graph_analytics_ai/ai/agents/runner.AgenticWorkflowRunner` and the
+  specialized agents (`SchemaAnalysisAgent`, `RequirementsAgent` doc
+  extraction path, `ReportingAgent` insights). It is reachable today
+  only via MCP (`graph_analytics_ai/mcp/tools/workflow.start_workflow`)
+  and CLI/example entry points — not from the product workflow API.
+
+**FR-31a (planned, see "Planned: Live Agentic Execution" below):** Wire
+`POST /api/runs/{id}/start` (when `workflow_mode == AGENTIC`) to
+`AgenticWorkflowRunner.run_async`, derive step transitions from the
+runner's `TraceEventType.STEP_START` / `STEP_END` events, and persist
+them via the existing `update_workflow_step` path so the visualizer
+reflects real agent progress without UI involvement. Until FR-31a
+ships, the visualizer accurately reflects **persisted state**, not
+**live execution**, and `WorkflowMode.AGENTIC` should be read as
+"intended to run agentically" rather than "currently runs agents."
 
 ### Agentic Workflow Visualizer
 
@@ -1286,6 +1340,436 @@ Mitigation:
 
 - Sequence delivery around replacing wrapper repo needs first.
 - Treat graph visualization and SaaS control-plane features as later phases.
+
+---
+
+## Planned: Live Agentic Execution (FR-31a)
+
+**Status:** Phase 1 in progress as of v0.4. Decisions locked below.
+
+**Goal.** Make `POST /api/runs/{run_id}/start` actually execute the
+agentic pipeline when `workflow_mode == AGENTIC`, and stream per-step
+progress back into the existing `WorkflowStep` rows so the canvas
+visualizer reflects real agent state. This closes the gap documented
+under "Known limitation: workflow runs are currently deterministic
+state, not executed agents."
+
+### Locked Design Decisions (v0.4)
+
+The four open architectural questions surfaced when writing v0.3 are
+now closed. Each decision lists the chosen option and the rationale so
+future readers can see why we didn't pick the alternatives.
+
+1. **Step labels in agentic mode → six canonical steps.** When
+   `workflow_mode == AGENTIC`, the service ignores any client-supplied
+   step labels and seeds the run with the canonical six in fixed
+   order (`schema_analysis`, `requirements_extraction`,
+   `use_case_generation`, `template_generation`, `execution`,
+   `reporting`). The frontend overlay replaces the free-form textarea
+   with a read-only labeled preview. **Why:** the orchestrator's
+   `STANDARD_WORKFLOW` only knows these six phases. Letting users
+   type "Find Anomalies" and pretending an agent ran that step would
+   make the visualizer lie about reality. **Traditional mode is
+   unchanged** — free-form labels remain there. Per-`execution`-phase
+   template selection ("which analyses run inside Execution") is a
+   separate future enhancement (FR-31c-or-later).
+
+2. **Execution surface → in-process `ThreadPoolExecutor` for Phase 1,
+   hard pre-commit to FR-31b before public availability.** The
+   `AgenticRunSupervisor` wraps a process-local pool sized to
+   `max_workers=2` initially; orphan-sweep on startup flips runs left
+   in `RUNNING` after restart to `FAILED` with a `stale_run_detected`
+   reason. `WorkflowRun.metadata.executor_kind` records which executor
+   produced the row (`"inprocess"` in Phase 1) so we can tell from the
+   data which path produced it after we migrate. `max_executions` is
+   capped at 5 in Phase 1 (default 3) to bound LLM cost blast radius.
+   **Why:** ships in days, matches the existing MCP background pattern,
+   keeps deployment surface unchanged. The cost is real (lost runs on
+   API restart), so this Phase 1 must not be put in front of paying
+   customers without first shipping FR-31b (durable executor backed by
+   Arq or Celery). The supervisor is written so the swap is mostly
+   replacing `executor.submit(...)` with `task.delay(...)`.
+
+3. **LLM provider config → env-only in Phase 1, with a
+   `LLMProviderFactory.for_workspace(workspace_id)` seam for
+   per-workspace configuration later.** Phase 1's factory ignores the
+   `workspace_id` argument and returns the env-default
+   `create_llm_provider()`. **Why:** lets us ship without inventing a
+   new `LLMProfile` collection, new CRUD APIs, and new UI; preserves
+   the seam that future per-workspace config will plug into without
+   touching `AgenticRunSupervisor`. The seam is real code (it's how
+   the supervisor obtains the provider) so future work is purely
+   inside the factory and a new collection — no churn at the
+   integration point.
+
+4. **Naming → `AgenticRunSupervisor` and `StepStatusReporter`.** Not
+   `WorkflowExecutor` (collides with `concurrent.futures.Executor`
+   ABC connotations) and not `WorkflowRunner` (collides with the
+   existing `AgenticWorkflowRunner`). Not `StepStatusBridge` because
+   "bridge" is a heavy GoF term for what is functionally a listener.
+   **Why:** `AgenticRunSupervisor` names what it owns (the lifecycle
+   of an agentic run — spawn, cancel, orphan recovery) and pairs
+   naturally with `OrchestratorAgent` (one supervises runs, the other
+   orchestrates phases within a run). `StepStatusReporter` says what
+   it does in one verb and aligns with the `actor="workflow-runner"`
+   audit pattern.
+
+### Scope
+
+In scope for the first slice (call this **FR-31a Phase 1**):
+
+- A new `AgenticRunSupervisor` service that bridges the product run
+  record to `AgenticWorkflowRunner`.
+- A background execution surface so HTTP requests do not block on
+  multi-minute LLM calls.
+- A trace-event → `WorkflowStepStatus` adapter that updates persisted
+  steps as the runner emits `STEP_START` / `STEP_END` /
+  `AGENT_ERROR` events.
+- A canonical mapping between the runner's six fixed phases
+  (`schema_analysis`, `requirements_extraction`, `use_case_generation`,
+  `template_generation`, `execution`, `reporting`) and `WorkflowStep`
+  rows on the run.
+- Cooperative cancellation via a per-run cancel flag the runner can
+  observe.
+- Failure surface that records the failing step, error message, and
+  any partial outputs.
+
+Explicitly **out of scope** for Phase 1:
+
+- Replacing the in-process executor with a durable task queue (Celery,
+  Arq, RQ). Phase 1 uses an in-process `ThreadPoolExecutor` matching
+  the existing MCP pattern; durable execution is FR-31b.
+- LLM-driven planning or step reordering. The orchestrator's
+  `STANDARD_WORKFLOW` list remains the source of truth for step
+  order; agentic-ness in Phase 1 means "agents execute the steps,"
+  not "an agent decides which steps to run."
+- Live token streaming of intermediate LLM output to the UI.
+
+### Architecture
+
+```
+┌─────────────────────────┐        POST /api/runs/{id}/start
+│   Frontend (React)      │  ─────────────────────────────────┐
+└─────────────────────────┘                                   │
+                                                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ FastAPI route (existing dispatcher)                                │
+│   → ProductService.start_workflow_run(run_id)                      │
+│       (Phase 1 change) if workflow_mode == AGENTIC:                │
+│           AgenticRunSupervisor.submit(run_id)                      │
+│       set status = RUNNING, return immediately                     │
+└────────────────────────────────────────────────────────────────────┘
+                                                              │
+                                       submit()               │
+                                                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ AgenticRunSupervisor (in-process ThreadPoolExecutor, max_workers=2)│
+│  • One worker per run; bounded pool                                │
+│  • Per-run CancelToken (threading.Event)                           │
+│  • Resolves connection_profile + secrets via SecretResolver        │
+│  • Builds AgenticWorkflowRunner(db, llm, graph_name=...) via       │
+│    LLMProviderFactory.for_workspace(workspace_id)                  │
+│  • Attaches a StepStatusReporter as a TraceCollector listener      │
+│  • Calls runner.run_async(...) inside a per-thread event loop      │
+└────────────────────────────────────────────────────────────────────┘
+                                                              │
+                              STEP_START / STEP_END events    │
+                                                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ StepStatusReporter                                                 │
+│  • Maps trace step_name → WorkflowStep.step_id via                 │
+│    AGENTIC_STEP_LAYOUT (six canonical steps)                       │
+│  • Calls ProductService.update_workflow_step(...) for each event   │
+│  • Records error details + duration in step.metadata               │
+│  • On WORKFLOW_END or exception, writes final status, emits        │
+│    audit_event(action="execute_workflow", actor="workflow-runner") │
+└────────────────────────────────────────────────────────────────────┘
+                                                              │
+                                                              ▼
+                  Existing UI poll of GET /api/runs/{id}
+                  (no UI changes required for Phase 1)
+```
+
+The executor is process-local. Restarting the API drops in-flight
+runs; the run row is left in `RUNNING` and Phase 1 surfaces a
+`STALE_RUN_DETECTED` banner via a startup recovery sweep (see Risks).
+
+### Step Layout (Canonical Six)
+
+The runner's `STANDARD_WORKFLOW` is fixed:
+
+```
+schema_analysis → requirements_extraction → use_case_generation
+  → template_generation → execution → reporting
+```
+
+For agentic runs, the UI's free-form step labels are replaced by a
+canonical layout. `ProductService.create_workflow_run` will, when
+`workflow_mode == AGENTIC`, ignore the client-supplied `steps`/
+`dag_edges` and instead seed the run with these six steps in order
+(label, step_id, status=`PENDING`). The frontend's Create Workflow
+Run overlay loses the "type your own steps" field for agentic mode
+and shows a read-only preview of the canonical layout instead. The
+`TRADITIONAL` mode keeps the existing free-form behavior unchanged.
+
+This mapping table lives in `graph_analytics_ai/product/workflow_layout.py`:
+
+| WorkflowStep.step_id     | label                  | maps to runner phase           |
+|--------------------------|------------------------|--------------------------------|
+| `schema_analysis`        | "Schema Analysis"      | `WorkflowSteps.SCHEMA_ANALYSIS`|
+| `requirements_extraction`| "Requirements Review"  | `REQUIREMENTS_EXTRACTION`      |
+| `use_case_generation`    | "Use Case Generation"  | `USE_CASE_GENERATION`          |
+| `template_generation`    | "Template Generation"  | `TEMPLATE_GENERATION`          |
+| `execution`              | "Analysis Execution"   | `EXECUTION`                    |
+| `reporting`              | "Report Generation"    | `REPORTING`                    |
+
+### API Changes
+
+- `POST /api/runs` (existing): when `workflow_mode == "agentic"`,
+  the service ignores client `steps` / `dag_edges` and seeds the
+  canonical layout. Returns the seeded run.
+- `POST /api/runs/{run_id}/start` (existing path, behavior change):
+  validates the run is `QUEUED`, fetches the workspace's active
+  graph profile + connection profile, resolves secrets via the
+  existing `SecretResolver` chain, submits to the executor, returns
+  `{run_id, status: "running"}` immediately. Always returns within
+  ~200 ms regardless of LLM latency.
+- `POST /api/runs/{run_id}/cancel` (new): sets the run's
+  `CancelToken`. The runner observes it between steps; cancellation
+  is cooperative (no in-step interrupt).
+- `GET /api/runs/{run_id}/status` (new, lightweight): returns
+  `{run_status, current_step_id, step_statuses, error_message}` so
+  the UI poll is cheap. Existing `GET /api/workspaces/{id}/overview`
+  continues to work; the new endpoint is an optimization.
+
+### Configuration Resolution
+
+The runner needs a real `db_connection` and `llm_provider`. Phase 1
+resolves them from product metadata:
+
+1. **Database connection.** Look up the workspace's active
+   `GraphProfile` → its `ConnectionProfile`. Use existing
+   `verify_connection_profile` machinery to build a connection
+   (resolving the password via `SecretResolver`). If verification
+   fails, the run transitions to `FAILED` with the verification
+   error before any agent runs.
+2. **LLM provider.** Read provider/model selection from
+   `WorkspaceMetadata.llm` (new optional field) or fall back to
+   `create_llm_provider()`'s env-driven default. API keys are
+   resolved through the same `SecretResolver` so they never enter
+   product metadata documents.
+3. **Graph name + collection roles.** Pull `graph_name`,
+   `core_collections`, `satellite_collections` from the workspace's
+   active `GraphProfile`.
+
+### Status Streaming Mechanism
+
+`AgenticWorkflowRunner` already accepts a `TraceCollector` and emits
+`TraceEventType.STEP_START` / `STEP_END` / `AGENT_ERROR`. The bridge
+subscribes by replacing `trace_collector.record_event` with a
+wrapper (or by adding a proper `add_listener(callback)` API to
+`TraceCollector` — preferred; small refactor).
+
+```python
+class StepStatusReporter:
+    def __init__(self, run_id: str, service: ProductService):
+        self.run_id = run_id
+        self.service = service
+        self.step_started_at: dict[str, datetime] = {}
+
+    def on_event(self, event: TraceEvent) -> None:
+        step_id = AGENTIC_STEP_LAYOUT.runner_phase_to_step_id(
+            event.data.get("step")
+        )
+        if step_id is None:
+            return  # not a workflow-step event we care about
+
+        if event.event_type is TraceEventType.STEP_START:
+            self.step_started_at[step_id] = utcnow()
+            self.service.update_workflow_step(
+                self.run_id, step_id, status=WorkflowStepStatus.RUNNING,
+                actor="workflow-runner",
+            )
+        elif event.event_type is TraceEventType.STEP_END:
+            duration_ms = ms_since(self.step_started_at.pop(step_id, None))
+            self.service.update_workflow_step(
+                self.run_id, step_id,
+                status=WorkflowStepStatus.SUCCEEDED,
+                metadata_patch={"duration_ms": duration_ms},
+                actor="workflow-runner",
+            )
+        elif event.event_type is TraceEventType.AGENT_ERROR:
+            self.service.update_workflow_step(
+                self.run_id, step_id,
+                status=WorkflowStepStatus.FAILED,
+                metadata_patch={"error_message": str(event.data.get("error"))},
+                actor="workflow-runner",
+            )
+```
+
+`update_workflow_step` already rolls run status up correctly
+(`_roll_up_workflow_run_status` in `service.py`), so no additional
+status logic is needed for the run itself.
+
+### Cancellation, Retry, Idempotency
+
+- **Cancel** flips the per-run `threading.Event` and updates the
+  current step to `CANCELLED` (new `WorkflowStepStatus`); the
+  orchestrator checks the event between steps and raises a
+  `WorkflowCancelled` exception, which the executor catches and
+  translates to `WorkflowRunStatus.CANCELLED`.
+- **Retry of a failed step.** Out of scope for Phase 1. Today's UI
+  retry handler patches the step back to `running` (not actually
+  re-executing). Phase 1 documents this as a known no-op for
+  agentic runs and disables the action when `workflow_mode ==
+  AGENTIC`. Phase 2 (FR-31c) introduces resumable runs by
+  serializing `AgentState` to the run row and letting the executor
+  resume from a checkpoint.
+- **Idempotency.** `start_workflow_run` rejects (409) when the run
+  is not `QUEUED`. Re-submitting a `RUNNING` run returns the
+  existing future without spawning a second worker.
+
+### Failure Modes and Error Surface
+
+| Failure                                       | Behavior                                                                 |
+|-----------------------------------------------|--------------------------------------------------------------------------|
+| Connection verification fails before run      | Run → `FAILED`, no steps touched, error on run.metadata.error_message    |
+| LLM provider misconfigured                    | Run → `FAILED` at submit, same surface                                   |
+| Step raises during execution                  | Step → `FAILED`, run rolls up to `FAILED`, error in step.metadata        |
+| Worker thread dies unexpectedly               | Watchdog timer (Phase 1: 30 min) flips run to `FAILED` with timeout msg  |
+| API process restart mid-run                   | Startup sweep flips orphaned `RUNNING` runs to `FAILED` with stale msg   |
+| User cancels mid-run                          | Active step → `CANCELLED`, run → `CANCELLED`, audit event recorded       |
+
+### Audit and Observability
+
+- A new audit event `action="execute_workflow"` is recorded at
+  workflow start with `details={"run_id", "workflow_mode", "graph_profile_id"}`.
+- A second audit event at workflow end with
+  `details={"run_id", "outcome", "duration_ms", "report_count", "error_count"}`.
+- Per-step trace events from the runner are persisted into a new
+  optional collection `aga_workflow_run_traces` keyed by `(run_id,
+  event_id)` so the canvas can later expose a "View Trace" affordance
+  (Phase 2). Phase 1 only writes the events; the UI consumer is FR-32a.
+
+### Migration / Backward Compatibility
+
+- Existing demo runs (those with the four legacy step labels) are
+  not migrated. They render exactly as today; the new behavior
+  applies only to runs created after the deploy when `workflow_mode
+  == AGENTIC`.
+- `WorkflowMode.TRADITIONAL` is unchanged: free-form steps, manual
+  PATCH-driven progression. This preserves the existing demo UX.
+- The frontend's "type your own steps" textarea is hidden in
+  agentic mode but otherwise untouched.
+
+### Risks and Mitigations
+
+- **In-process execution does not survive restart.** Real risk for
+  long LLM workflows. Phase 1 mitigation: startup sweep marks
+  orphaned runs `FAILED`; document the limitation in the FR-30
+  retry/resume requirement and gate "agentic-at-scale" claims on
+  Phase 2 (FR-31b: durable executor). For local dev and single-
+  instance deploys this is acceptable.
+- **One slow run blocks the worker pool.** Bounded
+  `ThreadPoolExecutor(max_workers=N)` with N tuned per deploy;
+  surface "queued" vs "running" distinction so users see when
+  their run is waiting.
+- **LLM cost runaway.** The runner already supports
+  `max_executions`; expose it on `POST /api/runs` as
+  `metadata.max_executions` (default 3) and reject values > 10
+  unless an admin override is set.
+- **Step status race when a user PATCHes a step the executor is
+  also updating.** Phase 1 disables the manual step PATCH for
+  `WorkflowMode.AGENTIC` runs (UI hides retry/cancel buttons on
+  individual steps; only run-level cancel is allowed). The PATCH
+  endpoint returns 409 for agentic runs.
+- **Secret leakage in trace events.** `record_event` data is dict
+  payload; the bridge runs `validate_no_secret_values` on
+  metadata before persisting. Reuse the existing helper from
+  `models.py`.
+
+### Required Code Changes (preview, not authoritative)
+
+1. **New module** `graph_analytics_ai/product/agentic_run_supervisor.py`:
+   `AgenticRunSupervisor` class, `StepStatusReporter`,
+   `LLMProviderFactory`, `AGENTIC_STEP_LAYOUT` constant.
+2. **`graph_analytics_ai/product/service.py`**:
+   `start_workflow_run` branches on `workflow_mode`; submits to
+   executor when AGENTIC. New `cancel_workflow_run` method. New
+   `_seed_agentic_steps` helper used by `create_workflow_run_from_steps`.
+3. **`graph_analytics_ai/product/api.py`**: new `POST
+   /api/runs/{run_id}/cancel` and `GET /api/runs/{run_id}/status`
+   endpoints.
+4. **`graph_analytics_ai/ai/tracing/__init__.py`**: small refactor to
+   add `TraceCollector.add_listener(callback)` so the bridge does
+   not have to monkey-patch `record_event`.
+5. **`graph_analytics_ai/ai/agents/orchestrator.py`**: thread the
+   `cancel_token` through `run_workflow` / `run_workflow_async` and
+   check it between steps.
+6. **`graph_analytics_ai/product/factory.py`**: wire an
+   `AgenticRunSupervisor` instance into the FastAPI app's lifespan so
+   it shuts down cleanly (drains the pool, marks in-flight runs
+   `failed` with `shutdown_in_progress` reason).
+7. **Frontend**:
+   - `CreateWorkflowRunOverlay.tsx`: hide step textarea when
+     `workflow_mode === "agentic"` and show canonical layout
+     preview.
+   - `useWorkspaceData.ts`: add `cancelWorkflowRun`,
+     `getWorkflowRunStatus`; existing polling already refreshes the
+     overview so step status will appear without further changes.
+   - `WorkspaceShell.tsx`: hide per-step retry on agentic runs, add
+     run-level cancel button.
+8. **Tests**:
+   - Unit tests for `AgenticRunSupervisor.submit` with a fake runner
+     that emits scripted trace events.
+   - Unit tests for `StepStatusReporter` event → `update_workflow_step`
+     translation (start, end, error, unknown step).
+   - Integration test: `start_workflow_run` with AGENTIC mode and a
+     stub runner produces the expected sequence of step status rows
+     and a `COMPLETED` run.
+   - Cancellation test: cancel mid-run produces `CANCELLED` status
+     and an audit event.
+   - Frontend test: agentic-mode overlay renders the canonical
+     preview and POSTs without a `steps` field.
+
+### Phasing
+
+- **FR-31a (this plan).** In-process executor, six-step canonical
+  layout, status streaming, cooperative cancel.
+- **FR-31b.** Durable executor (Celery or Arq), survives API
+  restart, supports run resume from `AgentState` checkpoint.
+- **FR-31c.** Per-step retry that actually re-invokes the agent
+  with the prior `AgentState`.
+- **FR-31d.** Live trace event streaming to the UI (SSE) so the
+  visualizer reflects sub-step progress (LLM calls, tool
+  invocations) instead of just step boundaries.
+
+### Acceptance Criteria for FR-31a Phase 1
+
+The slice is complete when:
+
+1. Creating an agentic workflow run seeds the six canonical steps
+   in order, regardless of any client-supplied step labels.
+2. Calling `POST /api/runs/{id}/start` returns within 200 ms with
+   `status: running` and triggers a real `AgenticWorkflowRunner`
+   execution in a background worker.
+3. Each canonical step transitions through
+   `pending → running → succeeded` (or `failed`) without any UI
+   PATCH calls.
+4. A failed step records the agent's error message in
+   `step.metadata.error_message` and rolls the run up to `failed`.
+5. `POST /api/runs/{id}/cancel` cancels an in-flight run; the
+   active step lands as `cancelled` and the run as `cancelled`
+   within one orchestrator step boundary.
+6. The audit timeline shows a paired `execute_workflow` start and
+   end event with outcome and duration.
+7. API process restart mid-run leaves the run row in a recoverable
+   state (`failed` with stale-detection message), not silently
+   stuck `running`.
+8. Manual step PATCH on an agentic run returns 409 to prevent
+   races with the executor.
+9. Connection or LLM misconfiguration produces a `failed` run with
+   a clear error before any step transitions to `running`.
 
 ---
 
