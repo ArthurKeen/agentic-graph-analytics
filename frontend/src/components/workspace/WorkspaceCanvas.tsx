@@ -25,6 +25,7 @@ import type {
   SourceDocumentSummary,
   WorkflowDAGNode,
   WorkflowDAGView,
+  WorkflowRunStatusView,
   WorkspaceAsset
 } from "@/lib/product-api/types";
 
@@ -67,6 +68,11 @@ interface WorkspaceCanvasProps {
    * canvas only renders the cancel button when the run is agentic
    * AND status is ``running``. */
   onCancelWorkflowRun?: () => void;
+  /** FR-31a: live supervisor snapshot for the displayed agentic run.
+   * ``null`` outside agentic mode (or before the first poll lands).
+   * Drives the AgenticRunStatusPanel that shows executor_kind,
+   * supervisor outcome, and a "cancellation requested" hint. */
+  agenticRunStatus?: WorkflowRunStatusView | null;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onRequestCreateWorkspace: () => void;
@@ -143,6 +149,7 @@ export function WorkspaceCanvas({
   onSelectStep,
   onRetryWorkflowStep,
   onCancelWorkflowRun,
+  agenticRunStatus,
   onClearAssetSelection,
   onClearSelection,
   onRequestCreateWorkspace,
@@ -284,6 +291,17 @@ export function WorkspaceCanvas({
           aria-label="Workflow run"
           data-workflow-mode={dagView.workflowMode}
         >
+          {/* FR-31a: live supervisor-side status. Renders for every
+              agentic run (running, completed, cancelled, failed) so
+              the user can see which executor handled the run and what
+              outcome the supervisor recorded — independent from the
+              persisted status, which lags by one poll until the
+              orchestrator finishes its current step. */}
+          {(dagView.workflowMode === "agentic" ||
+            dagView.workflowMode === "parallel_agentic") &&
+          agenticRunStatus ? (
+            <AgenticRunStatusPanel snapshot={agenticRunStatus} />
+          ) : null}
           {/* FR-31a: surface a run-level cancel button for agentic
               runs that are still RUNNING. Cancel is cooperative — the
               run will transition to "cancelled" once the orchestrator
@@ -297,12 +315,15 @@ export function WorkspaceCanvas({
               <button
                 type="button"
                 className="secondary-button"
+                disabled={agenticRunStatus?.supervisor.cancelRequested === true}
                 onClick={(event) => {
                   event.stopPropagation();
                   onCancelWorkflowRun();
                 }}
               >
-                Cancel Run
+                {agenticRunStatus?.supervisor.cancelRequested
+                  ? "Cancel Requested…"
+                  : "Cancel Run"}
               </button>
             </div>
           ) : null}
@@ -413,5 +434,70 @@ export function WorkspaceCanvas({
 
       {showHelp ? <WorkspaceHelpOverlay onClose={onCloseHelp} /> : null}
     </main>
+  );
+}
+
+/**
+ * FR-31a status panel for the run canvas.
+ *
+ * The panel shows the supervisor-side outcome (which can lag the
+ * persisted ``status`` by one orchestrator step) and a fixed
+ * ``executor_kind`` label so future durable executors (FR-31b+) are
+ * visually distinguishable from in-process Phase 1 runs without
+ * re-reading the URL or settings. ``cancel_requested`` surfaces the
+ * intent-to-cancel state — important because the persisted row will
+ * still report ``running`` until the orchestrator next yields.
+ */
+function AgenticRunStatusPanel({
+  snapshot
+}: {
+  snapshot: WorkflowRunStatusView;
+}) {
+  const executorLabel =
+    snapshot.executorKind === "inprocess"
+      ? "In-process (Phase 1)"
+      : snapshot.executorKind ?? "unknown";
+  const outcomeLabel = snapshot.lastOutcome
+    ? snapshot.lastOutcome.charAt(0).toUpperCase() + snapshot.lastOutcome.slice(1)
+    : snapshot.supervisor.supervised
+      ? "Pending first event"
+      : "Not supervised";
+  return (
+    <aside
+      className="agentic-status-panel"
+      aria-label="Agentic run status"
+      data-outcome={snapshot.lastOutcome ?? "pending"}
+    >
+      <dl>
+        <div>
+          <dt>Executor</dt>
+          <dd>{executorLabel}</dd>
+        </div>
+        <div>
+          <dt>Supervisor outcome</dt>
+          <dd>{outcomeLabel}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{snapshot.status}</dd>
+        </div>
+        {snapshot.supervisor.cancelRequested ? (
+          <div className="agentic-status-panel__cancel-flag">
+            <dt>Cancellation</dt>
+            <dd>Requested — waiting for next checkpoint</dd>
+          </div>
+        ) : null}
+      </dl>
+      {snapshot.errors.length > 0 ? (
+        <details className="agentic-status-panel__errors">
+          <summary>{snapshot.errors.length} error(s) recorded</summary>
+          <ul>
+            {snapshot.errors.map((message, index) => (
+              <li key={`${index}-${message.slice(0, 24)}`}>{message}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </aside>
   );
 }

@@ -255,6 +255,61 @@ button {
   gap: 4px;
 }
 
+/* FR-31a: agentic-run status panel above the DAG. Shows
+   executor_kind, supervisor outcome, and a cancellation hint when
+   a cancel has been requested but not yet observed. The data-outcome
+   attribute lets QA / Playwright assert state without scraping the
+   visible labels. */
+.agentic-status-panel {
+  border: 1px solid var(--aga-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--aga-panel-raised);
+  font-size: 13px;
+}
+
+.agentic-status-panel dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 16px;
+}
+
+.agentic-status-panel dt {
+  font-weight: 600;
+  color: var(--aga-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agentic-status-panel dd {
+  margin: 2px 0 0;
+  color: var(--aga-text-dark);
+}
+
+.agentic-status-panel[data-outcome="failed"] {
+  border-color: var(--aga-error, #b91c1c);
+}
+
+.agentic-status-panel[data-outcome="cancelled"] {
+  border-color: var(--aga-warning, #b45309);
+}
+
+.agentic-status-panel__cancel-flag dd {
+  color: var(--aga-warning, #b45309);
+}
+
+.agentic-status-panel__errors {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.agentic-status-panel__errors ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+
 .pipeline-step {
   min-width: 170px;
   border: 1px solid var(--aga-border);

@@ -22,6 +22,7 @@ import type {
   RequirementInterview,
   RequirementVersion,
   WorkflowDAGNode,
+  WorkflowRunStatusView,
   WorkspaceAsset,
   WorkspaceSummary
 } from "@/lib/product-api/types";
@@ -71,6 +72,7 @@ export function WorkspaceShell({
     createWorkflowRun,
     startWorkflowRun,
     cancelWorkflowRun,
+    getWorkflowRunStatus,
     updateWorkflowStep,
     requirementVersions,
     approvedRequirementVersion: activeApprovedRequirementVersion,
@@ -154,6 +156,14 @@ export function WorkspaceShell({
   const [updatingStepId, setUpdatingStepId] = useState<string | null>(null);
   const [runActionMessage, setRunActionMessage] = useState<string | null>(null);
   const [runActionErrorMessage, setRunActionErrorMessage] = useState<string | null>(null);
+  // FR-31a: live status snapshot for the currently-selected agentic
+  // run. Polled every few seconds while the run is RUNNING so the
+  // canvas can reflect supervisor-side transitions (e.g. cancel
+  // delivered → cancelled, runner crash → failed) without a manual
+  // refresh. ``null`` means we have nothing to show yet (demo mode,
+  // non-agentic run, or first poll hasn't returned).
+  const [agenticRunStatus, setAgenticRunStatus] =
+    useState<WorkflowRunStatusView | null>(null);
   const [canvasActionMessage, setCanvasActionMessage] = useState<string | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(null);
@@ -308,6 +318,63 @@ export function WorkspaceShell({
       tags: ws.tags ?? []
     };
   }, [overview]);
+
+  // FR-31a: poll the lightweight status endpoint while the user is
+  // looking at a RUNNING agentic run. We use an explicit setTimeout
+  // chain (not setInterval) so a slow response can't queue overlapping
+  // requests, and we reset/clear the snapshot whenever the user
+  // selects a different asset so stale data from a previous run never
+  // leaks into the current view. Demo mode returns ``null`` from
+  // ``getWorkflowRunStatus`` so this effect is a no-op there.
+  useEffect(() => {
+    if (selectedAsset?.kind !== "run") {
+      setAgenticRunStatus(null);
+      return;
+    }
+    const runId = selectedAsset.id;
+    const dag = dagByRunId[runId];
+    const isAgentic =
+      dag?.workflowMode === "agentic" || dag?.workflowMode === "parallel_agentic";
+    if (!isAgentic) {
+      setAgenticRunStatus(null);
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    async function poll() {
+      if (cancelled) {
+        return;
+      }
+      try {
+        const snapshot = await getWorkflowRunStatus(runId);
+        if (!cancelled) {
+          setAgenticRunStatus(snapshot);
+        }
+      } catch {
+        // Swallow transient errors so a 500 doesn't tear down the
+        // poll loop. The next tick will retry; persistent failure is
+        // visible because the snapshot will keep showing the prior
+        // state.
+      }
+      if (cancelled) {
+        return;
+      }
+      const nextDelayMs =
+        dag?.status === "running" || dag?.status === "queued" ? 3000 : 10000;
+      timeoutId = setTimeout(poll, nextDelayMs);
+    }
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [selectedAsset, dagByRunId, getWorkflowRunStatus]);
 
   useEffect(() => {
     function closePanels(event: KeyboardEvent) {
@@ -572,6 +639,7 @@ export function WorkspaceShell({
             )
             .finally(() => setUpdatingStepId(null));
         }}
+        agenticRunStatus={agenticRunStatus}
         onCancelWorkflowRun={
           selectedAsset?.kind === "run"
             ? () => {
