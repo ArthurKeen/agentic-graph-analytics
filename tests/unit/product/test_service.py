@@ -1729,13 +1729,19 @@ def test_requirements_copilot_approval_requires_draft():
 
 
 def test_workflow_helpers_create_update_and_expose_recovery_actions():
-    """Workflow helpers support visualizer polling and recovery action display."""
+    """Workflow helpers support visualizer polling and recovery action display.
+
+    Uses TRADITIONAL mode because AGENTIC mode now (PRD v0.4 decision 1)
+    ignores user-supplied step labels and replaces them with the
+    canonical six-step layout. This test continues to validate the
+    free-form labelling path that traditional runs use.
+    """
 
     repository = FakeProductRepository()
     service = ProductService(repository)
     run = service.create_workflow_run_from_steps(
         workspace_id="workspace-1",
-        workflow_mode=WorkflowMode.AGENTIC,
+        workflow_mode=WorkflowMode.TRADITIONAL,
         steps=[
             WorkflowStep(step_id="schema", label="Schema Analysis"),
             WorkflowStep(step_id="report", label="Report Generation"),
@@ -1787,13 +1793,19 @@ def test_workflow_helpers_create_update_and_expose_recovery_actions():
 
 
 def test_workflow_helper_rejects_invalid_dag_edges():
-    """Workflow creation validates DAG edge references."""
+    """Workflow creation validates DAG edge references.
+
+    Uses TRADITIONAL mode because AGENTIC mode (PRD v0.4 decision 1)
+    discards user-supplied steps and edges and seeds the canonical
+    six-step layout instead, so it can never see an invalid
+    user-supplied edge.
+    """
 
     repository = FakeProductRepository()
     try:
         ProductService(repository).create_workflow_run_from_steps(
             workspace_id="workspace-1",
-            workflow_mode=WorkflowMode.AGENTIC,
+            workflow_mode=WorkflowMode.TRADITIONAL,
             steps=[WorkflowStep(step_id="schema", label="Schema Analysis")],
             dag_edges=[WorkflowDAGEdge(from_step_id="schema", to_step_id="missing")],
         )

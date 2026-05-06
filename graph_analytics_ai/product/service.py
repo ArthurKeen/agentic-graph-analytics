@@ -398,13 +398,29 @@ class ProductService:
         secret_resolver: Optional[SecretResolver] = None,
         db_connector: Optional[Callable[..., Any]] = None,
         schema_extractor_factory: Optional[Callable[..., Any]] = None,
+        agentic_run_supervisor: Optional[Any] = None,
     ):
-        """Initialize service."""
+        """Initialize service.
+
+        ``agentic_run_supervisor`` is the FR-31a Phase 1 hook that
+        actually executes agentic runs. It's optional so existing
+        callers (including the current test suite) don't have to
+        wire one up — when absent, ``start_workflow_run`` keeps its
+        legacy "flip status to RUNNING and return" behavior, which
+        is what callers got before FR-31a.
+        """
 
         self.repository = repository
         self.secret_resolver = secret_resolver or EnvironmentSecretResolver()
         self.db_connector = db_connector or connect_arango_database
         self.schema_extractor_factory = schema_extractor_factory or SchemaExtractor
+        # Optional FR-31a supervisor — the FastAPI app factory wires
+        # one in via ``ProductService(..., agentic_run_supervisor=...)``
+        # so it can also share its lifespan. Tests typically leave it
+        # ``None`` (falling back to the legacy synchronous path) or
+        # pass a fake supervisor with a known ``submit`` / ``cancel``
+        # / ``get_status`` shape.
+        self._agentic_run_supervisor = agentic_run_supervisor
 
     def create_workspace(
         self,
@@ -725,9 +741,31 @@ class ProductService:
         template_ids: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> WorkflowRun:
-        """Create a visualizable workflow run from planned steps and edges."""
+        """Create a visualizable workflow run from planned steps and edges.
+
+        FR-31a: when ``workflow_mode`` is ``AGENTIC``, any client-supplied
+        steps and edges are ignored and replaced with the canonical
+        six-step layout (schema_analysis → ... → reporting). This is
+        the design decision locked in PRD v0.4: the visualizer must
+        reflect what the runner actually does, not free-form labels
+        a user typed. Traditional mode is unchanged — labels remain
+        free-form there.
+        """
+
+        if workflow_mode == WorkflowMode.AGENTIC:
+            steps, dag_edges = self._build_canonical_agentic_dag()
 
         self._validate_workflow_dag(steps, dag_edges)
+        # Stamp executor_kind on agentic runs so we can distinguish
+        # rows produced by the in-process supervisor from rows
+        # produced by future durable executors (FR-31b).
+        run_metadata = dict(metadata or {})
+        if workflow_mode == WorkflowMode.AGENTIC:
+            execution_meta = dict(run_metadata.get("execution") or {})
+            execution_meta.setdefault("executor_kind", "inprocess")
+            execution_meta.setdefault("last_outcome", "pending")
+            run_metadata["execution"] = execution_meta
+
         run = create_workflow_run(
             workspace_id=workspace_id,
             workflow_mode=workflow_mode,
@@ -737,19 +775,152 @@ class ProductService:
             template_ids=template_ids or [],
             steps=steps,
             dag_edges=dag_edges,
-            metadata=metadata or {},
+            metadata=run_metadata,
         )
         self.repository.create_workflow_run(run)
         return run
 
+    def _build_canonical_agentic_dag(self):
+        """Seed the canonical agentic six-step layout.
+
+        Lazily imports the supervisor module to avoid a circular
+        import (the supervisor imports product.models). Returns a
+        sequential DAG; parallelism inside the runner is its own
+        concern and isn't reflected here in Phase 1.
+        """
+
+        from .agentic_run_supervisor import AGENTIC_STEP_LAYOUT
+
+        steps = [
+            WorkflowStep(step_id=canonical.step_id, label=canonical.label)
+            for canonical in AGENTIC_STEP_LAYOUT
+        ]
+        edges: List[WorkflowDAGEdge] = []
+        for previous, current in zip(AGENTIC_STEP_LAYOUT, AGENTIC_STEP_LAYOUT[1:]):
+            edges.append(
+                WorkflowDAGEdge(
+                    from_step_id=previous.step_id,
+                    to_step_id=current.step_id,
+                )
+            )
+        return steps, edges
+
     def start_workflow_run(self, run_id: str) -> WorkflowRun:
-        """Mark a queued workflow run as running."""
+        """Mark a queued workflow run as running.
+
+        FR-31a: when the run is in AGENTIC mode and a supervisor is
+        wired up, also dispatch the run to the supervisor so the real
+        agent pipeline executes in the background. The HTTP request
+        returns immediately after flipping status to RUNNING — actual
+        completion is reflected via per-step updates streamed by the
+        :class:`StepStatusReporter`.
+        """
 
         run = self.repository.get_workflow_run(run_id)
         run.status = WorkflowRunStatus.RUNNING
         run.started_at = run.started_at or current_timestamp()
         self.repository.update_workflow_run(run)
+
+        if (
+            run.workflow_mode == WorkflowMode.AGENTIC
+            and self._agentic_run_supervisor is not None
+        ):
+            # Submit to the supervisor. submit() is idempotent so a
+            # double-start (e.g. user clicks twice) is safe.
+            self._agentic_run_supervisor.submit(run_id)
+
         return run
+
+    def cancel_workflow_run(self, run_id: str, actor: Optional[str] = None) -> WorkflowRun:
+        """Request cooperative cancellation of an agentic run.
+
+        Phase 1 semantics:
+        * If a supervisor is wired and owns the run, the cancel signal
+          is delivered immediately. The orchestrator polls between
+          steps; the run will transition to ``cancelled`` once the
+          current step finishes.
+        * If no supervisor is wired (or the run is unknown to it,
+          e.g. after an API restart), the run is flipped to
+          ``cancelled`` synchronously so the visualizer doesn't keep
+          showing a perpetual RUNNING.
+        * Always emits an audit event so cancellations are recorded
+          alongside other workspace state changes.
+        """
+
+        run = self.repository.get_workflow_run(run_id)
+
+        delivered_to_supervisor = False
+        if self._agentic_run_supervisor is not None:
+            try:
+                delivered_to_supervisor = bool(
+                    self._agentic_run_supervisor.cancel(run_id)
+                )
+            except Exception:  # noqa: BLE001
+                delivered_to_supervisor = False
+
+        if not delivered_to_supervisor:
+            # Synchronous fallback. The supervisor either doesn't own
+            # the run or doesn't exist — in either case we don't want
+            # to leave the row in RUNNING.
+            run.status = WorkflowRunStatus.CANCELLED
+            run.completed_at = current_timestamp()
+            run.metadata = dict(run.metadata or {})
+            execution_meta = dict(run.metadata.get("execution") or {})
+            execution_meta["last_outcome"] = "cancelled"
+            execution_meta["cancel_path"] = "synchronous"
+            run.metadata["execution"] = execution_meta
+            self.repository.update_workflow_run(run)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=run.workspace_id,
+                actor=actor or "workflow-runner",
+                action="cancel_workflow_run",
+                target_type="workflow_run",
+                target_id=run.run_id,
+                metadata={"delivered_to_supervisor": delivered_to_supervisor},
+            )
+        )
+
+        return self.repository.get_workflow_run(run_id)
+
+    def get_workflow_run_status(self, run_id: str) -> Dict[str, Any]:
+        """Return a concise execution-status snapshot for a run.
+
+        Combines the persisted run.status with supervisor-side
+        execution metadata so the UI can poll a single small endpoint
+        for cancel results, orphan-sweep outcomes, and live-run
+        outcome strings without re-fetching the whole DAG.
+        """
+
+        run = self.repository.get_workflow_run(run_id)
+        execution_meta = (run.metadata or {}).get("execution") or {}
+
+        supervisor_status: Dict[str, Any]
+        if self._agentic_run_supervisor is not None:
+            try:
+                supervisor_status = dict(
+                    self._agentic_run_supervisor.get_status(run_id)
+                )
+            except Exception:  # noqa: BLE001
+                supervisor_status = {"supervised": False}
+        else:
+            supervisor_status = {"supervised": False}
+
+        return {
+            "run_id": run.run_id,
+            "workspace_id": run.workspace_id,
+            "workflow_mode": run.workflow_mode.value,
+            "status": run.status.value,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "completed_at": (
+                run.completed_at.isoformat() if run.completed_at else None
+            ),
+            "executor_kind": execution_meta.get("executor_kind"),
+            "last_outcome": execution_meta.get("last_outcome"),
+            "errors": list(run.errors or []),
+            "supervisor": supervisor_status,
+        }
 
     def update_workflow_step(
         self,

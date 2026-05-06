@@ -1,10 +1,15 @@
 """Optional FastAPI adapter for the product UI API."""
 
+import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
 from .api import PRODUCT_API_ENDPOINTS, ProductAPIDispatcher, ProductAPIEndpoint
 from .factory import create_product_service
+
+
+logger = logging.getLogger(__name__)
 
 # Default origins permitted by the API when no override is supplied. Covers the
 # common Next.js dev ports for the workspace UI.
@@ -32,6 +37,7 @@ def create_product_fastapi_app(
     title: str = "Agentic Graph Analytics Product API",
     version: str = "0.1.0",
     cors_origins: Optional[List[str]] = None,
+    enable_agentic_supervisor: Optional[bool] = None,
     **service_kwargs: Any,
 ) -> Any:
     """Create a FastAPI app wired to the product service.
@@ -46,6 +52,13 @@ def create_product_fastapi_app(
             Next.js dev server). Override programmatically or via the
             `AGA_PRODUCT_CORS_ORIGINS` env var (comma-separated). Pass `["*"]`
             to disable CORS scoping.
+        enable_agentic_supervisor: FR-31a Phase 1 toggle. When ``True``, the
+            app constructs an :class:`AgenticRunSupervisor`, wires it into the
+            service, sweeps any orphan ``RUNNING`` rows on startup (Phase 1's
+            executor is in-process so an API restart loses in-flight runs),
+            and drains the pool on shutdown. Defaults to the env var
+            ``AGA_ENABLE_AGENTIC_SUPERVISOR`` (``"1"``/``"true"`` enables
+            it) and falls back to ``False`` for backward compatibility.
     """
 
     try:
@@ -58,7 +71,47 @@ def create_product_fastapi_app(
         ) from exc
 
     product_service = service or create_product_service(**service_kwargs)
-    app = FastAPI(title=title, version=version)
+
+    enable_supervisor = _resolve_enable_supervisor(enable_agentic_supervisor)
+    supervisor = None
+    if enable_supervisor:
+        # Lazy import so the FastAPI module is importable in
+        # environments that have the AI extras but don't want to pay
+        # the AgenticWorkflowRunner import cost at app startup.
+        from .agentic_run_supervisor import AgenticRunSupervisor
+
+        supervisor = AgenticRunSupervisor(product_service)
+        # Make the service aware so start_workflow_run / cancel_workflow_run
+        # / get_workflow_run_status route through the supervisor.
+        product_service._agentic_run_supervisor = supervisor
+
+    @asynccontextmanager
+    async def lifespan(_app: Any):
+        if supervisor is not None:
+            try:
+                # Phase 1: sweep orphan RUNNING rows on startup. The
+                # in-process executor can't survive a restart, so a
+                # row stuck in RUNNING is by definition stale.
+                swept = supervisor.sweep_orphan_runs()
+                if swept:
+                    logger.info(
+                        "AgenticRunSupervisor swept %d orphan run(s) on startup",
+                        len(swept),
+                    )
+            except Exception:  # noqa: BLE001
+                logger.exception("AgenticRunSupervisor orphan sweep failed")
+        try:
+            yield
+        finally:
+            if supervisor is not None:
+                # Best-effort drain. Wait briefly so in-flight runs
+                # have a chance to observe the cancel signal and
+                # write a clean ``cancelled`` status; if they don't
+                # finish in time, the next startup sweep will mark
+                # them ``failed`` with stale_run_detected.
+                supervisor.shutdown(wait=False)
+
+    app = FastAPI(title=title, version=version, lifespan=lifespan)
 
     allowed_origins = _resolve_cors_origins(cors_origins)
     app.add_middleware(
@@ -81,6 +134,13 @@ def create_product_fastapi_app(
         )
 
     return app
+
+
+def _resolve_enable_supervisor(explicit: Optional[bool]) -> bool:
+    if explicit is not None:
+        return bool(explicit)
+    raw = os.getenv("AGA_ENABLE_AGENTIC_SUPERVISOR", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 def _make_route_handler(

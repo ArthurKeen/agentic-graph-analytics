@@ -185,6 +185,31 @@ PRODUCT_API_ENDPOINTS = [
         tags=["workflow-runs"],
         response_model="WorkflowRun",
     ),
+    # FR-31a: cancel a running agentic workflow. Cooperative — the
+    # orchestrator polls between steps. Returns the persisted
+    # WorkflowRun row after cancellation is recorded so callers can
+    # tell whether it took effect immediately (supervisor delivered)
+    # or synchronously (no supervisor / unknown run).
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/runs/{run_id}/cancel",
+        service_method="cancel_workflow_run",
+        summary="Request cooperative cancellation of a workflow run",
+        tags=["workflow-runs"],
+        request_model="CancelWorkflowRunRequest",
+        response_model="WorkflowRun",
+    ),
+    # FR-31a: lightweight status poll for the UI (cancel results,
+    # orphan-sweep outcomes, executor_kind) without re-fetching the
+    # entire DAG.
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/runs/{run_id}/status",
+        service_method="get_workflow_run_status",
+        summary="Get execution status for a workflow run",
+        tags=["workflow-runs"],
+        response_model="WorkflowRunStatusView",
+    ),
     ProductAPIEndpoint(
         method="PATCH",
         path="/api/runs/{run_id}/steps/{step_id}",

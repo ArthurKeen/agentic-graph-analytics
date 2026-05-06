@@ -11,10 +11,15 @@ from graph_analytics_ai.product.fastapi_app import create_product_fastapi_app
 
 
 class FakeFastAPI:
-    def __init__(self, title, version):
+    def __init__(self, title, version, lifespan=None):
+        # Accept ``lifespan`` so the fixture stays compatible with the
+        # FR-31a app factory which passes one to register the agentic
+        # supervisor's startup-sweep / shutdown-drain hooks.
         self.title = title
         self.version = version
+        self.lifespan = lifespan
         self.routes = []
+        self.middlewares = []
 
     def add_api_route(self, path, endpoint, methods, summary, tags):
         self.routes.append(
@@ -26,6 +31,11 @@ class FakeFastAPI:
                 "tags": tags,
             }
         )
+
+    def add_middleware(self, middleware_class, **kwargs):
+        # The factory unconditionally adds CORSMiddleware. Recording
+        # rather than ignoring lets future tests assert on it.
+        self.middlewares.append({"class": middleware_class, "kwargs": kwargs})
 
 
 class FakeRequest:
@@ -39,13 +49,38 @@ class FakeRequest:
         return self.body
 
 
+class _FakeCORSMiddleware:
+    """Stand-in for ``fastapi.middleware.cors.CORSMiddleware``.
+
+    The factory only references the class — never instantiates it
+    itself — so an empty placeholder is sufficient for the fake
+    ``add_middleware`` to record.
+    """
+
+
 @pytest.fixture
 def fake_fastapi_module(monkeypatch):
-    module = types.ModuleType("fastapi")
-    module.FastAPI = FakeFastAPI
-    module.Request = FakeRequest
-    monkeypatch.setitem(sys.modules, "fastapi", module)
-    return module
+    fastapi_module = types.ModuleType("fastapi")
+    fastapi_module.FastAPI = FakeFastAPI
+    fastapi_module.Request = FakeRequest
+    # The factory imports ``fastapi.Response`` from the route-handler
+    # closure. A minimal placeholder keeps the import resolvable.
+    fastapi_module.Response = type("FakeResponse", (), {})
+    monkeypatch.setitem(sys.modules, "fastapi", fastapi_module)
+
+    # The real ``from fastapi.middleware.cors import CORSMiddleware``
+    # resolves through fastapi.middleware.cors. Build that submodule
+    # tree on the fake so the import succeeds without pulling real
+    # FastAPI into the test process.
+    middleware_module = types.ModuleType("fastapi.middleware")
+    cors_module = types.ModuleType("fastapi.middleware.cors")
+    cors_module.CORSMiddleware = _FakeCORSMiddleware
+    middleware_module.cors = cors_module
+    fastapi_module.middleware = middleware_module
+    monkeypatch.setitem(sys.modules, "fastapi.middleware", middleware_module)
+    monkeypatch.setitem(sys.modules, "fastapi.middleware.cors", cors_module)
+
+    return fastapi_module
 
 
 def test_create_product_fastapi_app_registers_contract_routes(fake_fastapi_module):
