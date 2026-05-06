@@ -212,13 +212,47 @@ button {
   outline: none;
 }
 
+.pipeline-dag-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* FR-31a: cancel-run button row sits above the DAG so it never
+   overlaps the step nodes the user is inspecting. */
+.pipeline-dag-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 32px;
+}
+
 .pipeline-dag {
   display: flex;
   gap: 18px;
   align-items: center;
-  margin-top: 56px;
+  margin-top: 24px;
   overflow-x: auto;
   padding: 24px 8px;
+}
+
+/* FR-31a: read-only canonical-step preview rendered inside the
+   Create Workflow Run overlay when "Agentic" is selected. The
+   ordered list mirrors the canonical six-step layout the supervisor
+   will run so the user sees what they will get before submitting. */
+.agentic-step-preview {
+  border: 1px solid var(--aga-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  background: var(--aga-panel-raised);
+}
+
+.agentic-step-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .pipeline-step {

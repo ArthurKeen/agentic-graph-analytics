@@ -182,5 +182,31 @@ describe("workspace context menu builders", () => {
     });
 
     expect(items.map((item) => item.id)).toContain("view-step-details");
+    // Traditional / unspecified runs keep the retry option as before.
+    expect(items.map((item) => item.id)).toContain("retry-run");
+  });
+
+  it("hides Retry Run on agentic runs because Phase 1 has no checkpointing", () => {
+    // FR-31a Phase 1 (PRD v0.4): the agentic runner walks the
+    // canonical six-step pipeline start to finish without checkpoint
+    // persistence, so per-step retry is not yet meaningful. The
+    // canvas surfaces a run-level Cancel + reissue-run flow instead.
+    const items = buildPipelineStepContextMenu({
+      onViewStepDetails: noop,
+      onCopyError: noop,
+      onViewRunResults: noop,
+      onRetryRun: noop,
+      isAgenticRun: true
+    });
+
+    const ids = items.map((item) => item.id);
+    expect(ids).not.toContain("retry-run");
+    // The other navigational actions are intentionally preserved on
+    // agentic runs — only the action that needs a checkpoint is hidden.
+    expect(ids).toEqual([
+      "view-step-details",
+      "copy-error",
+      "view-run-results"
+    ]);
   });
 });

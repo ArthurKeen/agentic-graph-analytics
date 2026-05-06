@@ -45,6 +45,7 @@ import type {
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkflowRecoveryActions,
+  WorkflowRunStatusView,
   WorkflowRunSummary,
   WorkflowStepStatus,
   WorkflowStepUpdateResult,
@@ -313,6 +314,61 @@ export function createProductAPIClient(
           {}
         )
       );
+    },
+    async cancelWorkflowRun(
+      runId: string,
+      actor?: string
+    ): Promise<WorkflowRunSummary> {
+      // FR-31a: cooperative cancel. The backend returns the persisted
+      // WorkflowRun row after attempting delivery; the actual transition
+      // to "cancelled" may be observed on a subsequent /status poll
+      // because the supervisor only checks the cancel token between
+      // steps.
+      return mapWorkflowRunSummary(
+        await postJSON<RawWorkflowRunSummary>(
+          `${normalizedBaseUrl}/api/runs/${runId}/cancel`,
+          actor ? { actor } : {}
+        )
+      );
+    },
+    async getWorkflowRunStatus(
+      runId: string
+    ): Promise<WorkflowRunStatusView> {
+      // FR-31a: lightweight poll for the UI. The shape mirrors the
+      // backend's get_workflow_run_status() exactly, snake_case →
+      // camelCase via mapWorkflowRunStatusView.
+      const raw = await getJSON<{
+        run_id: string;
+        workspace_id: string;
+        workflow_mode: string;
+        status: string;
+        started_at: string | null;
+        completed_at: string | null;
+        executor_kind: string | null;
+        last_outcome: string | null;
+        errors: string[];
+        supervisor: {
+          supervised: boolean;
+          outcome?: string;
+          cancel_requested?: boolean;
+        };
+      }>(`${normalizedBaseUrl}/api/runs/${runId}/status`);
+      return {
+        runId: raw.run_id,
+        workspaceId: raw.workspace_id,
+        workflowMode: raw.workflow_mode,
+        status: raw.status,
+        startedAt: raw.started_at,
+        completedAt: raw.completed_at,
+        executorKind: raw.executor_kind,
+        lastOutcome: raw.last_outcome,
+        errors: raw.errors ?? [],
+        supervisor: {
+          supervised: raw.supervisor.supervised,
+          outcome: raw.supervisor.outcome,
+          cancelRequested: raw.supervisor.cancel_requested
+        }
+      };
     },
     async updateWorkflowStep(
       runId: string,

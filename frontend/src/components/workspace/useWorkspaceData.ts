@@ -33,6 +33,7 @@ import type {
   UpdateWorkspaceInput,
   WorkflowDAGView,
   WorkflowRecoveryActions,
+  WorkflowRunStatusView,
   WorkflowRunSummary,
   WorkflowStepStatus,
   WorkflowStepUpdateResult,
@@ -130,6 +131,10 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<CreateWorkflowRunResult>;
   startWorkflowRun: (runId: string) => Promise<WorkflowRunSummary>;
+  /** FR-31a: cooperative cancel for an agentic run. */
+  cancelWorkflowRun: (runId: string, actor?: string) => Promise<WorkflowRunSummary>;
+  /** FR-31a: lightweight status poll. Returns null in demo mode. */
+  getWorkflowRunStatus: (runId: string) => Promise<WorkflowRunStatusView | null>;
   updateWorkflowStep: (
     runId: string,
     stepId: string,
@@ -703,6 +708,74 @@ export function useWorkspaceData({
     return workflowRun;
   };
 
+  const cancelWorkflowRun = async (
+    runId: string,
+    actor?: string
+  ): Promise<WorkflowRunSummary> => {
+    // FR-31a: deliver a cooperative cancel to the supervisor. The
+    // returned row may still show ``running`` momentarily because the
+    // orchestrator only polls the cancel token between steps; the
+    // canvas + status poller will reflect the eventual ``cancelled``
+    // status on its next refresh.
+    if (!isLive) {
+      // Demo mode: synchronous flip so the visualizer reflects the
+      // user's intent immediately.
+      const demoRun: WorkflowRunSummary = {
+        runId,
+        workspaceId: state.overview?.workspace.workspace_id ?? "demo-workspace",
+        workflowMode: "agentic",
+        status: "cancelled",
+        startedAt: null,
+        completedAt: new Date().toISOString()
+      };
+      setState((current) => ({
+        ...current,
+        assets: current.assets.map((asset) =>
+          asset.id === runId
+            ? { ...asset, description: `agentic workflow (cancelled)` }
+            : asset
+        ),
+        dagByRunId: current.dagByRunId[runId]
+          ? {
+              ...current.dagByRunId,
+              [runId]: { ...current.dagByRunId[runId], status: "cancelled" }
+            }
+          : current.dagByRunId
+      }));
+      return demoRun;
+    }
+    const workflowRun = await apiClient.cancelWorkflowRun(runId, actor);
+    setState((current) => ({
+      ...current,
+      assets: current.assets.map((asset) =>
+        asset.id === runId
+          ? {
+              ...asset,
+              description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
+            }
+          : asset
+      ),
+      dagByRunId: current.dagByRunId[runId]
+        ? {
+            ...current.dagByRunId,
+            [runId]: { ...current.dagByRunId[runId], status: workflowRun.status }
+          }
+        : current.dagByRunId
+    }));
+    return workflowRun;
+  };
+
+  const getWorkflowRunStatus = async (
+    runId: string
+  ): Promise<WorkflowRunStatusView | null> => {
+    // FR-31a: returns null in demo mode so callers can render the
+    // poll panel only when there's something real to poll for.
+    if (!isLive) {
+      return null;
+    }
+    return apiClient.getWorkflowRunStatus(runId);
+  };
+
   const updateWorkflowStep = async (
     runId: string,
     stepId: string,
@@ -788,6 +861,8 @@ export function useWorkspaceData({
     importWorkspaceBundle,
     createWorkflowRun,
     startWorkflowRun,
+    cancelWorkflowRun,
+    getWorkflowRunStatus,
     updateWorkflowStep,
     approvedRequirementVersion,
     requirementVersions

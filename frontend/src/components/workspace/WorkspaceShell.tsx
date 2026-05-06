@@ -70,6 +70,7 @@ export function WorkspaceShell({
     importWorkspaceBundle,
     createWorkflowRun,
     startWorkflowRun,
+    cancelWorkflowRun,
     updateWorkflowStep,
     requirementVersions,
     approvedRequirementVersion: activeApprovedRequirementVersion,
@@ -571,6 +572,34 @@ export function WorkspaceShell({
             )
             .finally(() => setUpdatingStepId(null));
         }}
+        onCancelWorkflowRun={
+          selectedAsset?.kind === "run"
+            ? () => {
+                if (selectedAsset.kind !== "run") {
+                  return;
+                }
+                setRunActionMessage(null);
+                setRunActionErrorMessage(null);
+                void cancelWorkflowRun(selectedAsset.id)
+                  .then((workflowRun) => {
+                    setSelectedAsset({
+                      ...selectedAsset,
+                      description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
+                    });
+                    setRunActionMessage(
+                      "Cancel requested — the run will stop after the current step finishes."
+                    );
+                  })
+                  .catch((error) =>
+                    setRunActionErrorMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "Failed to cancel workflow run"
+                    )
+                  );
+              }
+            : undefined
+        }
         onClearAssetSelection={() => setIsAssetInfoOpen(false)}
         isAssetInfoOpen={isAssetInfoOpen}
         onClearSelection={() => setSelectedStep(null)}

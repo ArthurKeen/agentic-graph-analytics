@@ -62,6 +62,11 @@ interface WorkspaceCanvasProps {
   isAssetInfoOpen: boolean;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onRetryWorkflowStep: (step: WorkflowDAGNode) => void;
+  /** FR-31a: cooperative cancel for the currently displayed agentic
+   * run. The shell wires this to ``cancelWorkflowRun(runId)``. The
+   * canvas only renders the cancel button when the run is agentic
+   * AND status is ``running``. */
+  onCancelWorkflowRun?: () => void;
   onClearAssetSelection: () => void;
   onClearSelection: () => void;
   onRequestCreateWorkspace: () => void;
@@ -137,6 +142,7 @@ export function WorkspaceCanvas({
   isAssetInfoOpen,
   onSelectStep,
   onRetryWorkflowStep,
+  onCancelWorkflowRun,
   onClearAssetSelection,
   onClearSelection,
   onRequestCreateWorkspace,
@@ -273,42 +279,77 @@ export function WorkspaceCanvas({
           onReopenCopilot={onRequestReopenRequirementsCopilot}
         />
       ) : dagView && selectedAsset.kind === "run" ? (
-        <section className="pipeline-dag" aria-label="Workflow DAG">
-          {dagView.nodes.map((node, index) => (
-            <div key={node.id} style={{ display: "contents" }}>
-              {index > 0 ? <span className="pipeline-edge">→</span> : null}
+        <section
+          className="pipeline-dag-section"
+          aria-label="Workflow run"
+          data-workflow-mode={dagView.workflowMode}
+        >
+          {/* FR-31a: surface a run-level cancel button for agentic
+              runs that are still RUNNING. Cancel is cooperative — the
+              run will transition to "cancelled" once the orchestrator
+              observes the token between steps, which the canvas will
+              pick up on its next refresh. */}
+          {(dagView.workflowMode === "agentic" ||
+            dagView.workflowMode === "parallel_agentic") &&
+          dagView.status === "running" &&
+          onCancelWorkflowRun ? (
+            <div className="pipeline-dag-actions">
               <button
-                className="pipeline-step"
-                data-status={node.status}
                 type="button"
+                className="secondary-button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSelectStep(node);
-                }}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onOpenMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    items: buildPipelineStepContextMenu({
-                      onViewStepDetails: () => onSelectStep(node),
-                      onCopyError: () =>
-                        void navigator.clipboard?.writeText(
-                          node.errorCount > 0 ? `${node.errorCount} errors` : "No errors"
-                        ),
-                      onViewRunResults: () => onSelectStep(node),
-                      onRetryRun: () => onRetryWorkflowStep(node)
-                    })
-                  });
+                  onCancelWorkflowRun();
                 }}
               >
-                <strong>{node.label}</strong>
-                <br />
-                <span className="muted">{node.status}</span>
+                Cancel Run
               </button>
             </div>
-          ))}
+          ) : null}
+          <div className="pipeline-dag" aria-label="Workflow DAG">
+            {dagView.nodes.map((node, index) => (
+              <div key={node.id} style={{ display: "contents" }}>
+                {index > 0 ? <span className="pipeline-edge">→</span> : null}
+                <button
+                  className="pipeline-step"
+                  data-status={node.status}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectStep(node);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onOpenMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      items: buildPipelineStepContextMenu({
+                        onViewStepDetails: () => onSelectStep(node),
+                        onCopyError: () =>
+                          void navigator.clipboard?.writeText(
+                            node.errorCount > 0
+                              ? `${node.errorCount} errors`
+                              : "No errors"
+                          ),
+                        onViewRunResults: () => onSelectStep(node),
+                        onRetryRun: () => onRetryWorkflowStep(node),
+                        // Hide per-step retry on agentic runs — there
+                        // is no checkpoint to resume from in Phase 1.
+                        isAgenticRun:
+                          dagView.workflowMode === "agentic" ||
+                          dagView.workflowMode === "parallel_agentic"
+                      })
+                    });
+                  }}
+                >
+                  <strong>{node.label}</strong>
+                  <br />
+                  <span className="muted">{node.status}</span>
+                </button>
+              </div>
+            ))}
+          </div>
         </section>
       ) : reportBundle && selectedAsset.kind === "report" ? (
         <DynamicReportCanvas

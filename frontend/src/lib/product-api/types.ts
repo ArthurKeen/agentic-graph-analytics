@@ -252,6 +252,34 @@ export interface CreateWorkflowRunResult {
   dagView: WorkflowDAGView;
 }
 
+/**
+ * FR-31a Phase 1 status snapshot returned by GET /api/runs/{run_id}/status.
+ *
+ * The UI polls this endpoint to learn the supervisor-side outcome
+ * (e.g. ``cancelled`` after the orchestrator observes the cancel
+ * token) and the run's executor_kind, so it can label rows produced
+ * by the in-process Phase 1 executor distinctly from rows produced
+ * by future durable executors (FR-31b+).
+ */
+export interface WorkflowRunStatusView {
+  runId: string;
+  workspaceId: string;
+  workflowMode: string;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** "inprocess" for FR-31a Phase 1; future executors will set their own. */
+  executorKind: string | null;
+  /** Supervisor-side outcome string: pending | running | completed | cancelled | failed. */
+  lastOutcome: string | null;
+  errors: string[];
+  supervisor: {
+    supervised: boolean;
+    outcome?: string;
+    cancelRequested?: boolean;
+  };
+}
+
 export interface WorkspaceOverview {
   workspace: {
     workspace_id: string;
@@ -425,6 +453,10 @@ export interface ProductAPIClient {
     input: CreateWorkflowRunInput
   ): Promise<CreateWorkflowRunResult>;
   startWorkflowRun(runId: string): Promise<WorkflowRunSummary>;
+  /** FR-31a: cooperative cancel of a running agentic workflow. */
+  cancelWorkflowRun(runId: string, actor?: string): Promise<WorkflowRunSummary>;
+  /** FR-31a: lightweight status poll (supervisor + executor metadata). */
+  getWorkflowRunStatus(runId: string): Promise<WorkflowRunStatusView>;
   updateWorkflowStep(
     runId: string,
     stepId: string,

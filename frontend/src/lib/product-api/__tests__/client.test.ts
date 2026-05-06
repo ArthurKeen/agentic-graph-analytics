@@ -1244,4 +1244,119 @@ describe("product API client mappers", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("posts cancel requests to /api/runs/{id}/cancel with optional actor", async () => {
+    // FR-31a: cooperative cancel. The client passes the actor through
+    // so the backend can attribute the audit event; when no actor is
+    // passed the body is empty so the backend uses its default.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        run_id: "run-1",
+        workspace_id: "workspace-1",
+        workflow_mode: "agentic",
+        status: "running",
+        started_at: "2026-05-06T20:00:00Z",
+        completed_at: null
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const summary = await createProductAPIClient(
+      "http://api.example"
+    ).cancelWorkflowRun("run-1", "qa@example.com");
+
+    expect(summary).toMatchObject({
+      runId: "run-1",
+      status: "running",
+      workflowMode: "agentic"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs/run-1/cancel",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ actor: "qa@example.com" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("omits actor from the cancel body when caller doesn't pass one", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        run_id: "run-1",
+        workspace_id: "workspace-1",
+        workflow_mode: "agentic",
+        status: "cancelled",
+        started_at: "2026-05-06T20:00:00Z",
+        completed_at: "2026-05-06T20:01:00Z"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProductAPIClient("http://api.example").cancelWorkflowRun("run-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs/run-1/cancel",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({}) })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps the FR-31a status snapshot from snake_case to camelCase", async () => {
+    // Pins the supervisor-side fields the UI's status panel will rely
+    // on (executor_kind so we can label inprocess Phase 1 rows
+    // distinctly later, last_outcome so we can show "cancelled" the
+    // moment the supervisor finalizes the run).
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        run_id: "run-1",
+        workspace_id: "workspace-1",
+        workflow_mode: "agentic",
+        status: "running",
+        started_at: "2026-05-06T20:00:00Z",
+        completed_at: null,
+        executor_kind: "inprocess",
+        last_outcome: "running",
+        errors: [],
+        supervisor: {
+          supervised: true,
+          outcome: "running",
+          cancel_requested: false
+        }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await createProductAPIClient(
+      "http://api.example"
+    ).getWorkflowRunStatus("run-1");
+
+    expect(status).toEqual({
+      runId: "run-1",
+      workspaceId: "workspace-1",
+      workflowMode: "agentic",
+      status: "running",
+      startedAt: "2026-05-06T20:00:00Z",
+      completedAt: null,
+      executorKind: "inprocess",
+      lastOutcome: "running",
+      errors: [],
+      supervisor: {
+        supervised: true,
+        outcome: "running",
+        cancelRequested: false
+      }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/runs/run-1/status",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
 });
