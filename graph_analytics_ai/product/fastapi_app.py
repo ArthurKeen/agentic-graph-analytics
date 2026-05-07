@@ -64,11 +64,19 @@ def create_product_fastapi_app(
     try:
         from fastapi import FastAPI, Request
         from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.responses import JSONResponse
     except ImportError as exc:
         raise ImportError(
             "FastAPI support requires the optional api extra: "
             "pip install 'graph-analytics-ai[api]'"
         ) from exc
+
+    from .exceptions import (
+        ConflictError,
+        DuplicateError,
+        NotFoundError,
+        ValidationError,
+    )
 
     product_service = service or create_product_service(**service_kwargs)
 
@@ -121,6 +129,26 @@ def create_product_fastapi_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # FR-31a AC#8 + general API hygiene: map domain exceptions to
+    # appropriate HTTP status codes so callers don't see opaque
+    # 500s for conditions the service layer is signalling
+    # explicitly. ConflictError → 409 is the FR-31a-driven case
+    # (manual PATCH on agentic run); the others are baseline
+    # contract responses that previously fell through to 500.
+    def _make_handler(status_code: int):
+        async def handler(_request: Any, exc: Exception):
+            return JSONResponse(
+                status_code=status_code,
+                content={"error": exc.__class__.__name__, "detail": str(exc)},
+            )
+
+        return handler
+
+    app.add_exception_handler(ValidationError, _make_handler(400))
+    app.add_exception_handler(NotFoundError, _make_handler(404))
+    app.add_exception_handler(ConflictError, _make_handler(409))
+    app.add_exception_handler(DuplicateError, _make_handler(409))
 
     dispatcher = ProductAPIDispatcher(product_service)
 

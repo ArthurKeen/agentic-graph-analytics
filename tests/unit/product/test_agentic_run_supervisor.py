@@ -27,6 +27,8 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
+import pytest
+
 from graph_analytics_ai.ai.agents.constants import WorkflowSteps
 from graph_analytics_ai.ai.agents.orchestrator import WorkflowCancelled
 from graph_analytics_ai.ai.tracing import TraceCollector, TraceEventType
@@ -858,6 +860,120 @@ def test_supervisor_pulls_core_and_satellite_collections_from_graph_profile_role
     # Order isn't guaranteed (dict iteration), so compare sets.
     assert set(captured["core_collections"]) == {"Device", "Account"}
     assert set(captured["satellite_collections"]) == {"AuditLog", "Region"}
+
+
+def test_cancel_finalize_flips_active_step_to_cancelled_status():
+    """FR-31a AC#5: a cancelled run leaves no orphan ``running`` step.
+
+    The orchestrator catches the cancel between steps and raises
+    WorkflowCancelled — STEP_END is never emitted for the in-flight
+    step, so the persisted row would otherwise show one step stuck on
+    RUNNING forever. The supervisor's _finalize_run must flip any
+    RUNNING / PENDING steps to CANCELLED so the DAG reflects reality.
+    """
+
+    from graph_analytics_ai.product.models import (
+        WorkflowRunStatus,
+        WorkflowStepStatus,
+    )
+
+    service, repository, run = _seed_workspace_and_run()
+
+    # Start a step manually (bypass the agentic gate the way the
+    # supervisor itself does) so we have a clear RUNNING step + a
+    # PENDING tail to assert on.
+    service.update_workflow_step(
+        run_id=run.run_id,
+        step_id=run.steps[0].step_id,
+        status=WorkflowStepStatus.RUNNING,
+        _internal=True,
+    )
+
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=lambda **_: _FakeRunner(events=[]),
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+        max_workers=1,
+    )
+
+    supervisor._finalize_run(
+        run.run_id,
+        outcome="cancelled",
+        status=WorkflowRunStatus.CANCELLED,
+    )
+
+    finalized = service.repository.get_workflow_run(run.run_id)
+    assert finalized.status == WorkflowRunStatus.CANCELLED
+    statuses = [step.status for step in finalized.steps]
+    # The previously RUNNING step + every still-PENDING step should
+    # be CANCELLED. No step should remain RUNNING / PENDING after a
+    # cancelled finalize.
+    assert WorkflowStepStatus.RUNNING not in statuses
+    assert WorkflowStepStatus.PENDING not in statuses
+    assert any(s == WorkflowStepStatus.CANCELLED for s in statuses)
+
+
+def test_update_workflow_step_rejects_external_writes_on_agentic_runs():
+    """FR-31a AC#8: manual PATCH on an agentic run is a 409 ConflictError."""
+
+    from graph_analytics_ai.product.exceptions import ConflictError
+    from graph_analytics_ai.product.models import WorkflowStepStatus
+
+    service, _, run = _seed_workspace_and_run()
+    step_id = run.steps[0].step_id
+
+    with pytest.raises(ConflictError):
+        service.update_workflow_step(
+            run_id=run.run_id,
+            step_id=step_id,
+            status=WorkflowStepStatus.RUNNING,
+        )
+
+    # Internal callers (the supervisor) must still succeed via the
+    # underscore-prefixed bypass.
+    result = service.update_workflow_step(
+        run_id=run.run_id,
+        step_id=step_id,
+        status=WorkflowStepStatus.RUNNING,
+        _internal=True,
+    )
+    assert result.workflow_run["status"] == "running"
+
+
+def test_update_workflow_step_allows_external_writes_on_traditional_runs():
+    """The 409 lock applies only to agentic mode — traditional runs are user-driven."""
+
+    from graph_analytics_ai.product.models import WorkflowMode, WorkflowStepStatus
+
+    service, repository, agentic_run = _seed_workspace_and_run()
+    # Re-use the seeded workspace's graph profile to spin a fresh
+    # TRADITIONAL run alongside the agentic one, so this test stays
+    # orthogonal to agentic plumbing.
+    traditional_run = service.create_workflow_run_from_steps(
+        workspace_id=agentic_run.workspace_id,
+        graph_profile_id=agentic_run.graph_profile_id,
+        workflow_mode=WorkflowMode.TRADITIONAL,
+        steps=[
+            WorkflowStep(step_id="alpha", label="Alpha"),
+            WorkflowStep(step_id="beta", label="Beta"),
+        ],
+        dag_edges=[],
+    )
+
+    # Should NOT raise — the 409 ConflictError gate must apply only to
+    # AGENTIC mode, not to traditional runs (which are explicitly
+    # user-driven and where PATCH is the supported control surface).
+    result = service.update_workflow_step(
+        run_id=traditional_run.run_id,
+        step_id="alpha",
+        status=WorkflowStepStatus.COMPLETED,
+    )
+    assert result.workflow_run["run_id"] == traditional_run.run_id
+    # The step itself must reflect the requested status.
+    alpha = next(
+        step for step in result.workflow_run["steps"] if step["step_id"] == "alpha"
+    )
+    assert alpha["status"] == "completed"
 
 
 def test_step_status_reporter_translates_each_event_type():

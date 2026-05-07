@@ -108,6 +108,12 @@ class WorkflowStepStatus(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
     PAUSED = "paused"
+    # FR-31a AC#5: distinguishes "agent didn't run because the run
+    # was cancelled" from "agent ran and failed". Used by the
+    # AgenticRunSupervisor when finalizing a cancelled run so any
+    # in-flight or pending step shows the right colour in the DAG
+    # instead of being stuck on RUNNING / PENDING.
+    CANCELLED = "cancelled"
 
 
 class ReportStatus(Enum):

@@ -3,6 +3,7 @@
 import asyncio
 import sys
 import types
+from typing import Any, Dict
 
 import pytest
 
@@ -20,6 +21,7 @@ class FakeFastAPI:
         self.lifespan = lifespan
         self.routes = []
         self.middlewares = []
+        self.exception_handlers: Dict[type, Any] = {}
 
     def add_api_route(self, path, endpoint, methods, summary, tags):
         self.routes.append(
@@ -36,6 +38,12 @@ class FakeFastAPI:
         # The factory unconditionally adds CORSMiddleware. Recording
         # rather than ignoring lets future tests assert on it.
         self.middlewares.append({"class": middleware_class, "kwargs": kwargs})
+
+    def add_exception_handler(self, exc_type, handler):
+        # FR-31a AC#8: the factory wires ConflictError → 409 etc.
+        # Recording the handlers lets tests assert the mapping is
+        # registered without standing up real FastAPI.
+        self.exception_handlers[exc_type] = handler
 
 
 class FakeRequest:
@@ -79,6 +87,20 @@ def fake_fastapi_module(monkeypatch):
     fastapi_module.middleware = middleware_module
     monkeypatch.setitem(sys.modules, "fastapi.middleware", middleware_module)
     monkeypatch.setitem(sys.modules, "fastapi.middleware.cors", cors_module)
+
+    # FR-31a AC#8: the factory now does ``from fastapi.responses
+    # import JSONResponse`` to build the exception-handler bodies.
+    # A trivial stand-in is enough — the exception handler tests
+    # only need to invoke it, not unwrap real FastAPI semantics.
+    class _FakeJSONResponse:
+        def __init__(self, status_code: int, content: Dict[str, Any]):
+            self.status_code = status_code
+            self.content = content
+
+    responses_module = types.ModuleType("fastapi.responses")
+    responses_module.JSONResponse = _FakeJSONResponse
+    fastapi_module.responses = responses_module
+    monkeypatch.setitem(sys.modules, "fastapi.responses", responses_module)
 
     return fastapi_module
 
@@ -251,6 +273,44 @@ def test_create_product_fastapi_app_env_off_keeps_supervisor_disabled(
 
     assert service._agentic_run_supervisor is None
     assert app.lifespan is not None
+
+
+def test_create_product_fastapi_app_registers_domain_exception_handlers(
+    fake_fastapi_module,
+):
+    """ConflictError → 409 (FR-31a AC#8) + the rest of the contract mapping."""
+
+    from graph_analytics_ai.product.exceptions import (
+        ConflictError,
+        DuplicateError,
+        NotFoundError,
+        ValidationError,
+    )
+
+    app = create_product_fastapi_app(service=object())
+
+    # All four product domain exceptions must have a handler registered.
+    expected = {
+        ValidationError: 400,
+        NotFoundError: 404,
+        ConflictError: 409,
+        DuplicateError: 409,
+    }
+    for exc_type, status_code in expected.items():
+        assert exc_type in app.exception_handlers, (
+            f"{exc_type.__name__} must be wired as an exception handler "
+            f"so HTTP callers see {status_code}, not 500"
+        )
+        # Drive the handler with a dummy request and assert it
+        # returns a JSONResponse with the right status + a body that
+        # explains what happened.
+        handler = app.exception_handlers[exc_type]
+        response = asyncio.run(handler(object(), exc_type("boom")))
+        assert response.status_code == status_code
+        assert response.content == {
+            "error": exc_type.__name__,
+            "detail": "boom",
+        }
 
 
 def test_create_product_fastapi_app_explains_missing_dependency(monkeypatch):

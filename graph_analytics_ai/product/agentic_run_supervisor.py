@@ -229,6 +229,7 @@ class StepStatusReporter:
                     run_id=self._run_id,
                     step_id=step_id,
                     status=WorkflowStepStatus.RUNNING,
+                    _internal=True,
                 )
             elif event_type == TraceEventType.STEP_END:
                 # STEP_END can carry a duration / output payload in
@@ -250,6 +251,7 @@ class StepStatusReporter:
                     status=WorkflowStepStatus.COMPLETED,
                     outputs=outputs,
                     cost=cost,
+                    _internal=True,
                 )
             elif event_type == TraceEventType.AGENT_ERROR:
                 error_message = ""
@@ -260,6 +262,7 @@ class StepStatusReporter:
                     step_id=step_id,
                     status=WorkflowStepStatus.FAILED,
                     errors=[error_message] if error_message else None,
+                    _internal=True,
                 )
         except Exception:  # noqa: BLE001
             logger.exception(
@@ -606,9 +609,23 @@ class AgenticRunSupervisor:
         status: Any,
         error_message: Optional[str] = None,
     ) -> None:
-        """Record final status and outcome on the run + audit event."""
+        """Record final status and outcome on the run + audit event.
 
-        from .models import create_audit_event, current_timestamp  # cycle-safe local import
+        FR-31a AC#5: when ``outcome == cancelled``, also flip any
+        in-flight or pending steps to ``CANCELLED`` so the DAG
+        doesn't show a permanent ``running`` stripe on the step the
+        orchestrator was processing when the cancel token fired.
+        Symmetrically, when a run fails after a step started but
+        never emitted ``STEP_END``, leave the step's existing status
+        alone — the executing agent's last reported state is the
+        truthful one.
+        """
+
+        from .models import (
+            WorkflowStepStatus,
+            create_audit_event,
+            current_timestamp,
+        )  # cycle-safe local import
 
         run = self._service.repository.get_workflow_run(run_id)
         run.status = status
@@ -620,6 +637,18 @@ class AgenticRunSupervisor:
         execution_meta["last_outcome"] = outcome
         execution_meta.setdefault("executor_kind", "inprocess")
         run.metadata["execution"] = execution_meta
+
+        if outcome == RUN_OUTCOME_CANCELLED:
+            now = current_timestamp()
+            for step in run.steps or []:
+                if step.status in (
+                    WorkflowStepStatus.RUNNING,
+                    WorkflowStepStatus.PENDING,
+                ):
+                    step.status = WorkflowStepStatus.CANCELLED
+                    if step.started_at and not step.completed_at:
+                        step.completed_at = now
+
         self._service.repository.update_workflow_run(run)
 
         # Emit a matching audit event so the run lifecycle is fully

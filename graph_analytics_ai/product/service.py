@@ -15,7 +15,7 @@ from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
 from ..db_connection import connect_arango_database
 from .constants import PRODUCT_SCHEMA_VERSION
-from .exceptions import ValidationError
+from .exceptions import ConflictError, ValidationError
 from .models import (
     AuditEvent,
     ChartSpec,
@@ -956,10 +956,30 @@ class ProductService:
         errors: Optional[List[str]] = None,
         checkpoint_id: Optional[str] = None,
         cost: Optional[Dict[str, Any]] = None,
+        _internal: bool = False,
     ) -> WorkflowStepUpdateResult:
-        """Update a workflow step and roll up run status for the visualizer."""
+        """Update a workflow step and roll up run status for the visualizer.
+
+        FR-31a AC#8: rejects manual updates against agentic runs because
+        the :class:`AgenticRunSupervisor` is the sole authority on step
+        transitions there — a UI-driven retry would race with the
+        :class:`StepStatusReporter`. ``_internal=True`` bypasses the
+        check; the supervisor passes it because it *is* the executor.
+        The leading underscore intentionally hides the bypass from the
+        FastAPI dispatcher (which maps JSON body keys to kwargs by
+        name) so external HTTP callers cannot opt out.
+        """
 
         run = self.repository.get_workflow_run(run_id)
+        if (
+            not _internal
+            and run.workflow_mode == WorkflowMode.AGENTIC
+        ):
+            raise ConflictError(
+                "Step transitions on agentic runs are managed by the "
+                "AgenticRunSupervisor. Use POST /api/runs/{id}/cancel to "
+                "stop a run; per-step retry on agentic runs is FR-31c."
+            )
         step = self._find_workflow_step(run, step_id)
         previous_status = step.status
         step.status = status
