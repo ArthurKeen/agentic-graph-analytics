@@ -4,7 +4,13 @@ export type WorkflowStepStatus =
   | "completed"
   | "failed"
   | "skipped"
-  | "paused";
+  | "paused"
+  // FR-31a AC#5: distinguishes "agent didn't run because the run
+  // was cancelled" from "agent ran and failed". Surfaced by the
+  // backend when ``cancel_workflow_run`` finalizes — the supervisor
+  // flips any in-flight / pending step to ``cancelled`` so the DAG
+  // doesn't show a permanent ``running`` stripe.
+  | "cancelled";
 
 export type WorkspaceAssetKind =
   | "connection-profile"

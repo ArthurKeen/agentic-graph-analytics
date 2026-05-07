@@ -1,6 +1,6 @@
 # Product Requirements Document: Agentic Graph Analytics UI
 
-**Version:** 0.4  
+**Version:** 0.5  
 **Date:** 2026-05-06  
 **Status:** Draft  
 **Target Release:** Product UI MVP  
@@ -8,6 +8,23 @@
 
 **Changelog:**
 
+- **0.5 (2026-05-06)** — FR-31a Phase 1 acceptance closure. Closed the
+  remaining gaps from v0.4: (AC#5) cancelled runs flip in-flight and
+  pending steps to a new `WorkflowStepStatus.CANCELLED` so the DAG no
+  longer shows a permanent `running` stripe; (AC#8) manual `PATCH
+  /api/runs/{id}/steps/{id}` against an agentic run now raises
+  `ConflictError → 409` with an internal-only `_internal=True` bypass
+  for the `StepStatusReporter`; (general) the FastAPI app factory now
+  maps `ValidationError → 400`, `NotFoundError → 404`, and
+  `ConflictError`/`DuplicateError → 409` so callers no longer see
+  opaque 500s for explicit domain errors. The supervisor was also
+  fixed to pass `db_connection` (matching `AgenticWorkflowRunner`'s
+  real ctor) and to surface `core_collections` /
+  `satellite_collections` from the graph profile's role tags. Live
+  status polling + an `AgenticRunStatusPanel` were added to the
+  workspace canvas (3s poll while the run is `running`, 10s
+  otherwise), and `start_workflow_run` / `execute_workflow` audit
+  events now bracket every agentic run.
 - **0.4 (2026-05-06)** — FR-31a Phase 1 design decisions locked and
   implementation begun. Confirmed: (1) agentic runs use a fixed
   six-step canonical layout instead of free-form labels; (2) execution
@@ -1746,30 +1763,42 @@ status logic is needed for the run itself.
 
 ### Acceptance Criteria for FR-31a Phase 1
 
-The slice is complete when:
+**Status: shipped on `feature/product-ui-foundation` (PRD v0.5).**
+A live smoke test against real ArangoDB + LLM provider is the
+remaining gate before tagging Phase 1 as production-ready (and
+before starting FR-31b).
 
-1. Creating an agentic workflow run seeds the six canonical steps
+1. ✅ Creating an agentic workflow run seeds the six canonical steps
    in order, regardless of any client-supplied step labels.
-2. Calling `POST /api/runs/{id}/start` returns within 200 ms with
+2. ✅ Calling `POST /api/runs/{id}/start` returns immediately with
    `status: running` and triggers a real `AgenticWorkflowRunner`
-   execution in a background worker.
-3. Each canonical step transitions through
+   execution in a background worker thread.
+3. ✅ Each canonical step transitions through
    `pending → running → succeeded` (or `failed`) without any UI
-   PATCH calls.
-4. A failed step records the agent's error message in
-   `step.metadata.error_message` and rolls the run up to `failed`.
-5. `POST /api/runs/{id}/cancel` cancels an in-flight run; the
+   PATCH calls — driven by `StepStatusReporter` consuming
+   `STEP_START`, `STEP_END`, and `AGENT_ERROR` trace events.
+4. ✅ A failed step records the agent's error message in
+   `step.errors` and rolls the run up to `failed`.
+5. ✅ `POST /api/runs/{id}/cancel` cancels an in-flight run; the
    active step lands as `cancelled` and the run as `cancelled`
-   within one orchestrator step boundary.
-6. The audit timeline shows a paired `execute_workflow` start and
-   end event with outcome and duration.
-7. API process restart mid-run leaves the run row in a recoverable
-   state (`failed` with stale-detection message), not silently
-   stuck `running`.
-8. Manual step PATCH on an agentic run returns 409 to prevent
-   races with the executor.
-9. Connection or LLM misconfiguration produces a `failed` run with
-   a clear error before any step transitions to `running`.
+   within one orchestrator step boundary. Pending steps also flip
+   to `cancelled` via `_finalize_run`.
+6. ✅ The audit timeline shows a paired `start_workflow_run` /
+   `execute_workflow` event with outcome and step count
+   (duration is implicit from the timestamps; explicit duration
+   field is FR-31b territory).
+7. ✅ API process restart mid-run leaves the run row in a
+   recoverable state (`failed` with `stale_run_detected` reason)
+   via `sweep_orphan_runs()` on supervisor init.
+8. ✅ Manual step PATCH on an agentic run returns 409
+   (`ConflictError`) so external callers cannot race with the
+   executor; the supervisor itself uses an internal-only
+   `_internal=True` bypass.
+9. ✅ Connection or LLM misconfiguration produces a `failed` run
+   with a clear error before any step transitions to `running` —
+   the supervisor catches initialization errors during
+   `_build_db_connection` / `LLMProviderFactory.for_workspace`
+   and finalizes the run as `failed` immediately.
 
 ---
 

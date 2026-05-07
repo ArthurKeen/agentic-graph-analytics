@@ -350,6 +350,15 @@ button {
   background: #edf3eb;
 }
 
+/* FR-31a AC#5: distinguish cancelled steps from failed (which is
+   red) and skipped (which is grey). Amber matches the
+   cancellation-warning palette used elsewhere. */
+.pipeline-step[data-status="cancelled"] {
+  border-color: var(--aga-warning, #b45309);
+  background: #fef3c7;
+  color: #78350f;
+}
+
 .pipeline-edge {
   color: var(--aga-accent);
   font-weight: 800;
