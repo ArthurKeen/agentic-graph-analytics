@@ -39,6 +39,23 @@ from .extractor import SchemaExtractor, create_extractor
 
 from .analyzer import SchemaAnalyzer
 
+# Phase 6a (PRD v0.6 / FR-56..FR-60): three-tier acquisition.
+from .acquire import (
+    DETECTED_PATTERN_TAGS,
+    InMemorySchemaCache,
+    SchemaAcquisitionBundle,
+    SchemaCache,
+    SchemaChangeReport,
+    SchemaKind,
+    SchemaStrategy,
+    acquire_schema,
+    build_heuristic_bundle,
+    cache_key,
+    describe_schema_change,
+    invalidate_schema_cache,
+    reset_default_cache,
+)
+
 
 __all__ = [
     # Models
@@ -53,4 +70,18 @@ __all__ = [
     "create_extractor",
     # Analyzer
     "SchemaAnalyzer",
+    # Acquisition (v0.6)
+    "DETECTED_PATTERN_TAGS",
+    "InMemorySchemaCache",
+    "SchemaAcquisitionBundle",
+    "SchemaCache",
+    "SchemaChangeReport",
+    "SchemaKind",
+    "SchemaStrategy",
+    "acquire_schema",
+    "build_heuristic_bundle",
+    "cache_key",
+    "describe_schema_change",
+    "invalidate_schema_cache",
+    "reset_default_cache",
 ]

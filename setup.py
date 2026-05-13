@@ -42,6 +42,15 @@ setup(
             "fastapi>=0.110.0",
             "uvicorn[standard]>=0.27.0",
         ],
+        # Schema analyzer (PRD v0.6 — FR-56). The analyzer powers the
+        # algorithmic-then-LLM acquisition path that distinguishes PG
+        # vs LPG vs hybrid schemas. Without it, the heuristic fallback
+        # in graph_analytics_ai.ai.schema.acquire is used and emits an
+        # ANALYZER_NOT_INSTALLED warning. The product API server
+        # (`pip install ".[api,analyzer]"`) should always include it.
+        "analyzer": [
+            "arangodb-schema-analyzer>=0.6.1,<0.7",
+        ],
     },
     entry_points={
         "console_scripts": [

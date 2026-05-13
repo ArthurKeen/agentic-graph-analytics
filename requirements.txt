@@ -10,3 +10,8 @@ plotly>=6.0.0  # Optional: for interactive chart generation in reports
 # uvicorn[standard]>=0.27.0
 # MCP server (optional): pip install ".[mcp]"
 # mcp[cli]>=1.0.0
+# Schema analyzer (PRD v0.6 / FR-56): pip install ".[analyzer]"
+# Heuristic fallback ships in-tree; the analyzer adds LPG/PG/hybrid
+# discrimination, conceptual+physical mapping, multitenancy and
+# sharding-profile detection, and OWL Turtle export.
+# arangodb-schema-analyzer>=0.6.1,<0.7
