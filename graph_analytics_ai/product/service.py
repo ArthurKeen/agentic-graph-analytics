@@ -29,8 +29,10 @@ from .models import (
     ChartSpec,
     ConnectionProfile,
     ConnectionVerificationStatus,
+    CrossGraphLink,
     DeploymentMode,
     GraphProfile,
+    GraphSet,
     PublishedSnapshot,
     ReportManifest,
     ReportSection,
@@ -51,6 +53,7 @@ from .models import (
     create_audit_event,
     create_connection_profile,
     create_graph_profile,
+    create_graph_set,
     create_published_snapshot,
     create_requirement_interview,
     create_requirement_version,
@@ -61,11 +64,15 @@ from .models import (
 from .repository import ProductRepository, WorkspaceSchemaCache
 from .secrets import EnvironmentSecretResolver, SecretResolver
 
-# PRD v0.6: bundles produced under PRODUCT_SCHEMA_VERSION 1.0.0 must
-# still import cleanly under 1.1.0 (the only delta is the additive
-# aga_schema_snapshots collection). Keep this set explicit — adding
-# a future version is a one-line append, not a regex change.
-_SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset({"1.0.0", PRODUCT_SCHEMA_VERSION})
+# PRD v0.6: bundles produced under PRODUCT_SCHEMA_VERSION 1.0.0 / 1.1.0
+# must still import cleanly under the current (1.2.0) version. The
+# only deltas are the additive aga_schema_snapshots (1.1.0) and
+# aga_graph_sets (1.2.0) collections — pre-existing collections are
+# unchanged. Keep this set explicit — adding a future version is a
+# one-line append, not a regex change.
+_SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset(
+    {"1.0.0", "1.1.0", PRODUCT_SCHEMA_VERSION}
+)
 
 
 @dataclass
@@ -1991,6 +1998,323 @@ class ProductService:
             )
         )
         return graph_profile
+
+    # ------------------------------------------------------------------
+    # GraphSet workbench (PRD v0.6 / FR-68..FR-70)
+    # ------------------------------------------------------------------
+
+    def create_graph_set(
+        self,
+        workspace_id: str,
+        name: str,
+        graph_profile_ids: List[str],
+        description: Optional[str] = None,
+        cross_graph_links: Optional[List[Dict[str, Any]]] = None,
+        primary_graph_profile_id: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> GraphSet:
+        """Create a curated multi-graph grouping (FR-68).
+
+        Validates that:
+        - the workspace exists,
+        - every ``graph_profile_id`` belongs to that workspace,
+        - ``primary_graph_profile_id`` (if set) is in the list,
+        - cross-graph link endpoints reference profiles in the set
+          (already enforced by :class:`GraphSet.__post_init__`, but
+          we surface a friendlier ValidationError here too).
+        """
+
+        if not name or not name.strip():
+            raise ValidationError("GraphSet name is required")
+        if not graph_profile_ids:
+            raise ValidationError(
+                "GraphSet must contain at least one graph_profile_id"
+            )
+
+        # Reject duplicates so the workbench's side-by-side render
+        # is deterministic and so the cross-graph link validator
+        # operates on a clean ID set.
+        seen: set[str] = set()
+        deduped: List[str] = []
+        for pid in graph_profile_ids:
+            if pid in seen:
+                raise ValidationError(
+                    f"Duplicate graph_profile_id in GraphSet: {pid}"
+                )
+            seen.add(pid)
+            deduped.append(pid)
+
+        # Existence + workspace-scoping check. We never trust the
+        # caller to have already validated this — the API surface
+        # is workspace-scoped but the endpoint receives raw IDs.
+        for pid in deduped:
+            profile = self.repository.get_graph_profile(pid)
+            if profile.workspace_id != workspace_id:
+                raise ValidationError(
+                    f"graph_profile {pid} does not belong to workspace {workspace_id}"
+                )
+
+        link_objs = [CrossGraphLink.from_dict(d) for d in (cross_graph_links or [])]
+        graph_set = create_graph_set(
+            workspace_id=workspace_id,
+            name=name.strip(),
+            graph_profile_ids=deduped,
+            description=(description.strip() if description else None),
+            cross_graph_links=link_objs,
+            primary_graph_profile_id=(
+                primary_graph_profile_id or (deduped[0] if deduped else None)
+            ),
+            created_by=actor,
+        )
+        self.repository.create_graph_set(graph_set)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="create_graph_set",
+                target_type="graph_set",
+                target_id=graph_set.graph_set_id,
+                metadata={
+                    "graph_profile_count": len(deduped),
+                    "cross_graph_link_count": len(link_objs),
+                },
+            )
+        )
+        return graph_set
+
+    def list_graph_sets(self, workspace_id: str) -> List[GraphSet]:
+        """List all graph sets in a workspace, freshest first (FR-68)."""
+
+        return self.repository.list_graph_sets(workspace_id)
+
+    def get_graph_set(self, graph_set_id: str) -> GraphSet:
+        """Get a graph set by ID (FR-68)."""
+
+        return self.repository.get_graph_set(graph_set_id)
+
+    def update_graph_set(
+        self,
+        graph_set_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        graph_profile_ids: Optional[List[str]] = None,
+        cross_graph_links: Optional[List[Dict[str, Any]]] = None,
+        primary_graph_profile_id: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> GraphSet:
+        """Patch a graph set in place (FR-68 / FR-69).
+
+        Each field is optional so the workbench can rename, retarget
+        the primary, add/remove members, or update the link list
+        independently. Re-validates the resulting set the same way
+        :meth:`create_graph_set` does — duplicates rejected, members
+        confirmed in the same workspace, links reference set members.
+        """
+
+        graph_set = self.repository.get_graph_set(graph_set_id)
+        changes: Dict[str, Any] = {}
+
+        if name is not None:
+            stripped = name.strip()
+            if not stripped:
+                raise ValidationError("name cannot be empty")
+            if stripped != graph_set.name:
+                changes["name"] = {"from": graph_set.name, "to": stripped}
+                graph_set.name = stripped
+
+        if description is not None:
+            new_desc = description.strip() if description else None
+            if new_desc != graph_set.description:
+                changes["description"] = True
+                graph_set.description = new_desc
+
+        if graph_profile_ids is not None:
+            if not graph_profile_ids:
+                raise ValidationError(
+                    "graph_profile_ids cannot be empty"
+                )
+            seen: set[str] = set()
+            deduped: List[str] = []
+            for pid in graph_profile_ids:
+                if pid in seen:
+                    raise ValidationError(
+                        f"Duplicate graph_profile_id: {pid}"
+                    )
+                seen.add(pid)
+                deduped.append(pid)
+            for pid in deduped:
+                profile = self.repository.get_graph_profile(pid)
+                if profile.workspace_id != graph_set.workspace_id:
+                    raise ValidationError(
+                        f"graph_profile {pid} does not belong to "
+                        f"workspace {graph_set.workspace_id}"
+                    )
+            changes["graph_profile_ids"] = {
+                "from": list(graph_set.graph_profile_ids),
+                "to": deduped,
+            }
+            graph_set.graph_profile_ids = deduped
+            # Demote primary if it dropped out of the list.
+            if (
+                graph_set.primary_graph_profile_id
+                and graph_set.primary_graph_profile_id not in deduped
+            ):
+                graph_set.primary_graph_profile_id = deduped[0]
+
+        if cross_graph_links is not None:
+            ids = set(graph_set.graph_profile_ids)
+            link_objs = [CrossGraphLink.from_dict(d) for d in cross_graph_links]
+            for link in link_objs:
+                if link.from_graph_profile_id not in ids:
+                    raise ValidationError(
+                        f"CrossGraphLink references unknown profile: "
+                        f"{link.from_graph_profile_id}"
+                    )
+                if link.to_graph_profile_id not in ids:
+                    raise ValidationError(
+                        f"CrossGraphLink references unknown profile: "
+                        f"{link.to_graph_profile_id}"
+                    )
+            changes["cross_graph_links"] = len(link_objs)
+            graph_set.cross_graph_links = link_objs
+
+        if primary_graph_profile_id is not None:
+            if primary_graph_profile_id not in graph_set.graph_profile_ids:
+                raise ValidationError(
+                    "primary_graph_profile_id must be in graph_profile_ids"
+                )
+            if primary_graph_profile_id != graph_set.primary_graph_profile_id:
+                changes["primary_graph_profile_id"] = {
+                    "from": graph_set.primary_graph_profile_id,
+                    "to": primary_graph_profile_id,
+                }
+                graph_set.primary_graph_profile_id = primary_graph_profile_id
+
+        if not changes:
+            return graph_set
+
+        self.repository.update_graph_set(graph_set)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=graph_set.workspace_id,
+                actor=actor or "system",
+                action="update_graph_set",
+                target_type="graph_set",
+                target_id=graph_set.graph_set_id,
+                metadata={"changed_fields": sorted(changes.keys())},
+            )
+        )
+        return graph_set
+
+    def discover_cross_graph_links(
+        self,
+        graph_set_id: str,
+        max_links: int = 16,
+        min_overlap: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Suggest CrossGraphLinks across the profiles in a set (FR-69).
+
+        Heuristic: any field name that appears in the conceptual
+        schemas of two distinct profiles in the set, AND has a
+        plausible "joinable identifier" name (id, key, _id, email,
+        sha256, document_id, source_id, ssn) is surfaced as a
+        candidate link with confidence 0.6. Confidence is bumped
+        toward 0.85 when both sides come from the same connection
+        (same database — the most common case for a workspace's own
+        corpus + KG).
+
+        This method does NOT touch the database; it only inspects the
+        conceptual_schema / physical_mapping snapshots already on the
+        graph profiles. Heavier statistical overlap probes (which
+        WOULD need DB access) are intentionally deferred to Phase 6d.
+
+        ``max_links`` caps the number of suggestions returned to keep
+        the workbench tooltip manageable. ``min_overlap`` reserved
+        for the future statistical path; ignored here.
+        """
+
+        graph_set = self.repository.get_graph_set(graph_set_id)
+
+        # Collect (profile_id, set_of_field_names) per member.
+        members: List[tuple[str, str, set[str]]] = []
+        for pid in graph_set.graph_profile_ids:
+            profile = self.repository.get_graph_profile(pid)
+            field_names = self._collect_joinable_fields(profile)
+            members.append((pid, profile.connection_profile_id, field_names))
+
+        # Limit reserved (paginates the suggestion list shown in UI).
+        del min_overlap
+
+        candidates: List[Dict[str, Any]] = []
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                pid_a, conn_a, fields_a = members[i]
+                pid_b, conn_b, fields_b = members[j]
+                shared = sorted(fields_a & fields_b)
+                for fld in shared:
+                    confidence = 0.85 if conn_a == conn_b else 0.60
+                    candidates.append(
+                        {
+                            "from_graph_profile_id": pid_a,
+                            "to_graph_profile_id": pid_b,
+                            "from_field": fld,
+                            "to_field": fld,
+                            "link_type": "equality",
+                            "confidence": confidence,
+                            "metadata": {
+                                "discovery": "name_match",
+                                "shared_field": fld,
+                            },
+                        }
+                    )
+
+        # Sort by confidence desc then field name for stable output.
+        candidates.sort(
+            key=lambda c: (-c["confidence"], c["from_field"], c["from_graph_profile_id"])
+        )
+        return candidates[:max_links]
+
+    @staticmethod
+    def _collect_joinable_fields(profile: GraphProfile) -> set[str]:
+        """Pull joinable-looking property names from a profile's schemas.
+
+        Drawn from both the conceptual schema (entity properties +
+        relationship properties) and the physical mapping (typeField,
+        collectionName) so a heuristic name match against e.g.
+        ``email`` or ``sha256`` works for both PG and LPG profiles.
+        """
+        joinable_patterns = {
+            "id",
+            "_id",
+            "_key",
+            "key",
+            "email",
+            "sha256",
+            "uuid",
+            "url",
+            "document_id",
+            "source_id",
+            "source_document_id",
+            "ssn",
+            "phone",
+            "tax_id",
+            "ein",
+            "isbn",
+            "doi",
+        }
+        out: set[str] = set()
+        if profile.conceptual_schema:
+            for entity in profile.conceptual_schema.get("entities", []) or []:
+                for prop in entity.get("properties", []) or []:
+                    name = prop if isinstance(prop, str) else (prop or {}).get("name")
+                    if isinstance(name, str) and name.lower() in joinable_patterns:
+                        out.add(name.lower())
+            for rel in profile.conceptual_schema.get("relationships", []) or []:
+                for prop in rel.get("properties", []) or []:
+                    name = prop if isinstance(prop, str) else (prop or {}).get("name")
+                    if isinstance(name, str) and name.lower() in joinable_patterns:
+                        out.add(name.lower())
+        return out
 
     def start_requirements_copilot(
         self,

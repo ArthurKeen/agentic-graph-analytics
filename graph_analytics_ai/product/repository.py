@@ -8,6 +8,7 @@ from .models import (
     ChartSpec,
     ConnectionProfile,
     GraphProfile,
+    GraphSet,
     PublishedSnapshot,
     ReportManifest,
     ReportSection,
@@ -133,6 +134,28 @@ class ProductRepository:
         """List schema snapshots for a workspace."""
 
         return self.storage.list_schema_snapshots(workspace_id, limit=limit)
+
+    # --- Graph set operations (PRD v0.6 / FR-68..FR-70) ---
+
+    def create_graph_set(self, graph_set: GraphSet) -> str:
+        """Insert a graph set."""
+
+        return self.storage.insert_graph_set(graph_set)
+
+    def get_graph_set(self, graph_set_id: str) -> GraphSet:
+        """Get a graph set by ID."""
+
+        return self.storage.get_graph_set(graph_set_id)
+
+    def update_graph_set(self, graph_set: GraphSet) -> str:
+        """Update a graph set."""
+
+        return self.storage.update_graph_set(graph_set)
+
+    def list_graph_sets(self, workspace_id: str) -> List[GraphSet]:
+        """List graph sets for a workspace."""
+
+        return self.storage.list_graph_sets(workspace_id)
 
     def create_source_document(self, document: SourceDocument) -> str:
         """Create a source document."""

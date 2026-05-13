@@ -15,6 +15,7 @@ from ..constants import (
     CONNECTION_PROFILES_COLLECTION,
     DOCUMENTS_COLLECTION,
     GRAPH_PROFILES_COLLECTION,
+    GRAPH_SETS_COLLECTION,
     META_COLLECTION,
     PRODUCT_COLLECTIONS,
     PRODUCT_SCHEMA_VERSION,
@@ -33,6 +34,7 @@ from ..models import (
     ChartSpec,
     ConnectionProfile,
     GraphProfile,
+    GraphSet,
     PublishedSnapshot,
     ReportManifest,
     ReportSection,
@@ -68,6 +70,7 @@ class ProductArangoStorage:
     PUBLISHED_SNAPSHOTS_COLLECTION = PUBLISHED_SNAPSHOTS_COLLECTION
     AUDIT_EVENTS_COLLECTION = AUDIT_EVENTS_COLLECTION
     SCHEMA_SNAPSHOTS_COLLECTION = SCHEMA_SNAPSHOTS_COLLECTION
+    GRAPH_SETS_COLLECTION = GRAPH_SETS_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -186,6 +189,13 @@ class ProductArangoStorage:
                 fields=["workspace_id", "database"], unique=False
             )
             schema_snapshots.add_hash_index(fields=["schema_kind"], unique=False)
+            # PRD v0.6 / FR-68: graph sets indexed by workspace_id and
+            # name (a workspace can host many sets, but the workbench
+            # often filters by name). Hash index, non-unique on name —
+            # the workspace UI deduplicates client-side.
+            graph_sets = self.db.collection(GRAPH_SETS_COLLECTION)
+            graph_sets.add_hash_index(fields=["workspace_id"], unique=False)
+            graph_sets.add_hash_index(fields=["workspace_id", "name"], unique=False)
         except Exception as exc:
             logger.warning("Failed to create some product indexes: %s", exc)
 
@@ -539,6 +549,32 @@ class ProductArangoStorage:
             raise StorageError(
                 f"Failed to list schema snapshots: {exc}"
             ) from exc
+
+    # --- Graph set operations (PRD v0.6 / FR-68..FR-70) ---
+
+    def insert_graph_set(self, graph_set: GraphSet) -> str:
+        """Insert a graph set."""
+
+        return self._insert_document(GRAPH_SETS_COLLECTION, graph_set.to_dict())
+
+    def get_graph_set(self, graph_set_id: str) -> GraphSet:
+        """Get a graph set by ID."""
+
+        return GraphSet.from_dict(
+            self._get_document(GRAPH_SETS_COLLECTION, graph_set_id)
+        )
+
+    def update_graph_set(self, graph_set: GraphSet) -> str:
+        """Update a graph set."""
+
+        graph_set.updated_at = datetime.now(timezone.utc)
+        return self._update_document(GRAPH_SETS_COLLECTION, graph_set.to_dict())
+
+    def list_graph_sets(self, workspace_id: str) -> List[GraphSet]:
+        """List graph sets for a workspace, freshest first."""
+
+        docs = self._list_workspace_documents(GRAPH_SETS_COLLECTION, workspace_id)
+        return [GraphSet.from_dict(doc) for doc in docs]
 
     # --- Source document operations ---
 

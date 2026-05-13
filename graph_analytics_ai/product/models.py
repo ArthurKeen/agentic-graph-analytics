@@ -461,6 +461,158 @@ class GraphProfile:
 
 
 @dataclass
+class CrossGraphLink:
+    """A typed bridge between two GraphProfiles within a GraphSet (FR-69).
+
+    Encodes "this entity in graph A is the same logical thing as that
+    entity in graph B" so workspace-wide queries (Requirements Copilot,
+    AnalysisExecutor) can traverse across graphs without the user
+    re-stating the bridge every time.
+
+    Examples:
+    - corpus_g.Documents.id == knowledge_g.Entities.source_document_id
+      (binds extracted entities back to their source chunks)
+    - hris_pg.Employee.email == knowledge_g.Entities.email
+      (binds the structured Employee row to the LPG Person entity)
+
+    The link is a deterministic key match — no ML / fuzzy matching
+    inside the model. Confidence reflects the auto-discovery
+    heuristic's belief; user-curated links score 1.0 by convention.
+    """
+
+    from_graph_profile_id: str
+    to_graph_profile_id: str
+    from_field: str
+    to_field: str
+    link_type: str = "equality"
+    confidence: float = 1.0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "from_graph_profile_id": self.from_graph_profile_id,
+            "to_graph_profile_id": self.to_graph_profile_id,
+            "from_field": self.from_field,
+            "to_field": self.to_field,
+            "link_type": self.link_type,
+            "confidence": self.confidence,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CrossGraphLink":
+        return cls(
+            from_graph_profile_id=data["from_graph_profile_id"],
+            to_graph_profile_id=data["to_graph_profile_id"],
+            from_field=data["from_field"],
+            to_field=data["to_field"],
+            link_type=data.get("link_type", "equality"),
+            confidence=float(data.get("confidence", 1.0)),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class GraphSet:
+    """Curated grouping of multiple GraphProfiles (PRD v0.6 / FR-68..FR-70).
+
+    A GraphSet is the workspace-level object that says "these N graphs
+    work together for analysis". It binds:
+
+    - ``graph_profile_ids`` — the ordered list of profiles in the set.
+      Order is preserved so the workbench can render a consistent
+      side-by-side layout (corpus first, KG next, structured last).
+    - ``cross_graph_links`` — the list of typed bridges (see
+      :class:`CrossGraphLink`) the workbench should treat as joinable.
+    - ``primary_graph_profile_id`` — optional pointer to the "main"
+      graph the user is operating on; the others are reference /
+      enrichment graphs. Defaults to the first entry in
+      ``graph_profile_ids``.
+
+    GraphSets are *durable selection state* — adding a profile to a
+    set does not duplicate the underlying schema, just records the
+    grouping. The same profile can belong to many sets.
+    """
+
+    graph_set_id: str
+    workspace_id: str
+    name: str
+    description: Optional[str] = None
+    graph_profile_ids: List[str] = field(default_factory=list)
+    cross_graph_links: List[CrossGraphLink] = field(default_factory=list)
+    primary_graph_profile_id: Optional[str] = None
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    created_by: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.name.strip():
+            raise ValidationError("GraphSet.name is required")
+        if not self.graph_profile_ids:
+            raise ValidationError(
+                "GraphSet.graph_profile_ids must contain at least one profile"
+            )
+        if (
+            self.primary_graph_profile_id
+            and self.primary_graph_profile_id not in self.graph_profile_ids
+        ):
+            raise ValidationError(
+                "primary_graph_profile_id must be one of graph_profile_ids"
+            )
+        # Cross-graph link endpoints must reference profiles that
+        # belong to the set; otherwise the workbench would silently
+        # show dangling bridges. Validate up-front.
+        ids = set(self.graph_profile_ids)
+        for link in self.cross_graph_links:
+            if link.from_graph_profile_id not in ids:
+                raise ValidationError(
+                    "CrossGraphLink.from_graph_profile_id "
+                    f"'{link.from_graph_profile_id}' is not in graph_profile_ids"
+                )
+            if link.to_graph_profile_id not in ids:
+                raise ValidationError(
+                    "CrossGraphLink.to_graph_profile_id "
+                    f"'{link.to_graph_profile_id}' is not in graph_profile_ids"
+                )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "_key": self.graph_set_id,
+            "graph_set_id": self.graph_set_id,
+            "workspace_id": self.workspace_id,
+            "name": self.name,
+            "description": self.description,
+            "graph_profile_ids": list(self.graph_profile_ids),
+            "cross_graph_links": [link.to_dict() for link in self.cross_graph_links],
+            "primary_graph_profile_id": self.primary_graph_profile_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "created_by": self.created_by,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "GraphSet":
+        return cls(
+            graph_set_id=data.get("graph_set_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            name=data["name"],
+            description=data.get("description"),
+            graph_profile_ids=list(data.get("graph_profile_ids", [])),
+            cross_graph_links=[
+                CrossGraphLink.from_dict(d)
+                for d in data.get("cross_graph_links", [])
+            ],
+            primary_graph_profile_id=data.get("primary_graph_profile_id"),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_by=data.get("created_by"),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
 class SchemaSnapshot:
     """Persisted bundle from :mod:`graph_analytics_ai.ai.schema.acquire`.
 
@@ -1248,6 +1400,22 @@ def create_graph_profile(
         workspace_id=workspace_id,
         connection_profile_id=connection_profile_id,
         graph_name=graph_name,
+        **kwargs,
+    )
+
+
+def create_graph_set(
+    workspace_id: str,
+    name: str,
+    graph_profile_ids: List[str],
+    **kwargs: Any,
+) -> GraphSet:
+    """Create a graph set with a generated ID."""
+    return GraphSet(
+        graph_set_id=generate_product_id("graph-set"),
+        workspace_id=workspace_id,
+        name=name,
+        graph_profile_ids=graph_profile_ids,
         **kwargs,
     )
 

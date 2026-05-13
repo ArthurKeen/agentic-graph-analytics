@@ -1,10 +1,9 @@
 """Constants for Agentic Graph Analytics product metadata."""
 
-# Bumped to 1.1.0 alongside the v0.6 PRD: aga_schema_snapshots is the only
-# new collection (aga_graph_sets lands in Phase 6c). Dropping the version
-# would cause a downgrade; existing 1.0.0 deployments are forward-compatible
-# because the new collection is only created when storage initializes.
-PRODUCT_SCHEMA_VERSION = "1.1.0"
+# Bumped to 1.2.0 in Phase 6c: aga_graph_sets joins aga_schema_snapshots
+# as the second additive v0.6 collection. The bundle import path accepts
+# the open set 1.0.0 / 1.1.0 / 1.2.0 so older callers can still round-trip.
+PRODUCT_SCHEMA_VERSION = "1.2.0"
 
 META_COLLECTION = "aga_product_meta"
 WORKSPACES_COLLECTION = "aga_workspaces"
@@ -26,6 +25,12 @@ AUDIT_EVENTS_COLLECTION = "aga_audit_events"
 # so repeated discoveries skip the analyzer and ordinary writes
 # only refresh statistics.
 SCHEMA_SNAPSHOTS_COLLECTION = "aga_schema_snapshots"
+# PRD v0.6 / FR-68..FR-70: curated grouping of multiple GraphProfile
+# rows within a workspace. Encodes the "this workspace's analyses
+# operate over corpus_g + acme_kg + hris_pg, with these cross-graph
+# bridges" relationship so GAE projections + Requirements Copilot
+# can target the right combination.
+GRAPH_SETS_COLLECTION = "aga_graph_sets"
 
 PRODUCT_COLLECTIONS = [
     META_COLLECTION,
@@ -43,5 +48,6 @@ PRODUCT_COLLECTIONS = [
     PUBLISHED_SNAPSHOTS_COLLECTION,
     AUDIT_EVENTS_COLLECTION,
     SCHEMA_SNAPSHOTS_COLLECTION,
+    GRAPH_SETS_COLLECTION,
 ]
 

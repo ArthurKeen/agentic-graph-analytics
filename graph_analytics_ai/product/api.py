@@ -180,6 +180,55 @@ PRODUCT_API_ENDPOINTS = [
         request_model="UpdateGraphPurposeRequest",
         response_model="GraphProfile",
     ),
+    # PRD v0.6 / FR-68..FR-70. GraphSet workbench — curated grouping
+    # of multiple GraphProfiles + cross-graph link declarations.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/graph-sets",
+        service_method="create_graph_set",
+        summary="Create a curated GraphSet for a workspace",
+        tags=["graph-sets"],
+        request_model="CreateGraphSetRequest",
+        response_model="GraphSet",
+    ),
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/workspaces/{workspace_id}/graph-sets",
+        service_method="list_graph_sets",
+        summary="List GraphSets for a workspace",
+        tags=["graph-sets"],
+        response_model="List[GraphSet]",
+    ),
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/graph-sets/{graph_set_id}",
+        service_method="get_graph_set",
+        summary="Get a GraphSet by ID",
+        tags=["graph-sets"],
+        response_model="GraphSet",
+    ),
+    ProductAPIEndpoint(
+        method="PATCH",
+        path="/api/graph-sets/{graph_set_id}",
+        service_method="update_graph_set",
+        summary="Patch GraphSet name / membership / cross-graph links",
+        tags=["graph-sets"],
+        request_model="UpdateGraphSetRequest",
+        response_model="GraphSet",
+    ),
+    # FR-69: heuristic discovery of cross-graph join candidates.
+    # Returns suggestions; the user must explicitly add them to the
+    # set's cross_graph_links via update_graph_set to make them
+    # take effect.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/graph-sets/{graph_set_id}/discover-cross-graph-links",
+        service_method="discover_cross_graph_links",
+        summary="Suggest cross-graph link candidates for a GraphSet",
+        tags=["graph-sets"],
+        request_model="DiscoverCrossGraphLinksRequest",
+        response_model="List[CrossGraphLink]",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/graph-profiles/{graph_profile_id}/requirements-copilot/sessions",
