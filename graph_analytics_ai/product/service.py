@@ -256,6 +256,44 @@ class GraphDiscoveryResult:
 
 
 @dataclass
+class WorkspaceGraphInventoryResult:
+    """Result of bulk-discovering every named graph on a connection (FR-67).
+
+    The plural variant of :class:`GraphDiscoveryResult`. Returned by
+    :meth:`ProductService.discover_graph_profiles`. Callers iterate
+    ``graph_profiles`` to render the workspace's complete graph
+    inventory and use ``failures`` to surface per-graph errors
+    without aborting the whole sweep.
+
+    ``database_only`` is an optional fallback entry returned when
+    the connection's database has no named graphs at all (so the
+    UI can still show a "treat the database as a single graph"
+    card with the same shape as the regular profile cards).
+    """
+
+    connection_profile_id: str
+    workspace_id: str
+    database: str
+    discovered_graph_count: int
+    graph_profiles: List[Dict[str, Any]]
+    failures: List[Dict[str, Any]] = field(default_factory=list)
+    database_only: Optional[Dict[str, Any]] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert inventory result to an API-friendly dictionary."""
+
+        return {
+            "connection_profile_id": self.connection_profile_id,
+            "workspace_id": self.workspace_id,
+            "database": self.database,
+            "discovered_graph_count": self.discovered_graph_count,
+            "graph_profiles": self.graph_profiles,
+            "failures": self.failures,
+            "database_only": self.database_only,
+        }
+
+
+@dataclass
 class ConnectionGraphSummary:
     """Lightweight named-graph descriptor for a connection profile."""
 
@@ -1615,6 +1653,117 @@ class ProductService:
         return GraphDiscoveryResult(
             graph_profile=graph_profile.to_dict(),
             schema_summary=schema.to_summary_dict(),
+        )
+
+    def discover_graph_profiles(
+        self,
+        connection_profile_id: str,
+        created_by: Optional[str] = None,
+        password_secret_key: str = "password",
+        sample_size: int = 100,
+        max_samples_per_collection: int = 3,
+        verify_system: bool = True,
+        schema_strategy: str = "auto",
+        include_system: bool = False,
+    ) -> WorkspaceGraphInventoryResult:
+        """Bulk-discover every named graph on a connection (FR-67).
+
+        Iterates :meth:`list_connection_profile_graphs`, calls
+        :meth:`discover_graph_profile` for each non-system graph, and
+        aggregates the resulting profiles into a single inventory
+        result. Per-graph failures are collected into ``failures``
+        rather than aborting the sweep — the UI can render a partial
+        inventory with red flags on the broken entries instead of
+        nothing at all.
+
+        When the database exposes no named graphs (a common case for
+        small / hand-built corpora), a single fallback profile is
+        created against the whole database and returned in the
+        ``database_only`` slot. This preserves the v0.5 single-graph
+        UX for that case while still funnelling everything through
+        the same downstream wiring (acquisition + classifier + cache).
+        """
+
+        # Enumerate the named graphs first so we can persist each one
+        # individually. ``list_connection_profile_graphs`` already opens
+        # a database handle and reads ``db.graphs()``; we rely on its
+        # error mapping (ValidationError on driver failure).
+        inventory = self.list_connection_profile_graphs(
+            connection_profile_id=connection_profile_id,
+            password_secret_key=password_secret_key,
+            verify_system=verify_system,
+            include_system=include_system,
+            include_counts=False,
+        )
+        connection = self.repository.get_connection_profile(connection_profile_id)
+
+        graph_profiles: List[Dict[str, Any]] = []
+        failures: List[Dict[str, Any]] = []
+        database_only: Optional[Dict[str, Any]] = None
+
+        eligible_names = [g.name for g in inventory.graphs if not g.is_system]
+
+        if not eligible_names:
+            # Fallback: treat the whole database as a single
+            # database-level graph (graph_name="__db__"). This mirrors
+            # the existing single-graph behavior so the UI doesn't
+            # have to special-case workspaces that haven't created a
+            # named graph yet.
+            try:
+                result = self.discover_graph_profile(
+                    connection_profile_id=connection_profile_id,
+                    graph_name=None,
+                    created_by=created_by,
+                    password_secret_key=password_secret_key,
+                    sample_size=sample_size,
+                    max_samples_per_collection=max_samples_per_collection,
+                    verify_system=verify_system,
+                    schema_strategy=schema_strategy,
+                )
+                database_only = result.to_dict()
+            except Exception as exc:  # noqa: BLE001
+                failures.append(
+                    {
+                        "graph_name": None,
+                        "error_type": exc.__class__.__name__,
+                        "message": str(exc),
+                    }
+                )
+        else:
+            for graph_name in eligible_names:
+                try:
+                    result = self.discover_graph_profile(
+                        connection_profile_id=connection_profile_id,
+                        graph_name=graph_name,
+                        created_by=created_by,
+                        password_secret_key=password_secret_key,
+                        sample_size=sample_size,
+                        max_samples_per_collection=max_samples_per_collection,
+                        verify_system=verify_system,
+                        schema_strategy=schema_strategy,
+                    )
+                    graph_profiles.append(result.graph_profile)
+                except Exception as exc:  # noqa: BLE001
+                    # Per-graph failure should NOT take down the sweep.
+                    # The UI surfaces the error next to the failing
+                    # graph card and the user can retry that one
+                    # individually with discover_graph_profile.
+                    failures.append(
+                        {
+                            "graph_name": graph_name,
+                            "error_type": exc.__class__.__name__,
+                            "message": str(exc),
+                        }
+                    )
+
+        return WorkspaceGraphInventoryResult(
+            connection_profile_id=connection_profile_id,
+            workspace_id=connection.workspace_id,
+            database=connection.database,
+            discovered_graph_count=len(graph_profiles),
+            graph_profiles=graph_profiles,
+            failures=failures,
+            database_only=database_only,
         )
 
     def _acquire_and_persist_bundle(

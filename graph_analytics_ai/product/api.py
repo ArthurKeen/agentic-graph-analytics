@@ -125,6 +125,21 @@ PRODUCT_API_ENDPOINTS = [
         request_model="GraphDiscoveryRequest",
         response_model="GraphDiscoveryResult",
     ),
+    # PRD v0.6 / FR-67. Bulk-discovers EVERY named graph on a
+    # connection in a single call (the "ArangoDB GraphRAG corpus + KG
+    # + structured data graph in the same workspace" case). Per-graph
+    # failures are collected into the response's ``failures`` array
+    # rather than aborting the sweep so a single broken graph does
+    # not block the inventory render.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/connection-profiles/{connection_profile_id}/discover-graph-profiles",
+        service_method="discover_graph_profiles",
+        summary="Bulk-discover every named graph on a connection",
+        tags=["graph-profiles"],
+        request_model="WorkspaceGraphInventoryRequest",
+        response_model="WorkspaceGraphInventoryResult",
+    ),
     # PRD v0.6 / FR-60. Lightweight, read-only probe that returns the
     # shape/full fingerprint pair for the cached schema vs the live
     # database. Used by the UI to surface a "schema may be stale" badge

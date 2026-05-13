@@ -875,3 +875,176 @@ class TestPatchGraphPurposeEndpoint:
                 graph_profile_id=profile.graph_profile_id,
                 graph_purpose="bogus",
             )
+
+
+# ---------------------------------------------------------------------------
+# Phase 6b — bulk inventory endpoint (FR-67)
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoverGraphProfilesBulk:
+    """``discover_graph_profiles`` (plural) bulk-discovery endpoint."""
+
+    def _service(
+        self,
+        db: MagicMock,
+        repo: _StubServiceRepository,
+        named_graphs: List[Dict[str, Any]],
+    ):
+        from graph_analytics_ai.product.service import ProductService
+
+        service = ProductService(
+            repository=repo,  # type: ignore[arg-type]
+            secret_resolver=_StubSecretResolver(),  # type: ignore[arg-type]
+            db_connector=lambda **_: db,
+            schema_extractor_factory=_StubExtractor,
+        )
+        # Patch list_connection_profile_graphs at the service-method
+        # level so we don't need to mock db.graphs() / driver internals.
+        from graph_analytics_ai.product.service import (
+            ConnectionGraphsResult,
+            ConnectionGraphSummary,
+        )
+
+        summaries = [
+            ConnectionGraphSummary(
+                name=g["name"],
+                is_system=g.get("is_system", False),
+                vertex_collections=g.get("vertex_collections", []),
+                edge_collections=g.get("edge_collections", []),
+                orphan_collections=[],
+                edge_definitions=[],
+            )
+            for g in named_graphs
+        ]
+        service.list_connection_profile_graphs = MagicMock(  # type: ignore[assignment]
+            return_value=ConnectionGraphsResult(
+                connection_profile_id="cp-1",
+                workspace_id="ws-1",
+                database="hr_demo",
+                graphs=summaries,
+            )
+        )
+        return service
+
+    def _kg_db(self) -> MagicMock:
+        return _make_db(
+            collections=[
+                {"name": "Entities", "type": "document"},
+                {"name": "Relationships", "type": "edge"},
+            ],
+            samples={
+                "Entities": [
+                    {"_key": "p1", "type": "Person"},
+                    {"_key": "p2", "type": "Person"},
+                    {"_key": "o1", "type": "Org"},
+                ],
+                "Relationships": [
+                    {"_from": "Entities/p1", "_to": "Entities/o1", "type": "WORKS_FOR"},
+                ],
+            },
+        )
+
+    def test_endpoint_registered(self):
+        endpoint = next(
+            (
+                e
+                for e in PRODUCT_API_ENDPOINTS
+                if e.path
+                == "/api/connection-profiles/{connection_profile_id}/discover-graph-profiles"
+            ),
+            None,
+        )
+        assert endpoint is not None
+        assert endpoint.method == "POST"
+        assert endpoint.service_method == "discover_graph_profiles"
+
+    def test_discover_iterates_every_named_graph(self):
+        repo = _StubServiceRepository()
+        db = self._kg_db()
+        named_graphs = [
+            {"name": "corpus_g"},
+            {"name": "knowledge_g"},
+            {"name": "structured_g"},
+        ]
+        service = self._service(db, repo, named_graphs)
+
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+
+        assert result.discovered_graph_count == 3
+        assert len(result.graph_profiles) == 3
+        names = {p["graph_name"] for p in result.graph_profiles}
+        assert names == {"corpus_g", "knowledge_g", "structured_g"}
+        assert result.failures == []
+        assert result.database_only is None
+        # Each profile got the v0.6 enrichment.
+        for prof in result.graph_profiles:
+            assert prof["schema_kind"] in {"pg", "lpg", "hybrid", "rpt", "unknown"}
+
+    def test_failure_in_one_graph_does_not_abort_sweep(self, monkeypatch):
+        """A single per-graph failure must collect into ``failures``,
+        not raise."""
+        repo = _StubServiceRepository()
+        db = self._kg_db()
+        service = self._service(
+            db,
+            repo,
+            named_graphs=[{"name": "good_g"}, {"name": "broken_g"}],
+        )
+
+        # Make discover_graph_profile raise for one specific graph.
+        original = service.discover_graph_profile
+
+        def _selective(connection_profile_id, **kwargs):
+            if kwargs.get("graph_name") == "broken_g":
+                raise RuntimeError("simulated per-graph failure")
+            return original(connection_profile_id, **kwargs)
+
+        service.discover_graph_profile = _selective  # type: ignore[assignment]
+
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+
+        assert result.discovered_graph_count == 1
+        assert len(result.failures) == 1
+        failure = result.failures[0]
+        assert failure["graph_name"] == "broken_g"
+        assert failure["error_type"] == "RuntimeError"
+        assert "simulated" in failure["message"]
+
+    def test_database_only_fallback_when_no_named_graphs(self):
+        """When no named graphs exist, fall back to a database-level
+        single profile in the ``database_only`` slot.
+        """
+        repo = _StubServiceRepository()
+        db = self._kg_db()
+        service = self._service(db, repo, named_graphs=[])
+
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        assert result.discovered_graph_count == 0
+        assert result.graph_profiles == []
+        assert result.database_only is not None
+        assert "graph_profile" in result.database_only
+        assert "schema_summary" in result.database_only
+
+    def test_system_graphs_filtered(self):
+        repo = _StubServiceRepository()
+        db = self._kg_db()
+        service = self._service(
+            db,
+            repo,
+            named_graphs=[
+                {"name": "_system_graph", "is_system": True},
+                {"name": "real_graph"},
+            ],
+        )
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        assert result.discovered_graph_count == 1
+        assert result.graph_profiles[0]["graph_name"] == "real_graph"
