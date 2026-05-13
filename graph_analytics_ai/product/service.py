@@ -19,6 +19,10 @@ from ..ai.schema.acquire import (
     describe_schema_change,
 )
 from ..ai.schema.graph_purpose import classify_graph_purpose
+from ..ai.schema.sensitivity import (
+    classify_conceptual_schema,
+    classify_schema_sensitivity,
+)
 from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
 from ..db_connection import connect_arango_database
@@ -1636,6 +1640,20 @@ class ProductService:
                 merged_meta["graph_purpose_classification"] = classification.to_dict()
                 v6_kwargs["analyzer_metadata"] = merged_meta
 
+            # Phase 6d (FR-72): tag every conceptual property with a
+            # sensitivity level (high/medium/low/safe/unknown). Stored
+            # under analyzer_metadata.sensitivity so the report
+            # generator's masking pass + Graph Explorer overlay can read
+            # it without re-running the classifier.
+            try:
+                sensitivity_report = classify_schema_sensitivity(acquisition_bundle)
+            except Exception:  # noqa: BLE001 — never block discovery
+                sensitivity_report = None
+            if sensitivity_report is not None:
+                merged_meta = dict(v6_kwargs["analyzer_metadata"])
+                merged_meta["sensitivity"] = sensitivity_report.to_dict()
+                v6_kwargs["analyzer_metadata"] = merged_meta
+
         graph_profile = create_graph_profile(
             workspace_id=profile.workspace_id,
             connection_profile_id=profile.connection_profile_id,
@@ -1917,6 +1935,14 @@ class ProductService:
             "edited_by": actor or "system",
             "field": "conceptual_schema",
         }
+        # Phase 6d (FR-72): re-classify sensitivity now that the
+        # entity/property names changed. Failures are non-fatal — we
+        # keep the prior tags rather than blocking the user's edit.
+        try:
+            updated_sensitivity = classify_conceptual_schema(conceptual_schema)
+            meta["sensitivity"] = updated_sensitivity.to_dict()
+        except Exception:  # noqa: BLE001
+            pass
         graph_profile.analyzer_metadata = meta
 
         self.repository.update_graph_profile(graph_profile)

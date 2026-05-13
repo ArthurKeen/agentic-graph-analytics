@@ -61,6 +61,15 @@ from .graph_purpose import (
     GraphPurposeResult,
     classify_graph_purpose,
 )
+# Phase 6d (PRD v0.6 / FR-72): sensitivity classifier.
+from .sensitivity import (
+    PropertySensitivity,
+    SensitivityLevel,
+    SensitivityReport,
+    classify_conceptual_schema,
+    classify_property_sensitivity,
+    classify_schema_sensitivity,
+)
 
 
 __all__ = [
@@ -94,4 +103,11 @@ __all__ = [
     "GraphPurpose",
     "GraphPurposeResult",
     "classify_graph_purpose",
+    # v0.6 / Phase 6d
+    "PropertySensitivity",
+    "SensitivityLevel",
+    "SensitivityReport",
+    "classify_conceptual_schema",
+    "classify_property_sensitivity",
+    "classify_schema_sensitivity",
 ]

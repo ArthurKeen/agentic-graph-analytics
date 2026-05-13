@@ -12,6 +12,7 @@ from .models import (
     AnalysisTemplate,
     AlgorithmType,
     AlgorithmParameters,
+    LpgProjection,
     TemplateConfig,
     EngineSize,
     DEFAULT_ALGORITHM_PARAMS,
@@ -108,6 +109,7 @@ class TemplateGenerator:
         use_cases: List[UseCase],
         schema: Optional[GraphSchema] = None,
         schema_analysis: Optional[SchemaAnalysis] = None,
+        schema_bundle: Optional[Any] = None,
     ) -> List[AnalysisTemplate]:
         """
         Generate analysis templates from use cases.
@@ -116,6 +118,11 @@ class TemplateGenerator:
             use_cases: List of use cases to convert
             schema: Optional graph schema for optimization
             schema_analysis: Optional schema analysis for insights
+            schema_bundle: Optional :class:`SchemaAcquisitionBundle`
+                (PRD v0.6 / FR-71). When the bundle reports an LPG /
+                hybrid source, the generator emits typed-projection
+                plans alongside each template so the executor can
+                materialize per-type projections before launching GAE.
 
         Returns:
             List of analysis templates ready for execution
@@ -180,6 +187,7 @@ class TemplateGenerator:
                 algorithm_type=primary_algo,
                 schema=schema,
                 schema_analysis=schema_analysis,
+                schema_bundle=schema_bundle,
             )
             templates.append(template)
 
@@ -201,6 +209,7 @@ class TemplateGenerator:
         algorithm_type: AlgorithmType,
         schema: Optional[GraphSchema] = None,
         schema_analysis: Optional[SchemaAnalysis] = None,
+        schema_bundle: Optional[Any] = None,
     ) -> AnalysisTemplate:
         """Create a single analysis template."""
 
@@ -318,6 +327,17 @@ class TemplateGenerator:
         print(f"  Vertex collections ({len(vertex_collections)}): {vertex_collections}")
         print(f"  Edge collections ({len(edge_collections)}): {edge_collections}")
 
+        # Phase 6d (FR-71): plan LPG-style typed projections when the
+        # source schema is LPG / hybrid. Generic collections become
+        # per-type projection collections that GAE can consume natively.
+        # For PG sources (or when no bundle is provided) this returns
+        # an empty list and the template behaves identically to before.
+        schema_kind, lpg_projections = self._plan_lpg_projections(
+            schema_bundle=schema_bundle,
+            vertex_collections=vertex_collections,
+            edge_collections=edge_collections,
+        )
+
         # Create template config
         config = TemplateConfig(
             graph_name=self.graph_name,
@@ -326,6 +346,8 @@ class TemplateGenerator:
             engine_size=engine_size,
             store_results=True,
             result_collection=f"{use_case.id.lower().replace('-', '_')}_results",
+            schema_kind=schema_kind,
+            lpg_projections=lpg_projections,
         )
 
         # Estimate runtime (basic heuristic)
@@ -334,6 +356,19 @@ class TemplateGenerator:
         )
 
         # Create template
+        template_metadata: Dict[str, Any] = {
+            "priority": use_case.priority.value,
+            "use_case_type": use_case.use_case_type.value,
+            "algorithms": use_case.graph_algorithms,
+            "success_metrics": use_case.success_metrics,
+            **selection_metadata,  # Include collection selection info
+        }
+        if schema_kind:
+            template_metadata["schema_kind"] = schema_kind
+        if lpg_projections:
+            template_metadata["lpg_projection_count"] = len(lpg_projections)
+            template_metadata["requires_typed_projection"] = True
+
         template = AnalysisTemplate(
             name=f"{use_case.id}: {use_case.title}",
             description=use_case.description,
@@ -341,16 +376,169 @@ class TemplateGenerator:
             config=config,
             use_case_id=use_case.id,
             estimated_runtime_seconds=estimated_runtime,
-            metadata={
-                "priority": use_case.priority.value,
-                "use_case_type": use_case.use_case_type.value,
-                "algorithms": use_case.graph_algorithms,
-                "success_metrics": use_case.success_metrics,
-                **selection_metadata,  # Include collection selection info
-            },
+            metadata=template_metadata,
         )
 
         return template
+
+    def _plan_lpg_projections(
+        self,
+        schema_bundle: Optional[Any],
+        vertex_collections: List[str],
+        edge_collections: List[str],
+    ) -> tuple:
+        """Build a typed-projection plan for LPG / hybrid sources.
+
+        PRD v0.6 / FR-71. GAE consumes whole collections; when the
+        source schema mixes many logical types in a single generic
+        collection (LPG ``LABEL`` for nodes, ``GENERIC_WITH_TYPE`` for
+        edges) the executor must materialize a per-type projection
+        before launching the algorithm. This method generates the
+        idempotent UPSERT-shaped AQL the executor can run verbatim.
+
+        Returns ``(schema_kind, projections)``:
+
+        - ``schema_kind`` — ``None`` when no bundle is provided,
+          otherwise the bundle's reported kind (``"pg"`` / ``"lpg"`` /
+          ``"hybrid"`` / ``"rpt"`` / ``"unknown"``).
+        - ``projections`` — list of :class:`LpgProjection`. Empty for
+          PG sources or when nothing in the requested vertex / edge
+          collections matches an LPG style.
+        """
+        if schema_bundle is None:
+            return None, []
+
+        schema_kind = getattr(schema_bundle, "schema_kind", None)
+        physical_mapping = getattr(schema_bundle, "physical_mapping", None) or {}
+
+        # PG sources never need projections — collections already are
+        # the typed unit GAE expects. RPT / unknown deliberately fall
+        # through; their materialization story is upstream-owned.
+        if schema_kind not in {"lpg", "hybrid"}:
+            return schema_kind, []
+
+        entities = physical_mapping.get("entities") or {}
+        relationships = physical_mapping.get("relationships") or {}
+        if not isinstance(entities, dict) or not isinstance(relationships, dict):
+            return schema_kind, []
+
+        wanted_vertex_collections = {c for c in vertex_collections}
+        wanted_edge_collections = {c for c in edge_collections}
+
+        projections: List[LpgProjection] = []
+
+        for logical_type, spec in entities.items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("style") != "LABEL":
+                continue
+            source = spec.get("collectionName")
+            field_name = spec.get("typeField")
+            value = spec.get("typeValue")
+            if not source or not field_name or value is None:
+                continue
+            # Only project for collections actually requested by the
+            # template — don't materialize collections nobody asked for.
+            if (
+                wanted_vertex_collections
+                and source not in wanted_vertex_collections
+            ):
+                continue
+            target = self._projection_collection_name(source, field_name, str(value))
+            projections.append(
+                LpgProjection(
+                    logical_type=str(logical_type),
+                    source_collection=source,
+                    discriminator_field=field_name,
+                    discriminator_value=str(value),
+                    kind="node",
+                    materialization_collection=target,
+                    materialization_aql=self._projection_aql(
+                        source=source,
+                        target=target,
+                        field=field_name,
+                        value=str(value),
+                        is_edge=False,
+                    ),
+                )
+            )
+
+        for logical_type, spec in relationships.items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("style") != "GENERIC_WITH_TYPE":
+                continue
+            source = spec.get("edgeCollectionName")
+            field_name = spec.get("typeField")
+            value = spec.get("typeValue")
+            if not source or not field_name or value is None:
+                continue
+            if wanted_edge_collections and source not in wanted_edge_collections:
+                continue
+            target = self._projection_collection_name(source, field_name, str(value))
+            projections.append(
+                LpgProjection(
+                    logical_type=str(logical_type),
+                    source_collection=source,
+                    discriminator_field=field_name,
+                    discriminator_value=str(value),
+                    kind="edge",
+                    materialization_collection=target,
+                    materialization_aql=self._projection_aql(
+                        source=source,
+                        target=target,
+                        field=field_name,
+                        value=str(value),
+                        is_edge=True,
+                    ),
+                )
+            )
+
+        return schema_kind, projections
+
+    @staticmethod
+    def _projection_collection_name(source: str, field: str, value: str) -> str:
+        """Deterministic projection collection name.
+
+        Pattern: ``_proj_<source>_<field>_<value>`` truncated +
+        sanitized to satisfy ArangoDB collection-name rules
+        (alphanumeric + underscore, <=64 chars).
+        """
+        import re as _re
+
+        raw = f"_proj_{source}_{field}_{value}"
+        sanitized = _re.sub(r"[^A-Za-z0-9_]", "_", raw)
+        return sanitized[:64]
+
+    @staticmethod
+    def _projection_aql(
+        source: str, target: str, field: str, value: str, is_edge: bool
+    ) -> str:
+        """Idempotent AQL to materialize a typed projection.
+
+        Uses ``UPSERT`` keyed on ``_key`` so re-runs are no-ops when
+        nothing has changed. Edge projections preserve ``_from`` /
+        ``_to`` so GAE can traverse them as native edges.
+        """
+        if is_edge:
+            return (
+                f"FOR doc IN `{source}` "
+                f"FILTER doc.`{field}` == @value "
+                f"UPSERT {{ _key: doc._key }} "
+                f"INSERT {{ _key: doc._key, _from: doc._from, _to: doc._to, "
+                f"_source: \"{source}\", _logical_type: @value }} "
+                f"UPDATE {{ _from: doc._from, _to: doc._to, "
+                f"_logical_type: @value }} "
+                f"IN `{target}`"
+            )
+        return (
+            f"FOR doc IN `{source}` "
+            f"FILTER doc.`{field}` == @value "
+            f"UPSERT {{ _key: doc._key }} "
+            f"INSERT MERGE(doc, {{ _logical_type: @value }}) "
+            f"UPDATE MERGE(doc, {{ _logical_type: @value }}) "
+            f"IN `{target}`"
+        )
 
     def _optimize_parameters(
         self,
