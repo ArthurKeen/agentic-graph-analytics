@@ -55,6 +55,12 @@ from .acquire import (
     invalidate_schema_cache,
     reset_default_cache,
 )
+# Phase 6b (PRD v0.6 / FR-61..FR-63): graph-purpose classifier.
+from .graph_purpose import (
+    GraphPurpose,
+    GraphPurposeResult,
+    classify_graph_purpose,
+)
 
 
 __all__ = [
@@ -84,4 +90,8 @@ __all__ = [
     "describe_schema_change",
     "invalidate_schema_cache",
     "reset_default_cache",
+    # v0.6 / Phase 6b
+    "GraphPurpose",
+    "GraphPurposeResult",
+    "classify_graph_purpose",
 ]

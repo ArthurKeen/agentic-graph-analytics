@@ -18,6 +18,7 @@ from ..ai.schema.acquire import (
     acquire_schema,
     describe_schema_change,
 )
+from ..ai.schema.graph_purpose import classify_graph_purpose
 from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
 from ..db_connection import connect_arango_database
@@ -1573,6 +1574,23 @@ class ProductService:
             if snapshot_id is not None:
                 v6_kwargs["schema_snapshot_id"] = snapshot_id
 
+            # Phase 6b (FR-61..FR-63): classify the analytical purpose
+            # so the UI can badge each profile (corpus / KG /
+            # structured / analytics / hybrid / unknown). The
+            # classification result is stamped into ``analyzer_metadata``
+            # under "graph_purpose_classification" so reasons +
+            # confidence + per-rule scores survive the round-trip and
+            # back the workbench tooltip.
+            try:
+                classification = classify_graph_purpose(acquisition_bundle)
+            except Exception:  # noqa: BLE001 — never block discovery
+                classification = None
+            if classification is not None:
+                v6_kwargs["graph_purpose"] = classification.purpose
+                merged_meta = dict(v6_kwargs["analyzer_metadata"])
+                merged_meta["graph_purpose_classification"] = classification.to_dict()
+                v6_kwargs["analyzer_metadata"] = merged_meta
+
         graph_profile = create_graph_profile(
             workspace_id=profile.workspace_id,
             connection_profile_id=profile.connection_profile_id,
@@ -1696,6 +1714,134 @@ class ProductService:
             cached_full_fingerprint=report.cached_full_fingerprint,
             needs_full_rebuild=report.needs_full_rebuild,
         )
+
+    def update_graph_profile_conceptual_schema(
+        self,
+        graph_profile_id: str,
+        conceptual_schema: Dict[str, Any],
+        actor: Optional[str] = None,
+    ) -> GraphProfile:
+        """Patch the conceptual schema on a graph profile (FR-64).
+
+        Used by the Type Role editor in Graph Explorer when the user
+        renames a logical entity, splits a hybrid label, or attaches
+        a description that the analyzer could not infer. The patch is
+        bounded — only ``conceptual_schema`` changes; physical mapping
+        is owned by the analyzer and untouched here.
+
+        Validates the incoming payload as a dict with at least
+        ``entities`` and ``relationships`` keys (lists). Stamps an
+        audit event with the actor + before/after summary so the
+        change history is traceable.
+        """
+
+        if not isinstance(conceptual_schema, dict):
+            raise ValidationError("conceptual_schema must be a JSON object")
+        for required_key in ("entities", "relationships"):
+            value = conceptual_schema.get(required_key)
+            if not isinstance(value, list):
+                raise ValidationError(
+                    f"conceptual_schema.{required_key} must be a list "
+                    "(got {})".format(type(value).__name__)
+                )
+
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        before_entities = len((graph_profile.conceptual_schema or {}).get("entities", []))
+        before_relationships = len(
+            (graph_profile.conceptual_schema or {}).get("relationships", [])
+        )
+
+        graph_profile.conceptual_schema = conceptual_schema
+        # Stamp a manual-override marker on analyzer_metadata so the UI
+        # can show "edited by user" provenance and so the next
+        # acquisition's reconciliation step can preserve user edits.
+        meta = dict(graph_profile.analyzer_metadata or {})
+        meta["manual_override"] = {
+            "edited_at": current_timestamp().isoformat(),
+            "edited_by": actor or "system",
+            "field": "conceptual_schema",
+        }
+        graph_profile.analyzer_metadata = meta
+
+        self.repository.update_graph_profile(graph_profile)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=graph_profile.workspace_id,
+                actor=actor or "system",
+                action="update_graph_profile_conceptual_schema",
+                target_type="graph_profile",
+                target_id=graph_profile.graph_profile_id,
+                metadata={
+                    "before": {
+                        "entities": before_entities,
+                        "relationships": before_relationships,
+                    },
+                    "after": {
+                        "entities": len(conceptual_schema.get("entities", [])),
+                        "relationships": len(conceptual_schema.get("relationships", [])),
+                    },
+                },
+            )
+        )
+        return graph_profile
+
+    def update_graph_profile_purpose(
+        self,
+        graph_profile_id: str,
+        graph_purpose: str,
+        actor: Optional[str] = None,
+    ) -> GraphProfile:
+        """Patch the analytical purpose tag on a graph profile (FR-65).
+
+        Used when the user disagrees with the classifier's verdict.
+        ``graph_purpose`` must be one of the closed set defined in
+        :data:`graph_analytics_ai.ai.schema.graph_purpose.GraphPurpose`.
+
+        The override is recorded on ``analyzer_metadata.manual_override``
+        (with field ``graph_purpose``) so the UI can flag the badge as
+        "user-set" and so subsequent re-classifications can defer to
+        the user's choice unless explicitly reset.
+        """
+
+        valid_values = {
+            "corpus",
+            "knowledge_graph",
+            "structured",
+            "analytics",
+            "hybrid",
+            "unknown",
+        }
+        if graph_purpose not in valid_values:
+            raise ValidationError(
+                f"graph_purpose must be one of {sorted(valid_values)}, "
+                f"got {graph_purpose!r}"
+            )
+
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        before = graph_profile.graph_purpose
+
+        graph_profile.graph_purpose = graph_purpose
+        meta = dict(graph_profile.analyzer_metadata or {})
+        meta["manual_override"] = {
+            "edited_at": current_timestamp().isoformat(),
+            "edited_by": actor or "system",
+            "field": "graph_purpose",
+            "previous_value": before,
+        }
+        graph_profile.analyzer_metadata = meta
+
+        self.repository.update_graph_profile(graph_profile)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=graph_profile.workspace_id,
+                actor=actor or "system",
+                action="update_graph_profile_purpose",
+                target_type="graph_profile",
+                target_id=graph_profile.graph_profile_id,
+                metadata={"before": before, "after": graph_purpose},
+            )
+        )
+        return graph_profile
 
     def start_requirements_copilot(
         self,

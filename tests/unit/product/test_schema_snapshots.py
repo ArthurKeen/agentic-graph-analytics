@@ -657,3 +657,221 @@ class TestSchemaChangeEndpoint:
         assert result["graph_profile_id"] == "graph-profile-1"
         assert result["status"] == "no_cache"
         assert result["needs_full_rebuild"] is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 6b — PATCH endpoints + graph_purpose stamping
+# ---------------------------------------------------------------------------
+
+
+class TestGraphPurposeStamping:
+    """discover_graph_profile classifies + stamps graph_purpose (FR-61..FR-63)."""
+
+    def _service(self, db: MagicMock, repo: _StubServiceRepository):
+        from graph_analytics_ai.product.service import ProductService
+
+        return ProductService(
+            repository=repo,  # type: ignore[arg-type]
+            secret_resolver=_StubSecretResolver(),  # type: ignore[arg-type]
+            db_connector=lambda **_: db,
+            schema_extractor_factory=_StubExtractor,
+        )
+
+    def test_lpg_graphrag_kg_stamped_as_knowledge_graph(self):
+        """An LPG with Entities + Relationships collections classifies
+        as knowledge_graph, with the result mirrored in
+        analyzer_metadata.graph_purpose_classification.
+        """
+        repo = _StubServiceRepository()
+        db = _make_db(
+            collections=[
+                {"name": "Entities", "type": "document"},
+                {"name": "Relationships", "type": "edge"},
+            ],
+            samples={
+                "Entities": [
+                    {"_key": "p1", "type": "Person", "name": "A"},
+                    {"_key": "p2", "type": "Person", "name": "B"},
+                    {"_key": "o1", "type": "Org", "name": "C"},
+                ],
+                "Relationships": [
+                    {"_from": "Entities/p1", "_to": "Entities/o1", "type": "WORKS_FOR"},
+                ],
+            },
+        )
+        service = self._service(db, repo)
+        service.discover_graph_profile(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+
+        assert len(repo.created_graph_profiles) == 1
+        profile = repo.created_graph_profiles[0]
+        assert profile.graph_purpose == "knowledge_graph"
+        meta = profile.analyzer_metadata or {}
+        assert "graph_purpose_classification" in meta
+        classification = meta["graph_purpose_classification"]
+        assert classification["purpose"] == "knowledge_graph"
+        assert classification["confidence"] > 0.5
+        assert classification["reasons"]
+
+
+class TestPatchConceptualSchemaEndpoint:
+    def _service(self, repo: _StubServiceRepository):
+        from graph_analytics_ai.product.service import ProductService
+
+        return ProductService(
+            repository=repo,  # type: ignore[arg-type]
+            secret_resolver=_StubSecretResolver(),  # type: ignore[arg-type]
+        )
+
+    def test_endpoint_registered(self):
+        endpoint = next(
+            (
+                e
+                for e in PRODUCT_API_ENDPOINTS
+                if e.path
+                == "/api/graph-profiles/{graph_profile_id}/conceptual-schema"
+            ),
+            None,
+        )
+        assert endpoint is not None
+        assert endpoint.method == "PATCH"
+        assert endpoint.service_method == "update_graph_profile_conceptual_schema"
+
+    def test_patch_replaces_conceptual_schema(self):
+        repo = _StubServiceRepository()
+        # Pre-seed a graph profile and pre-stub the audit-event sink.
+        repo.create_audit_event = MagicMock(return_value="audit-1")  # type: ignore[attr-defined]
+        repo.update_graph_profile = MagicMock()  # type: ignore[attr-defined]
+
+        profile = create_graph_profile(
+            workspace_id="ws-1",
+            connection_profile_id="cp-1",
+            graph_name="acme_kg",
+            conceptual_schema={"entities": [], "relationships": [], "properties": []},
+        )
+        repo.create_graph_profile(profile)
+
+        new_schema = {
+            "entities": [{"name": "Person", "labels": ["Person"]}],
+            "relationships": [{"type": "WORKS_FOR"}],
+            "properties": [],
+        }
+        service = self._service(repo)
+        result = service.update_graph_profile_conceptual_schema(
+            graph_profile_id=profile.graph_profile_id,
+            conceptual_schema=new_schema,
+            actor="alice",
+        )
+        assert result.conceptual_schema == new_schema
+        # Manual-override marker was stamped onto analyzer_metadata.
+        assert result.analyzer_metadata is not None
+        override = result.analyzer_metadata["manual_override"]
+        assert override["edited_by"] == "alice"
+        assert override["field"] == "conceptual_schema"
+        # Repository update + audit event were both invoked.
+        repo.update_graph_profile.assert_called_once()
+        repo.create_audit_event.assert_called_once()
+
+    def test_patch_rejects_non_dict_payload(self):
+        from graph_analytics_ai.product.exceptions import ValidationError
+
+        repo = _StubServiceRepository()
+        repo.create_audit_event = MagicMock()  # type: ignore[attr-defined]
+        profile = create_graph_profile(
+            workspace_id="ws-1", connection_profile_id="cp-1", graph_name="g"
+        )
+        repo.create_graph_profile(profile)
+
+        service = self._service(repo)
+        with pytest.raises(ValidationError):
+            service.update_graph_profile_conceptual_schema(
+                graph_profile_id=profile.graph_profile_id,
+                conceptual_schema=["not", "a", "dict"],  # type: ignore[arg-type]
+            )
+
+    def test_patch_rejects_payload_missing_required_keys(self):
+        from graph_analytics_ai.product.exceptions import ValidationError
+
+        repo = _StubServiceRepository()
+        repo.create_audit_event = MagicMock()  # type: ignore[attr-defined]
+        profile = create_graph_profile(
+            workspace_id="ws-1", connection_profile_id="cp-1", graph_name="g"
+        )
+        repo.create_graph_profile(profile)
+
+        service = self._service(repo)
+        # Missing "relationships".
+        with pytest.raises(ValidationError):
+            service.update_graph_profile_conceptual_schema(
+                graph_profile_id=profile.graph_profile_id,
+                conceptual_schema={"entities": []},
+            )
+
+
+class TestPatchGraphPurposeEndpoint:
+    def _service(self, repo: _StubServiceRepository):
+        from graph_analytics_ai.product.service import ProductService
+
+        return ProductService(
+            repository=repo,  # type: ignore[arg-type]
+            secret_resolver=_StubSecretResolver(),  # type: ignore[arg-type]
+        )
+
+    def test_endpoint_registered(self):
+        endpoint = next(
+            (
+                e
+                for e in PRODUCT_API_ENDPOINTS
+                if e.path == "/api/graph-profiles/{graph_profile_id}/graph-purpose"
+            ),
+            None,
+        )
+        assert endpoint is not None
+        assert endpoint.method == "PATCH"
+        assert endpoint.service_method == "update_graph_profile_purpose"
+
+    def test_patch_overrides_classifier_verdict(self):
+        repo = _StubServiceRepository()
+        repo.create_audit_event = MagicMock()  # type: ignore[attr-defined]
+        repo.update_graph_profile = MagicMock()  # type: ignore[attr-defined]
+
+        profile = create_graph_profile(
+            workspace_id="ws-1",
+            connection_profile_id="cp-1",
+            graph_name="g",
+            graph_purpose="hybrid",
+        )
+        repo.create_graph_profile(profile)
+
+        service = self._service(repo)
+        result = service.update_graph_profile_purpose(
+            graph_profile_id=profile.graph_profile_id,
+            graph_purpose="knowledge_graph",
+            actor="bob",
+        )
+        assert result.graph_purpose == "knowledge_graph"
+        assert result.analyzer_metadata is not None
+        override = result.analyzer_metadata["manual_override"]
+        assert override["field"] == "graph_purpose"
+        assert override["previous_value"] == "hybrid"
+        assert override["edited_by"] == "bob"
+        repo.update_graph_profile.assert_called_once()
+        repo.create_audit_event.assert_called_once()
+
+    def test_patch_rejects_unknown_purpose_value(self):
+        from graph_analytics_ai.product.exceptions import ValidationError
+
+        repo = _StubServiceRepository()
+        repo.create_audit_event = MagicMock()  # type: ignore[attr-defined]
+        profile = create_graph_profile(
+            workspace_id="ws-1", connection_profile_id="cp-1", graph_name="g"
+        )
+        repo.create_graph_profile(profile)
+
+        service = self._service(repo)
+        with pytest.raises(ValidationError):
+            service.update_graph_profile_purpose(
+                graph_profile_id=profile.graph_profile_id,
+                graph_purpose="bogus",
+            )

@@ -138,6 +138,33 @@ PRODUCT_API_ENDPOINTS = [
         tags=["graph-profiles"],
         response_model="SchemaChangeView",
     ),
+    # PRD v0.6 / FR-64. Lets the user patch the conceptual schema
+    # of a profile (e.g. rename a logical entity, add a description)
+    # via the Type Role editor in Graph Explorer. The physical
+    # mapping stays analyzer-owned.
+    ProductAPIEndpoint(
+        method="PATCH",
+        path="/api/graph-profiles/{graph_profile_id}/conceptual-schema",
+        service_method="update_graph_profile_conceptual_schema",
+        summary="Patch the conceptual schema for a graph profile",
+        tags=["graph-profiles"],
+        request_model="UpdateConceptualSchemaRequest",
+        response_model="GraphProfile",
+    ),
+    # PRD v0.6 / FR-65. Lets the user override the classifier's
+    # graph_purpose verdict (corpus / knowledge_graph / structured /
+    # analytics / hybrid / unknown). The override is recorded on
+    # analyzer_metadata.manual_override so the UI can badge the
+    # classifier output as "user-set".
+    ProductAPIEndpoint(
+        method="PATCH",
+        path="/api/graph-profiles/{graph_profile_id}/graph-purpose",
+        service_method="update_graph_profile_purpose",
+        summary="Patch the analytical purpose tag for a graph profile",
+        tags=["graph-profiles"],
+        request_model="UpdateGraphPurposeRequest",
+        response_model="GraphProfile",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/graph-profiles/{graph_profile_id}/requirements-copilot/sessions",
