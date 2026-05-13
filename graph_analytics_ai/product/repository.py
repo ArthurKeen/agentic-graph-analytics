@@ -1,5 +1,6 @@
 """High-level product metadata repository."""
 
+import logging
 from typing import List, Optional
 
 from .models import (
@@ -12,11 +13,15 @@ from .models import (
     ReportSection,
     RequirementInterview,
     RequirementVersion,
+    SchemaSnapshot,
     SourceDocument,
     Workspace,
     WorkflowRun,
+    create_schema_snapshot,
 )
 from .storage import ProductArangoStorage
+
+logger = logging.getLogger(__name__)
 
 
 class ProductRepository:
@@ -92,6 +97,42 @@ class ProductRepository:
         """List graph profiles for a workspace."""
 
         return self.storage.list_graph_profiles(workspace_id)
+
+    # --- Schema snapshot operations (PRD v0.6 / FR-59) ---
+
+    def create_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:
+        """Insert a schema snapshot row."""
+
+        return self.storage.insert_schema_snapshot(snapshot)
+
+    def get_schema_snapshot(self, schema_snapshot_id: str) -> SchemaSnapshot:
+        """Get a schema snapshot by ID."""
+
+        return self.storage.get_schema_snapshot(schema_snapshot_id)
+
+    def update_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:
+        """Update a schema snapshot row."""
+
+        return self.storage.update_schema_snapshot(snapshot)
+
+    def get_schema_snapshot_by_cache_key(
+        self, cache_key: str
+    ) -> Optional[SchemaSnapshot]:
+        """Look up the most recent snapshot for a cache_key, or None."""
+
+        return self.storage.get_schema_snapshot_by_cache_key(cache_key)
+
+    def delete_schema_snapshot_by_cache_key(self, cache_key: str) -> int:
+        """Delete every snapshot row for a cache_key."""
+
+        return self.storage.delete_schema_snapshot_by_cache_key(cache_key)
+
+    def list_schema_snapshots(
+        self, workspace_id: str, limit: int = 50
+    ) -> List[SchemaSnapshot]:
+        """List schema snapshots for a workspace."""
+
+        return self.storage.list_schema_snapshots(workspace_id, limit=limit)
 
     def create_source_document(self, document: SourceDocument) -> str:
         """Create a source document."""
@@ -246,4 +287,127 @@ class ProductRepository:
         """List audit events for a workspace."""
 
         return self.storage.list_audit_events(workspace_id, limit=limit)
+
+
+class WorkspaceSchemaCache:
+    """L2 cache adapter implementing the ``SchemaCache`` Protocol.
+
+    PRD v0.6 / FR-59. Bridges :mod:`graph_analytics_ai.ai.schema.acquire`
+    to a :class:`ProductRepository` without an inverse import:
+    ``acquire.py`` only knows about the ``SchemaCache`` Protocol;
+    this class supplies the concrete ArangoDB-backed implementation.
+
+    Each ``WorkspaceSchemaCache`` is bound to a single workspace so
+    rows written via :meth:`set` carry the right ``workspace_id``
+    even though the acquisition module has no concept of workspaces.
+
+    The cache is *write-through-by-key*: ``set(key, bundle)`` upserts
+    the row keyed by ``cache_key`` (the same hash the in-memory
+    :class:`InMemorySchemaCache` uses), bumping ``updated_at`` so the
+    most-recent-wins lookup in
+    :meth:`ProductRepository.get_schema_snapshot_by_cache_key`
+    returns the freshly persisted row.
+
+    Failures inside :meth:`set` are caught by the acquisition module's
+    :func:`_persist_layered`, so a transient storage outage degrades
+    to L1-only caching rather than blocking the discovery flow.
+    """
+
+    def __init__(self, repository: ProductRepository, workspace_id: str) -> None:
+        self._repository = repository
+        self._workspace_id = workspace_id
+
+    @property
+    def workspace_id(self) -> str:
+        """The workspace this cache is scoped to."""
+
+        return self._workspace_id
+
+    def get(self, key: str):
+        """Return the cached bundle for ``key`` or ``None`` on miss."""
+
+        # Late import: acquire is in the AI subtree, repository is in
+        # the product subtree, and product imports from ai are tightly
+        # restricted. Lazy import keeps the dependency at runtime, not
+        # at module-load time.
+        from graph_analytics_ai.ai.schema.acquire import SchemaAcquisitionBundle
+
+        snapshot = self._repository.get_schema_snapshot_by_cache_key(key)
+        if snapshot is None:
+            return None
+        return SchemaAcquisitionBundle(
+            schema_kind=snapshot.schema_kind,  # type: ignore[arg-type]
+            conceptual_schema=dict(snapshot.conceptual_schema),
+            physical_mapping=dict(snapshot.physical_mapping),
+            analyzer_metadata=dict(snapshot.analyzer_metadata),
+            shape_fingerprint=snapshot.shape_fingerprint,
+            full_fingerprint=snapshot.full_fingerprint,
+            database=snapshot.database,
+            graph_name=snapshot.graph_name,
+        )
+
+    def set(self, key: str, bundle) -> None:
+        """Upsert a snapshot row for ``key`` with the supplied bundle."""
+
+        existing = self._repository.get_schema_snapshot_by_cache_key(key)
+        if existing is not None:
+            # Update the most recent row in place. A previous workspace
+            # may have persisted a different schema_kind / mapping for
+            # the same key; the bundle now becomes the authoritative
+            # one. We do not version snapshot rows — the acquisition
+            # module keeps a fresh fingerprint pair, which is the only
+            # versioning the cache contract needs.
+            existing.cache_key = key
+            existing.database = bundle.database
+            existing.graph_name = bundle.graph_name
+            existing.schema_kind = bundle.schema_kind
+            existing.shape_fingerprint = bundle.shape_fingerprint
+            existing.full_fingerprint = bundle.full_fingerprint
+            existing.conceptual_schema = bundle.conceptual_schema
+            existing.physical_mapping = bundle.physical_mapping
+            existing.analyzer_metadata = bundle.analyzer_metadata
+            try:
+                self._repository.update_schema_snapshot(existing)
+            except Exception:
+                logger.warning(
+                    "WorkspaceSchemaCache.set: update failed for %s; "
+                    "will fall back to L1-only caching",
+                    key,
+                    exc_info=True,
+                )
+            return
+
+        snapshot = create_schema_snapshot(
+            workspace_id=self._workspace_id,
+            cache_key=key,
+            database=bundle.database,
+            graph_name=bundle.graph_name,
+            schema_kind=bundle.schema_kind,
+            shape_fingerprint=bundle.shape_fingerprint,
+            full_fingerprint=bundle.full_fingerprint,
+            conceptual_schema=bundle.conceptual_schema,
+            physical_mapping=bundle.physical_mapping,
+            analyzer_metadata=bundle.analyzer_metadata,
+        )
+        try:
+            self._repository.create_schema_snapshot(snapshot)
+        except Exception:
+            logger.warning(
+                "WorkspaceSchemaCache.set: insert failed for %s; "
+                "will fall back to L1-only caching",
+                key,
+                exc_info=True,
+            )
+
+    def invalidate(self, key: str) -> None:
+        """Drop every snapshot row for ``key``. Idempotent."""
+
+        try:
+            self._repository.delete_schema_snapshot_by_cache_key(key)
+        except Exception:
+            logger.warning(
+                "WorkspaceSchemaCache.invalidate: delete failed for %s",
+                key,
+                exc_info=True,
+            )
 

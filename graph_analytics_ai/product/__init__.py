@@ -27,6 +27,7 @@ from .models import (
     ReportSection,
     ReportSectionType,
     ReportStatus,
+    SchemaSnapshot,
     SourceDocument,
     Workspace,
     WorkspaceStatus,
@@ -45,11 +46,12 @@ from .models import (
     create_report_section,
     create_requirement_interview,
     create_requirement_version,
+    create_schema_snapshot,
     create_source_document,
     create_workflow_run,
     create_workspace,
 )
-from .repository import ProductRepository
+from .repository import ProductRepository, WorkspaceSchemaCache
 from .secrets import EnvironmentSecretResolver, MappingSecretResolver
 from .service import (
     ConnectionVerificationResult,
@@ -57,6 +59,7 @@ from .service import (
     ProductService,
     RequirementsDraftResult,
     ReportBundle,
+    SchemaChangeView,
     WorkflowDAGView,
     WorkspaceBundle,
     WorkspaceHealthResult,
@@ -97,6 +100,8 @@ __all__ = [
     "RequirementInterviewStatus",
     "RequirementVersion",
     "RequirementVersionStatus",
+    "SchemaChangeView",
+    "SchemaSnapshot",
     "SourceDocument",
     "Workspace",
     "WorkspaceBundle",
@@ -112,6 +117,7 @@ __all__ = [
     "WorkflowStep",
     "WorkflowStepStatus",
     "WorkflowStepUpdateResult",
+    "WorkspaceSchemaCache",
     "create_audit_event",
     "create_chart_spec",
     "create_connection_profile",
@@ -123,6 +129,7 @@ __all__ = [
     "create_report_section",
     "create_requirement_interview",
     "create_requirement_version",
+    "create_schema_snapshot",
     "create_source_document",
     "create_workflow_run",
     "create_workspace",

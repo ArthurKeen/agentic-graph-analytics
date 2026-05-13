@@ -358,6 +358,21 @@ class GraphProfile:
     updated_at: datetime = field(default_factory=current_timestamp)
     created_by: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # PRD v0.6 (FR-56..FR-65) — additive enrichment from
+    # graph_analytics_ai.ai.schema.acquire. All Optional so v0.5 rows
+    # round-trip unchanged. ``schema_kind`` is the rolled-up
+    # PG/LPG/hybrid/RPT/unknown classification; ``graph_purpose`` is
+    # the workflow-facing role (corpus / knowledge_graph / structured /
+    # analytics / hybrid / unknown) — populated in Phase 6c by the
+    # graph-purpose classifier. ``schema_snapshot_id`` is the soft
+    # back-pointer into ``aga_schema_snapshots`` so the UI can
+    # display a single source-of-truth schema view per profile.
+    schema_kind: Optional[str] = None
+    graph_purpose: Optional[str] = None
+    schema_snapshot_id: Optional[str] = None
+    conceptual_schema: Optional[Dict[str, Any]] = None
+    physical_mapping: Optional[Dict[str, Any]] = None
+    analyzer_metadata: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to an ArangoDB document."""
@@ -380,6 +395,37 @@ class GraphProfile:
             "updated_at": self.updated_at.isoformat(),
             "created_by": self.created_by,
             "metadata": self.metadata,
+            # v0.6 additive fields — only emitted when populated so
+            # v0.5 documents that never carried them are not bloated
+            # with explicit ``null`` keys.
+            **(
+                {"schema_kind": self.schema_kind} if self.schema_kind is not None else {}
+            ),
+            **(
+                {"graph_purpose": self.graph_purpose}
+                if self.graph_purpose is not None
+                else {}
+            ),
+            **(
+                {"schema_snapshot_id": self.schema_snapshot_id}
+                if self.schema_snapshot_id is not None
+                else {}
+            ),
+            **(
+                {"conceptual_schema": self.conceptual_schema}
+                if self.conceptual_schema is not None
+                else {}
+            ),
+            **(
+                {"physical_mapping": self.physical_mapping}
+                if self.physical_mapping is not None
+                else {}
+            ),
+            **(
+                {"analyzer_metadata": self.analyzer_metadata}
+                if self.analyzer_metadata is not None
+                else {}
+            ),
         }
         validate_no_secret_values(doc)
         return doc
@@ -404,6 +450,99 @@ class GraphProfile:
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
             created_by=data.get("created_by"),
+            metadata=data.get("metadata", {}),
+            schema_kind=data.get("schema_kind"),
+            graph_purpose=data.get("graph_purpose"),
+            schema_snapshot_id=data.get("schema_snapshot_id"),
+            conceptual_schema=data.get("conceptual_schema"),
+            physical_mapping=data.get("physical_mapping"),
+            analyzer_metadata=data.get("analyzer_metadata"),
+        )
+
+
+@dataclass
+class SchemaSnapshot:
+    """Persisted bundle from :mod:`graph_analytics_ai.ai.schema.acquire`.
+
+    PRD v0.6 / FR-59. Stored in ``aga_schema_snapshots``. The product
+    repository wraps these rows behind the ``SchemaCache`` Protocol so
+    the acquisition module never imports the product package.
+
+    The snapshot is purely a *cache* row (write-through, no business
+    state lives here). Two fingerprints support the
+    shape-stable / counts-changed fast path:
+
+    - ``shape_fingerprint`` — collection set + types + index digests.
+      Stable across ordinary writes; changes when the schema shape
+      itself changes (collection added/removed, edge endpoints change,
+      indexes reshaped).
+    - ``full_fingerprint`` — ``shape_fingerprint`` + per-collection
+      counts. Used to short-circuit the stats refresh when the row
+      count is also unchanged.
+
+    The ``cache_key`` is hash(database, graph_name) so the same
+    ``database`` can hold multiple snapshots for different named
+    graphs (the multi-graph case the PRD calls out).
+    """
+
+    schema_snapshot_id: str
+    workspace_id: str
+    cache_key: str
+    database: str
+    graph_name: str
+    schema_kind: str
+    shape_fingerprint: str
+    full_fingerprint: str
+    conceptual_schema: Dict[str, Any] = field(default_factory=dict)
+    physical_mapping: Dict[str, Any] = field(default_factory=dict)
+    analyzer_metadata: Dict[str, Any] = field(default_factory=dict)
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document.
+
+        ``_key`` mirrors ``cache_key`` so persistent get/set is a
+        single document operation. Workspace scoping is preserved on
+        every row (``workspace_id``) so dashboard queries can list
+        snapshots without a join.
+        """
+        return {
+            "_key": self.schema_snapshot_id,
+            "schema_snapshot_id": self.schema_snapshot_id,
+            "workspace_id": self.workspace_id,
+            "cache_key": self.cache_key,
+            "database": self.database,
+            "graph_name": self.graph_name,
+            "schema_kind": self.schema_kind,
+            "shape_fingerprint": self.shape_fingerprint,
+            "full_fingerprint": self.full_fingerprint,
+            "conceptual_schema": self.conceptual_schema,
+            "physical_mapping": self.physical_mapping,
+            "analyzer_metadata": self.analyzer_metadata,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SchemaSnapshot":
+        """Create a snapshot row from an ArangoDB document."""
+        return cls(
+            schema_snapshot_id=data.get("schema_snapshot_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            cache_key=data["cache_key"],
+            database=data["database"],
+            graph_name=data.get("graph_name", "__db__"),
+            schema_kind=data.get("schema_kind", "unknown"),
+            shape_fingerprint=data["shape_fingerprint"],
+            full_fingerprint=data["full_fingerprint"],
+            conceptual_schema=data.get("conceptual_schema", {}),
+            physical_mapping=data.get("physical_mapping", {}),
+            analyzer_metadata=data.get("analyzer_metadata", {}),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
             metadata=data.get("metadata", {}),
         )
 
@@ -1109,6 +1248,36 @@ def create_graph_profile(
         workspace_id=workspace_id,
         connection_profile_id=connection_profile_id,
         graph_name=graph_name,
+        **kwargs,
+    )
+
+
+def create_schema_snapshot(
+    workspace_id: str,
+    cache_key: str,
+    database: str,
+    graph_name: str,
+    schema_kind: str,
+    shape_fingerprint: str,
+    full_fingerprint: str,
+    **kwargs: Any,
+) -> SchemaSnapshot:
+    """Create a schema snapshot with a generated ID.
+
+    The ``schema_snapshot_id`` doubles as the ArangoDB ``_key`` for
+    write-through cache semantics, but we keep it stable across
+    upserts (the ``_key`` is the snapshot's identity, not the
+    fingerprint, so iteration order in the dashboard stays intuitive).
+    """
+    return SchemaSnapshot(
+        schema_snapshot_id=generate_product_id("schema-snapshot"),
+        workspace_id=workspace_id,
+        cache_key=cache_key,
+        database=database,
+        graph_name=graph_name,
+        schema_kind=schema_kind,
+        shape_fingerprint=shape_fingerprint,
+        full_fingerprint=full_fingerprint,
         **kwargs,
     )
 

@@ -11,6 +11,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from ..ai.schema.acquire import (
+    SchemaAcquisitionBundle,
+    SchemaCache,
+    SchemaChangeReport,
+    acquire_schema,
+    describe_schema_change,
+)
 from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
 from ..db_connection import connect_arango_database
@@ -50,8 +57,14 @@ from .models import (
     create_workflow_run,
     current_timestamp,
 )
-from .repository import ProductRepository
+from .repository import ProductRepository, WorkspaceSchemaCache
 from .secrets import EnvironmentSecretResolver, SecretResolver
+
+# PRD v0.6: bundles produced under PRODUCT_SCHEMA_VERSION 1.0.0 must
+# still import cleanly under 1.1.0 (the only delta is the additive
+# aga_schema_snapshots collection). Keep this set explicit — adding
+# a future version is a one-line append, not a regex change.
+_SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset({"1.0.0", PRODUCT_SCHEMA_VERSION})
 
 
 @dataclass
@@ -318,6 +331,39 @@ class WorkflowStepUpdateResult:
         return {
             "workflow_run": self.workflow_run,
             "dag_view": self.dag_view,
+        }
+
+
+@dataclass
+class SchemaChangeView:
+    """Result of probing a graph profile's cached schema for staleness.
+
+    PRD v0.6 / FR-60. Returned by
+    :meth:`ProductService.get_graph_profile_schema_change`. The fields
+    mirror :class:`graph_analytics_ai.ai.schema.SchemaChangeReport` plus
+    the originating ``graph_profile_id`` so the UI can route the response
+    back to the right profile card without re-resolving it.
+    """
+
+    graph_profile_id: str
+    status: str
+    current_shape_fingerprint: str
+    current_full_fingerprint: str
+    cached_shape_fingerprint: Optional[str]
+    cached_full_fingerprint: Optional[str]
+    needs_full_rebuild: bool
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an API-friendly dictionary."""
+
+        return {
+            "graph_profile_id": self.graph_profile_id,
+            "status": self.status,
+            "current_shape_fingerprint": self.current_shape_fingerprint,
+            "current_full_fingerprint": self.current_full_fingerprint,
+            "cached_shape_fingerprint": self.cached_shape_fingerprint,
+            "cached_full_fingerprint": self.cached_full_fingerprint,
+            "needs_full_rebuild": self.needs_full_rebuild,
         }
 
 
@@ -1448,8 +1494,21 @@ class ProductService:
         sample_size: int = 100,
         max_samples_per_collection: int = 3,
         verify_system: bool = True,
+        schema_strategy: str = "auto",
     ) -> GraphDiscoveryResult:
-        """Discover graph schema from a connection profile and persist it."""
+        """Discover graph schema from a connection profile and persist it.
+
+        v0.6 (FR-56..FR-65) — after the legacy collection-typed extraction,
+        we additionally run :func:`acquire_schema` to obtain a bundle that
+        understands LPG / hybrid / RPT graphs, then stamp the rolled-up
+        ``schema_kind`` and conceptual + physical mappings onto the
+        persisted :class:`GraphProfile`. The bundle is also written through
+        to ``aga_schema_snapshots`` via :class:`WorkspaceSchemaCache` so
+        subsequent discoveries / requirements-copilot runs hit the cache.
+        ``schema_strategy`` ("auto" | "analyzer" | "heuristic") is the
+        FR-57 escalation knob — see :func:`acquire_schema` for the
+        precedence rules.
+        """
 
         profile = self.repository.get_connection_profile(connection_profile_id)
         password_ref = profile.secret_refs.get(password_secret_key)
@@ -1494,6 +1553,26 @@ class ProductService:
             "relationships": len(scoped_edge_definitions),
         }
 
+        # v0.6 enrichment: acquire a typed conceptual + physical bundle.
+        # Run after the legacy extraction so a failure here can degrade
+        # gracefully — the GraphProfile still gets created with its
+        # collection lists; only the v0.6 fields are skipped.
+        acquisition_bundle, snapshot_id = self._acquire_and_persist_bundle(
+            db=db,
+            workspace_id=profile.workspace_id,
+            graph_name=selected_graph_name,
+            strategy=schema_strategy,
+        )
+
+        v6_kwargs: Dict[str, Any] = {}
+        if acquisition_bundle is not None:
+            v6_kwargs["schema_kind"] = acquisition_bundle.schema_kind
+            v6_kwargs["conceptual_schema"] = acquisition_bundle.conceptual_schema
+            v6_kwargs["physical_mapping"] = acquisition_bundle.physical_mapping
+            v6_kwargs["analyzer_metadata"] = acquisition_bundle.analyzer_metadata
+            if snapshot_id is not None:
+                v6_kwargs["schema_snapshot_id"] = snapshot_id
+
         graph_profile = create_graph_profile(
             workspace_id=profile.workspace_id,
             connection_profile_id=profile.connection_profile_id,
@@ -1509,13 +1588,113 @@ class ProductService:
                 "scope": graph_scope.get("scope", "named_graph"),
                 "schema_summary": schema.to_summary_dict(),
                 "discovered_at": current_timestamp().isoformat(),
+                "schema_strategy": schema_strategy,
             },
+            **v6_kwargs,
         )
         self.repository.create_graph_profile(graph_profile)
 
         return GraphDiscoveryResult(
             graph_profile=graph_profile.to_dict(),
             schema_summary=schema.to_summary_dict(),
+        )
+
+    def _acquire_and_persist_bundle(
+        self,
+        db: Any,
+        workspace_id: str,
+        graph_name: str,
+        strategy: str,
+    ) -> tuple[Optional[SchemaAcquisitionBundle], Optional[str]]:
+        """Run :func:`acquire_schema` and write through to ``aga_schema_snapshots``.
+
+        Failures here are *non-fatal* — discover_graph_profile must still
+        succeed and persist a v0.5-shaped profile. The fallback path the
+        acquisition module already provides (analyzer → heuristic →
+        warning) covers the most common failure mode (analyzer not
+        installed); only a hard storage outage on the cache write or a
+        DB-side AQL failure during sampling will surface here.
+
+        Returns ``(bundle, snapshot_id)``. ``snapshot_id`` is set when
+        the cache write succeeded so the caller can stamp it onto the
+        ``GraphProfile`` for the UI back-pointer.
+        """
+
+        try:
+            cache = WorkspaceSchemaCache(self.repository, workspace_id)
+            bundle = acquire_schema(
+                db,
+                strategy=strategy,  # type: ignore[arg-type]
+                graph_name=graph_name,
+                cache=cache,
+            )
+        except Exception:  # noqa: BLE001 — degrade gracefully on any failure
+            return None, None
+
+        # Look up the snapshot row that WorkspaceSchemaCache.set just
+        # persisted, keyed by the same cache_key the acquisition module
+        # uses. The lookup is best-effort — when missing, the GraphProfile
+        # simply omits the back-pointer.
+        snapshot_id: Optional[str] = None
+        try:
+            from ..ai.schema.acquire import cache_key as _cache_key
+
+            persisted = self.repository.get_schema_snapshot_by_cache_key(
+                _cache_key(database=bundle.database, graph_name=bundle.graph_name)
+            )
+            snapshot_id = persisted.schema_snapshot_id if persisted else None
+        except Exception:  # noqa: BLE001
+            snapshot_id = None
+
+        return bundle, snapshot_id
+
+    def get_graph_profile_schema_change(
+        self,
+        graph_profile_id: str,
+        password_secret_key: str = "password",
+        verify_system: bool = True,
+    ) -> SchemaChangeView:
+        """Lightweight schema-change probe for a graph profile (FR-60).
+
+        Resolves the connection from the profile's
+        ``connection_profile_id``, opens a database handle, and calls
+        :func:`describe_schema_change` against the L2 cache. Read-only:
+        does not mutate either cache, never re-runs the analyzer, and
+        does not write a snapshot. Typical cost is well under 200ms.
+        """
+
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        connection = self.repository.get_connection_profile(
+            graph_profile.connection_profile_id
+        )
+
+        password_ref = connection.secret_refs.get(password_secret_key)
+        if not password_ref:
+            raise ValidationError(
+                f"Connection profile is missing secret ref: {password_secret_key}"
+            )
+        password = self.secret_resolver.resolve(password_ref)
+
+        db = self.db_connector(
+            endpoint=connection.endpoint,
+            username=connection.username,
+            password=password,
+            database=connection.database,
+            verify_ssl=connection.verify_ssl,
+            verify_system=verify_system,
+        )
+        cache = WorkspaceSchemaCache(self.repository, connection.workspace_id)
+        report: SchemaChangeReport = describe_schema_change(
+            db, graph_name=graph_profile.graph_name, cache=cache
+        )
+        return SchemaChangeView(
+            graph_profile_id=graph_profile_id,
+            status=report.status,
+            current_shape_fingerprint=report.current_shape_fingerprint,
+            current_full_fingerprint=report.current_full_fingerprint,
+            cached_shape_fingerprint=report.cached_shape_fingerprint,
+            cached_full_fingerprint=report.cached_full_fingerprint,
+            needs_full_rebuild=report.needs_full_rebuild,
         )
 
     def start_requirements_copilot(
@@ -2064,7 +2243,14 @@ class ProductService:
                 f"Workspace bundle is missing required keys: {', '.join(missing)}"
             )
 
-        if bundle_doc["schema_version"] != PRODUCT_SCHEMA_VERSION:
+        # PRD v0.6 bumped PRODUCT_SCHEMA_VERSION 1.0.0 → 1.1.0 (added the
+        # aga_schema_snapshots collection — additive only, no breaking
+        # changes to existing collections). Bundles emitted by 1.0.0
+        # callers are forward-compatible: the new collection simply
+        # remains empty until the next discover_graph_profile call
+        # populates it. Accept the open set of supported versions so
+        # exporters can keep emitting 1.0.0 during the transition.
+        if bundle_doc["schema_version"] not in _SUPPORTED_BUNDLE_SCHEMA_VERSIONS:
             raise ValidationError(
                 "Unsupported workspace bundle schema version: "
                 f"{bundle_doc['schema_version']}"

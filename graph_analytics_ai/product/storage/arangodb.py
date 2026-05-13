@@ -23,6 +23,7 @@ from ..constants import (
     REPORT_SECTIONS_COLLECTION,
     REQUIREMENT_INTERVIEWS_COLLECTION,
     REQUIREMENT_VERSIONS_COLLECTION,
+    SCHEMA_SNAPSHOTS_COLLECTION,
     WORKFLOW_RUNS_COLLECTION,
     WORKSPACES_COLLECTION,
 )
@@ -37,6 +38,7 @@ from ..models import (
     ReportSection,
     RequirementInterview,
     RequirementVersion,
+    SchemaSnapshot,
     SourceDocument,
     Workspace,
     WorkflowRun,
@@ -65,6 +67,7 @@ class ProductArangoStorage:
     CHART_SPECS_COLLECTION = CHART_SPECS_COLLECTION
     PUBLISHED_SNAPSHOTS_COLLECTION = PUBLISHED_SNAPSHOTS_COLLECTION
     AUDIT_EVENTS_COLLECTION = AUDIT_EVENTS_COLLECTION
+    SCHEMA_SNAPSHOTS_COLLECTION = SCHEMA_SNAPSHOTS_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -170,6 +173,19 @@ class ProductArangoStorage:
             self.db.collection(AUDIT_EVENTS_COLLECTION).add_skiplist_index(
                 fields=["timestamp"], unique=False
             )
+            # PRD v0.6: cache_key is the SchemaCache lookup field used
+            # by every acquire_schema call. Hash index is non-unique
+            # because (workspace_id, database, graph_name) → cache_key
+            # is deterministic but a workspace-clone flow could legally
+            # produce two rows for the same logical key during the
+            # transition. Lookups always select the most recent by
+            # ``updated_at`` so duplicates are tolerated, not enforced.
+            schema_snapshots = self.db.collection(SCHEMA_SNAPSHOTS_COLLECTION)
+            schema_snapshots.add_hash_index(fields=["cache_key"], unique=False)
+            schema_snapshots.add_hash_index(
+                fields=["workspace_id", "database"], unique=False
+            )
+            schema_snapshots.add_hash_index(fields=["schema_kind"], unique=False)
         except Exception as exc:
             logger.warning("Failed to create some product indexes: %s", exc)
 
@@ -411,6 +427,118 @@ class ProductArangoStorage:
 
         docs = self._list_workspace_documents(GRAPH_PROFILES_COLLECTION, workspace_id)
         return [GraphProfile.from_dict(doc) for doc in docs]
+
+    # --- Schema snapshot operations (PRD v0.6 / FR-59) ---
+    #
+    # These methods are the persistence side of the L2 SchemaCache used
+    # by graph_analytics_ai.ai.schema.acquire. The cache adapter
+    # itself lives in repository.py so the acquisition module never
+    # imports the storage module.
+
+    def insert_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:
+        """Insert a schema snapshot row."""
+
+        return self._insert_document(
+            SCHEMA_SNAPSHOTS_COLLECTION, snapshot.to_dict()
+        )
+
+    def get_schema_snapshot(self, schema_snapshot_id: str) -> SchemaSnapshot:
+        """Get a schema snapshot by ID."""
+
+        return SchemaSnapshot.from_dict(
+            self._get_document(SCHEMA_SNAPSHOTS_COLLECTION, schema_snapshot_id)
+        )
+
+    def update_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:
+        """Update a schema snapshot row.
+
+        Bumps ``updated_at`` so the most-recent-wins lookup in
+        :meth:`get_schema_snapshot_by_cache_key` returns this row.
+        """
+
+        snapshot.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            SCHEMA_SNAPSHOTS_COLLECTION, snapshot.to_dict()
+        )
+
+    def get_schema_snapshot_by_cache_key(
+        self, cache_key: str
+    ) -> Optional[SchemaSnapshot]:
+        """Look up the most recent snapshot for a cache key, or None.
+
+        Returns the freshest snapshot when multiple rows exist for the
+        same key (the workspace-clone edge case described in
+        ``_create_indexes``). Returns ``None`` on a miss; callers must
+        not raise.
+        """
+
+        query = f"""
+        FOR doc IN {SCHEMA_SNAPSHOTS_COLLECTION}
+            FILTER doc.cache_key == @cache_key
+            SORT doc.updated_at DESC
+            LIMIT 1
+            RETURN doc
+        """
+
+        try:
+            cursor = self.db.aql.execute(query, bind_vars={"cache_key": cache_key})
+            for doc in cursor:
+                return SchemaSnapshot.from_dict(doc)
+            return None
+        except Exception as exc:
+            raise StorageError(
+                f"Failed to look up schema snapshot by cache_key: {exc}"
+            ) from exc
+
+    def delete_schema_snapshot_by_cache_key(self, cache_key: str) -> int:
+        """Delete every snapshot row for a cache key. Returns count removed.
+
+        Used by the manual-invalidate path (``invalidate_schema_cache``)
+        and by the future workspace-archive teardown.
+        """
+
+        query = f"""
+        FOR doc IN {SCHEMA_SNAPSHOTS_COLLECTION}
+            FILTER doc.cache_key == @cache_key
+            REMOVE doc IN {SCHEMA_SNAPSHOTS_COLLECTION}
+            RETURN OLD._key
+        """
+
+        try:
+            cursor = self.db.aql.execute(query, bind_vars={"cache_key": cache_key})
+            return sum(1 for _ in cursor)
+        except Exception as exc:
+            raise StorageError(
+                f"Failed to delete schema snapshots: {exc}"
+            ) from exc
+
+    def list_schema_snapshots(
+        self, workspace_id: str, limit: int = 50
+    ) -> List[SchemaSnapshot]:
+        """List schema snapshots for a workspace, freshest first.
+
+        Used by the dashboard / Graph Explorer view that surfaces a
+        workspace's known schemas alongside its graph profiles.
+        """
+
+        query = f"""
+        FOR doc IN {SCHEMA_SNAPSHOTS_COLLECTION}
+            FILTER doc.workspace_id == @workspace_id
+            SORT doc.updated_at DESC
+            LIMIT @limit
+            RETURN doc
+        """
+
+        try:
+            cursor = self.db.aql.execute(
+                query,
+                bind_vars={"workspace_id": workspace_id, "limit": limit},
+            )
+            return [SchemaSnapshot.from_dict(doc) for doc in cursor]
+        except Exception as exc:
+            raise StorageError(
+                f"Failed to list schema snapshots: {exc}"
+            ) from exc
 
     # --- Source document operations ---
 

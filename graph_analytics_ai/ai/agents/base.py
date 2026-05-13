@@ -162,6 +162,15 @@ class AgentState:
     # Intermediate results
     schema: Optional[Any] = None
     schema_analysis: Optional[Any] = None
+    # PRD v0.6 / FR-56..FR-65: typed acquisition bundle from
+    # graph_analytics_ai.ai.schema.acquire. Optional and additive —
+    # set by SchemaAnalysisAgent when the analyzer (or heuristic
+    # fallback) produces a SchemaAcquisitionBundle. Carries
+    # schema_kind / conceptual_schema / physical_mapping /
+    # analyzer_metadata so downstream agents (TemplateGenerator,
+    # AnalysisExecutor, RequirementsCopilot) can branch on LPG vs PG
+    # without re-introspecting.
+    schema_bundle: Optional[Any] = None
     requirements: Optional[Any] = None
     prd: Optional[Any] = None
     use_cases: List[Any] = field(default_factory=list)

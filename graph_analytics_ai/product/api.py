@@ -125,6 +125,19 @@ PRODUCT_API_ENDPOINTS = [
         request_model="GraphDiscoveryRequest",
         response_model="GraphDiscoveryResult",
     ),
+    # PRD v0.6 / FR-60. Lightweight, read-only probe that returns the
+    # shape/full fingerprint pair for the cached schema vs the live
+    # database. Used by the UI to surface a "schema may be stale" badge
+    # on graph profile cards without re-running the analyzer or
+    # otherwise touching the cache.
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/graph-profiles/{graph_profile_id}/schema-change",
+        service_method="get_graph_profile_schema_change",
+        summary="Probe whether a graph profile's cached schema is stale",
+        tags=["graph-profiles"],
+        response_model="SchemaChangeView",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/graph-profiles/{graph_profile_id}/requirements-copilot/sessions",
