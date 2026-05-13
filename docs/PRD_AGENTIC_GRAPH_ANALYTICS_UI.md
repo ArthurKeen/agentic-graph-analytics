@@ -1,13 +1,38 @@
 # Product Requirements Document: Agentic Graph Analytics UI
 
-**Version:** 0.5  
-**Date:** 2026-05-06  
+**Version:** 0.6  
+**Date:** 2026-05-12  
 **Status:** Draft  
 **Target Release:** Product UI MVP  
 **Related Document:** [Agentic Graph Analytics UI Vision](UI_PRODUCT_VISION.md)
 
 **Changelog:**
 
+- **0.6 (2026-05-12)** — Added FR-56..FR-72 (§ "Schema Kind Detection and
+  Multi-Graph Support") and the corresponding data-model, agent, and UI
+  requirements. Motivated by the HR-documents engagement where the source
+  database is an ArangoDB GraphRAG output: a corpus graph
+  (`*_Documents` + `*_Chunks`) and a knowledge graph (`*_Entities` +
+  `*_Relationships` + `*_Communities`) live side by side in the same
+  database, the entity and relationship collections are LPG (one
+  collection holds many logical types, discriminated by a `type` /
+  `relType` field), and a third structured-data graph (HRIS:
+  `Employee`, `Department`, `Position`) may also be present. The current
+  `SchemaExtractor` is collection-centric and would surface a single
+  `Entities` entity and a single `Relationships` relationship, which
+  breaks downstream use-case generation, template generation, and GAE
+  projection. v0.6 introduces (a) algorithmic-then-LLM schema analysis
+  via `arangodb-schema-analyzer` with a heuristic fallback (matching
+  `arango-cypher-py` / `arango-sparql-py`); (b) a per-(workspace, named
+  graph) `GraphProfile` model with `graph_purpose` classification; (c) a
+  workspace-level `GraphSet` that records cross-graph linkage; (d) a
+  conceptual-vs-physical `SchemaSnapshot` carrying `entityStyle ∈
+  {COLLECTION, LABEL}` and `relationshipStyle ∈ {DEDICATED_COLLECTION,
+  GENERIC_WITH_TYPE}` plus `typeField`/`typeValue`; (e) GAE projection
+  view materialization so PageRank/WCC/etc. can run on a typed
+  conceptual subgraph; (f) corpus/KG-aware Requirements Copilot,
+  use-case generation, and reporting. See "Implementation Phases — Phase
+  6: Multi-Graph and LPG-Aware Schema" for the rollout plan.
 - **0.5 (2026-05-06)** — FR-31a Phase 1 acceptance closure. Closed the
   remaining gaps from v0.4: (AC#5) cancelled runs flip in-flight and
   pending steps to a new `WorkflowStepStatus.CANCELLED` so the DAG no
@@ -621,6 +646,246 @@ ships, the visualizer accurately reflects **persisted state**, not
 - **FR-54:** Admins can configure retention for drafts, runs, documents, report snapshots, and audit logs.
 - **FR-55:** Admins can validate product metadata collection health.
 
+### Schema Kind Detection and Multi-Graph Support
+
+This section adds the requirements introduced in v0.6 to cover ArangoDB
+databases whose graphs are encoded as Labelled Property Graphs (LPG —
+one document collection holds many logical entity types, discriminated
+by a `type`-style field; one edge collection holds many relationship
+types, discriminated by a `relType`/`relation`/`type` field) and
+databases that contain multiple coexisting named graphs that serve
+different purposes (e.g., a GraphRAG corpus graph alongside an extracted
+knowledge graph alongside a structured HRIS graph).
+
+These requirements are dependencies of existing FR-9..FR-12 (graph
+profiles), FR-18..FR-21 (use cases), FR-22..FR-26 (templates), and
+FR-27..FR-31a (workflow runs). Where this section conflicts with an
+older requirement, this section wins.
+
+#### Schema Analysis Library Adoption
+
+- **FR-56 (Schema analyzer dependency):** The product depends on
+  `arangodb-schema-analyzer` (the `schema_analyzer` package) as the
+  primary schema analysis library, matching the convention established
+  by `arango-cypher-py` and `arango-sparql-py`. The analyzer is a
+  required runtime dependency for production deployments; a heuristic
+  fallback (functionally equivalent to the
+  `schema_acquire._build_heuristic_mapping` path in `arango-cypher-py`)
+  is supported for dev environments and for graceful degradation when
+  the analyzer is unreachable, but degraded bundles must carry an
+  `ANALYZER_NOT_INSTALLED` warning surfaced in the UI.
+- **FR-57 (Three-tier acquisition):** Schema acquisition follows a
+  fixed strategy chain — `analyzer` (full algorithmic baseline +
+  optional LLM repair) → `heuristic` (per-collection sampling and tier
+  classification) → `cached`. The default strategy is `auto`
+  (analyzer-then-heuristic). Operators can pin a strategy per workspace
+  (`workspace.metadata.schema_strategy ∈ {auto, analyzer, heuristic}`)
+  for cost or reproducibility.
+- **FR-58 (Algorithmic-first / LLM-on-difficulty escalation):** The
+  analyzer must always produce a deterministic baseline mapping
+  (`schema_analyzer.baseline.infer_baseline_from_snapshot`) before any
+  LLM call. The LLM repair pass runs only when at least one of the
+  following triggers fires:
+  - the baseline confidence is below the configured threshold
+    (`schema_strategy.review_threshold`, default 0.7),
+  - a collection has `>= 1` rejected tier-2 type candidate (per the
+    `_detect_type_field` notes_sink in the heuristic detector),
+  - a `GENERIC_WITH_TYPE` edge has unresolved `fromEntity`/`toEntity`
+    (`UNRESOLVED_ENDPOINT == "Any"`),
+  - a collection has competing tier-1 candidates (more than one of
+    `type`, `_type`, `entityType` qualifies on the 80% rule),
+  - the user explicitly opts in via `?force_llm=true` on the discovery
+    API.
+
+  When LLM repair fires, the resulting mapping is reconciled with the
+  baseline (`schema_analyzer.reconcile.reconcile_physical_mapping`) so
+  no collection is dropped silently; reconciliation deltas are surfaced
+  in the UI.
+- **FR-59 (Two-tier caching with shape/full fingerprints):** The
+  product caches schema acquisition results keyed by
+  `(workspace_id, connection_profile_id, database, graph_name)`. Two
+  fingerprints drive cache decisions, mirroring `arango-cypher-py`:
+  - `shape_fingerprint` — collections + types + index digests; when it
+    matches, the cached conceptual + physical mapping is reused.
+  - `full_fingerprint` — shape plus per-collection row counts; when it
+    matches, cached cardinality statistics are reused; when only it
+    differs, statistics are recomputed on top of the cached mapping
+    (the "stats-only refresh" fast path).
+
+  The persistent cache lives in a new `aga_schema_snapshots` collection
+  (see Data Model below). The in-memory cache is process-local. Both
+  caches are bypassed when `force_refresh=true` is passed to the
+  discovery API.
+- **FR-60 (Schema-change probe API):** A new
+  `GET /api/graph-profiles/{graph_profile_id}/schema-change` endpoint
+  reports `unchanged | stats_changed | shape_changed | no_cache` in
+  under 200ms without doing a full reintrospection. The UI uses this on
+  workspace open to decide whether to badge the Graph Explorer with
+  "Schema may have changed."
+
+#### Conceptual vs Physical Schema Model
+
+- **FR-61 (Schema kind classification):** Every `GraphProfile` carries a
+  `schema_kind` enum drawn from the analyzer's classification:
+  - `pg` — every doc collection one entity, every edge collection one
+    relationship (the legacy assumption).
+  - `lpg` — every doc collection holds many entity types via a type
+    discriminator field; every edge collection holds many relationship
+    types via a discriminator.
+  - `hybrid` — mix of `pg` and `lpg` collections in the same graph.
+  - `rpt` — Resource Property Table (RDF triples shape: `subject_uri /
+    predicate / object_uri / object_value`); reserved for SPARQL-style
+    graphs.
+  - `unknown` — analyzer ran but could not classify.
+
+  `schema_kind` is what unblocks LPG-aware downstream behavior; every
+  template/use-case generator MUST branch on it.
+- **FR-62 (Conceptual schema persistence):** The `GraphProfile` carries
+  a `conceptual_schema` block (the `schema_analyzer.ConceptualSchema`
+  shape) listing logical `entities[]` (with `name`, `labels`,
+  `properties`) and `relationships[]` (with `type`, `fromEntity`,
+  `toEntity`, `properties`). For LPG graphs the entity list contains
+  one entry per discriminator value (e.g., `Person`, `Org`, `Skill`,
+  `Policy`), not one entry per collection.
+- **FR-63 (Physical mapping persistence):** The `GraphProfile` also
+  carries a `physical_mapping` block recording, for each conceptual
+  entity:
+  - `style ∈ {COLLECTION, LABEL}`
+  - `collectionName: str`
+  - `typeField: str | null` (only for `LABEL`)
+  - `typeValue: str | null` (only for `LABEL`)
+  - `properties: {name → {field, indexed, unique}}`
+  - `indexes: [{type, fields, unique, sparse, name, vci?, deduplicate?, storedValues?}]`
+
+  And, for each conceptual relationship:
+  - `style ∈ {DEDICATED_COLLECTION, GENERIC_WITH_TYPE}`
+  - `edgeCollectionName: str`
+  - `typeField: str | null` / `typeValue: str | null` (only for
+    `GENERIC_WITH_TYPE`)
+  - `properties` and `indexes` as above
+- **FR-64 (Provenance and confidence):** Every `GraphProfile`
+  `metadata` block records `analyzer_source ∈ {analyzer_baseline,
+  analyzer_llm, heuristic}`, `confidence ∈ [0, 1]`, `warnings[]`,
+  `assumptions[]`, `detected_patterns[]` (closed tag set:
+  `PG_ENTITY_COLLECTION`, `LPG_LABEL`, `RPT_TRIPLES`,
+  `PG_DEDICATED_EDGE`, `LPG_GENERIC_EDGE`, `RPT_OBJECT_PROPERTY`),
+  `analyzer_version`, `prompt_version` (when LLM ran),
+  `shape_fingerprint`, `full_fingerprint`. `confidence < 0.7` flips the
+  profile's `review_required` flag and the UI prompts the user to
+  inspect.
+- **FR-65 (Multitenancy and sharding profile surfacing):** When the
+  upstream analyzer reports `metadata.multitenancy` and
+  `metadata.shardingProfile`, the product surfaces them on the graph
+  profile and uses them to (a) choose appropriate GAE projection
+  parameters (e.g., respect `OneShard`), (b) warn before running
+  cross-tenant analyses, and (c) expose the inferred `tenantKey` field
+  to the Requirements Copilot so questions can be tenant-scoped
+  automatically.
+
+#### Multi-Graph Workspaces
+
+- **FR-66 (Per-named-graph profiles):** A connection profile may have
+  zero or more `GraphProfile` rows per database — one per named graph
+  the user activates. The `(workspace_id, connection_profile_id,
+  database, graph_name)` tuple is unique per `version`. Workspaces
+  without any named graphs ("loose collections" mode) get a synthetic
+  `__db__` profile representing the entire database.
+- **FR-67 (Graph purpose classification):** Every `GraphProfile`
+  carries a `graph_purpose` enum:
+  - `corpus` — chunked-text container (heuristic: vertex collection
+    names match `*Document(s)?` and `*Chunk(s)?`; edges include
+    `PART_OF`).
+  - `knowledge_graph` — extracted entity/relationship store (heuristic:
+    `schema_kind == lpg` AND vertex collection names match
+    `*Entit(y|ies)?` AND `MENTIONED_IN` and/or `in_community` edges
+    present).
+  - `structured` — collection-typed PG (heuristic: `schema_kind == pg`
+    AND no GraphRAG-style collection names).
+  - `analytics` — purpose-built result graph (heuristic: vertex
+    collections begin with one of the configured GAE result prefixes,
+    e.g., `pagerank_`, `wcc_`, `community_`).
+  - `hybrid` — mixed signals.
+  - `unknown` — auto-classifier could not decide.
+
+  The classifier is deterministic, runs in the analyzer, and is
+  user-overridable; an audit event records every override.
+- **FR-68 (Workspace GraphSet):** A new workspace-level entity
+  `GraphSet` records which `GraphProfile`s belong together and how they
+  link. Required fields: `graph_set_id`, `workspace_id`,
+  `graph_profile_ids[]`, `cross_graph_links[]` (each with `source_graph
+  / target_graph / source_collection / target_collection /
+  edge_collection? / link_kind ∈ {extracted_from, foreign_key,
+  embedding_match, mention_chain, manual}` plus a confidence). The
+  GraphSet is the unit a workflow run binds to (a run can span multiple
+  graphs if the GraphSet records the cross-graph links the
+  workflow needs).
+- **FR-69 (Cross-graph link discovery):** During discovery the analyzer
+  inspects every edge collection's `_from`/`_to` for cross-graph hops
+  (i.e., `_from` lives in collection C1 that is in graph G1 only, and
+  `_to` lives in collection C2 that is in graph G2 only) and records
+  them as candidate `cross_graph_links` on the GraphSet for review. The
+  user must confirm or reject each link before it can be used by the
+  workflow runner.
+
+#### LPG-Aware Agentic Workflow
+
+- **FR-70 (Conceptual-typed AQL generation):** The
+  `TemplateGenerator` and `AnalysisExecutor` MUST emit AQL/GAE
+  templates that reference *conceptual* entity and relationship types,
+  not collection names. The generators consult the `physical_mapping`
+  to materialize the right scan or filter:
+  - `style == COLLECTION` → `FOR x IN @@<collection>`
+  - `style == LABEL` → `FOR x IN @@<collection> FILTER
+    x[@typeField] == @typeValue`
+  - `style == DEDICATED_COLLECTION` → `FOR e IN @@<edgeCollection>`
+  - `style == GENERIC_WITH_TYPE` → `FOR e IN @@<edgeCollection>
+    FILTER e[@typeField] == @typeValue`
+
+  This is exactly the `aql_entity_match` /
+  `aql_relationship_traversal` contract already implemented in
+  `schema_analyzer.PhysicalMapping`; the product reuses it.
+- **FR-71 (Typed GAE projection):** GAE algorithms (PageRank, WCC,
+  SCC, Label Propagation, Betweenness, Community Detection, etc.)
+  cannot directly operate on a `LABEL` entity or a `GENERIC_WITH_TYPE`
+  relationship because GAE projects from collections. Before running
+  any GAE algorithm against an LPG conceptual entity/relationship pair,
+  the executor MUST materialize a *typed projection*:
+  - Default strategy: server-side AQL view collection or named-graph
+    materialization that selects only the matching `typeField ==
+    typeValue` rows; the projection's lifetime is the run.
+  - Alternative strategy (when permitted by deployment + dataset
+    size): a lightweight GAE filter via per-projection vertex/edge
+    collection clones; the cost surfaces in the run cost estimate.
+
+  Typed projections are recorded as `analysis_executions[].metadata.
+  projection` and cleaned up via the run finalizer or retained on
+  request. The user can inspect, name, and reuse a projection across
+  runs.
+- **FR-72 (Schema-aware Requirements Copilot):** The Requirements
+  Copilot MUST consume the conceptual schema and graph_purpose, not
+  raw collection lists. Concretely, RC observations now include:
+  - Per-named-graph kind/purpose summary (e.g. "This workspace has 2
+    graphs: `acme_corpus` (purpose: corpus, 12k chunks across 350
+    documents) and `acme_kg` (purpose: knowledge_graph, lpg, 8
+    entity types: Person, Org, Skill, Policy, Position, Project,
+    Location, Event)").
+  - Per-entity-type counts (LPG: from the
+    `metadata.statistics.entities` block) instead of just per-
+    collection counts.
+  - Per-relationship-type counts and from→to entity types.
+  - Cross-graph link hints (e.g. "MENTIONED_IN connects entities to
+    chunks; PART_OF connects chunks to documents — a use case can
+    trace influence back to source documents").
+  - Suggested algorithms scoped per-entity-type (e.g. "PageRank on
+    Person via WORKS_FOR" rather than "PageRank on Entities via
+    Relationships").
+
+  Copilot questions and the BRD draft are templated against the
+  conceptual schema; the prompt provenance labels each fact as
+  `observed_from_schema`, `inferred_from_schema`,
+  `analyzer_assumption`, `user_provided`, or `assumption_requires_
+  confirmation`.
+
 ---
 
 ## Non-Functional Requirements
@@ -907,6 +1172,82 @@ Required fields:
 - `details`
 - `metadata`
 
+#### `aga_schema_snapshots` (new in v0.6)
+
+Stores cached schema-acquisition results so subsequent reads do not
+re-run the analyzer or LLM unless the underlying database changes. One
+row per `(connection_profile_id, database, graph_name)`; the row is
+upserted on every successful acquisition. Fingerprints are keyed lookups
+for cache freshness.
+
+Required fields:
+
+- `_key` — `sha256("{connection_profile_id}|{database}|{graph_name}")`
+- `schema_snapshot_id`
+- `workspace_id`
+- `connection_profile_id`
+- `database`
+- `graph_name` — may be `__db__` for "all collections in database"
+- `schema_kind` — `pg | lpg | hybrid | rpt | unknown`
+- `graph_purpose` — `corpus | knowledge_graph | structured | analytics | hybrid | unknown`
+- `conceptual_schema` — `ConceptualSchema.to_json()` shape
+- `physical_mapping` — `PhysicalMapping.to_json()` shape
+- `analyzer_metadata` — `{source, confidence, warnings, assumptions, detected_patterns, analyzer_version, prompt_version, multitenancy?, sharding_profile?, statistics?}`
+- `shape_fingerprint`
+- `full_fingerprint`
+- `acquired_at`
+- `metadata`
+
+#### `aga_graph_sets` (new in v0.6)
+
+Workspace-level grouping of graph profiles that belong to the same
+analytical context (e.g., "the corpus + KG + structured graphs for
+ACME's HR engagement"). One workspace can have many graph sets; a
+graph profile can belong to multiple graph sets. The graph set is the
+unit a workflow run binds to so cross-graph analytics are first-class.
+
+Required fields:
+
+- `_key`
+- `graph_set_id`
+- `workspace_id`
+- `name`
+- `description`
+- `graph_profile_ids` — ordered list
+- `cross_graph_links` — list of `{source_graph_profile_id,
+  target_graph_profile_id, source_collection, target_collection,
+  edge_collection?, link_kind ∈ {extracted_from, foreign_key,
+  embedding_match, mention_chain, manual}, confidence, status ∈
+  {candidate, confirmed, rejected}, confirmed_at?, confirmed_by?}`
+- `status` — `draft | active | archived`
+- `created_at`
+- `updated_at`
+- `created_by`
+- `metadata`
+
+#### Updates to `aga_graph_profiles` (v0.6)
+
+`aga_graph_profiles` gains the following non-breaking optional fields
+(legacy profiles continue to validate; the discovery flow backfills on
+next read):
+
+- `schema_kind` — `pg | lpg | hybrid | rpt | unknown` (FR-61)
+- `graph_purpose` — `corpus | knowledge_graph | structured | analytics | hybrid | unknown` (FR-67)
+- `schema_snapshot_id` — pointer to the latest `aga_schema_snapshots` row that backs this profile
+- `conceptual_schema` — copy of the conceptual schema at the version's
+  freeze point (so older profile versions remain readable when the
+  snapshot collection is rebuilt)
+- `physical_mapping` — same rationale
+- `analyzer_metadata.confidence`
+- `analyzer_metadata.review_required` — derived from confidence < 0.7
+  OR any unresolved endpoint OR any ANALYZER_NOT_INSTALLED warning
+- `analyzer_metadata.warnings` / `assumptions` / `detected_patterns`
+- `analyzer_metadata.shape_fingerprint` / `full_fingerprint`
+
+Existing fields are unchanged. `vertex_collections`, `edge_collections`,
+`edge_definitions`, `collection_roles`, and `counts` continue to work as
+the *physical* collection inventory; the conceptual block is *additive*.
+
 ### Index Requirements
 
 Product collections should index:
@@ -950,6 +1291,23 @@ The backend should expose versioned HTTP APIs. The exact framework is implementa
 - `GET /api/graph-profiles/{graph_profile_id}`
 - `PATCH /api/graph-profiles/{graph_profile_id}/collection-roles`
 - `POST /api/graph-profiles/{graph_profile_id}/validate`
+
+### Schema and GraphSet APIs (new in v0.6)
+
+- `POST /api/connections/{connection_profile_id}/graph-inventory` — enumerate every named graph in the connection's database, return `{name, vertex_collections, edge_collections, edge_definitions, document_count?, edge_count?}` per graph plus a synthetic `__db__` entry covering loose collections. Server-side cached for 60s; pass `force_refresh=true` to bust.
+- `POST /api/connections/{connection_profile_id}/discover-graph-profiles` — bulk-create one `GraphProfile` per named graph in a single call. Body accepts `{graph_names?: string[], strategy?: "auto" | "analyzer" | "heuristic", force_refresh?: bool}`. Returns the list of created profile IDs and per-graph confidence summaries.
+- `GET /api/graph-profiles/{graph_profile_id}/conceptual-schema` — return the conceptual entity/relationship list with per-type counts and links to the underlying physical collections.
+- `GET /api/graph-profiles/{graph_profile_id}/physical-mapping` — return the physical mapping (entity → `{style, collectionName, typeField?, typeValue?, ...}` and relationship → `{style, edgeCollectionName, typeField?, typeValue?, fromEntity, toEntity}`).
+- `GET /api/graph-profiles/{graph_profile_id}/schema-change` — lightweight probe (FR-60): `{status: "unchanged" | "stats_changed" | "shape_changed" | "no_cache", current_shape_fingerprint, current_full_fingerprint, cached_shape_fingerprint?, cached_full_fingerprint?}`.
+- `POST /api/graph-profiles/{graph_profile_id}/refresh-schema` — re-run acquisition (analyzer + LLM if triggered, then reconcile, then statistics). Body accepts `{strategy?: ..., force_refresh?: bool, force_llm?: bool}`. Returns the new snapshot ID + diff vs prior.
+- `PATCH /api/graph-profiles/{graph_profile_id}/conceptual-schema` — accept a user override of an entity name, relationship name, or type assignment. The override is recorded in `metadata.user_overrides[]` and the analyzer respects it on next refresh (does not overwrite).
+- `PATCH /api/graph-profiles/{graph_profile_id}/graph-purpose` — manually override the auto-classified `graph_purpose`. Records an audit event.
+- `POST /api/workspaces/{workspace_id}/graph-sets` — create a `GraphSet` from a list of graph profile IDs.
+- `GET /api/workspaces/{workspace_id}/graph-sets` / `GET /api/graph-sets/{graph_set_id}`.
+- `PATCH /api/graph-sets/{graph_set_id}/cross-graph-links` — confirm/reject candidate cross-graph links.
+- `POST /api/graph-sets/{graph_set_id}/discover-cross-graph-links` — re-run cross-graph link detection; useful after new collections are added.
+- `POST /api/graph-profiles/{graph_profile_id}/projections` — materialize a typed projection for a specific conceptual entity-or-relationship subset (FR-71). Body: `{entities?: string[], relationships?: string[], strategy: "view" | "clone", ttl_seconds?: int, name?: string}`. Returns the projection ID for use in workflow runs.
+- `GET /api/graph-profiles/{graph_profile_id}/projections` / `DELETE /api/projections/{projection_id}`.
 
 ### Document and Requirement APIs
 
@@ -1055,6 +1413,29 @@ Must display:
 - Collection roles
 - Schema snapshot details
 - Validation warnings
+- **(v0.6)** Per-named-graph card showing `schema_kind` badge
+  (`PG`, `LPG`, `Hybrid`, `RPT`, `Unknown`), `graph_purpose` badge
+  (`Corpus`, `Knowledge Graph`, `Structured`, `Analytics`,
+  `Hybrid`, `Unknown`), analyzer source (`Analyzer (LLM)`,
+  `Analyzer (Baseline)`, `Heuristic`), confidence percentage, and
+  a review-required indicator when confidence is below threshold.
+- **(v0.6)** Conceptual schema view: tabular list of conceptual
+  entities (with per-type counts and the underlying `style /
+  collectionName / typeField? / typeValue?` from the physical
+  mapping) and conceptual relationships (with from-entity →
+  to-entity, per-type counts, and physical edge mapping).
+- **(v0.6)** Schema-change indicator (badge driven by
+  `GET /api/graph-profiles/{id}/schema-change`); clicking offers
+  Refresh Schema with strategy/force-LLM controls.
+- **(v0.6)** GraphSet workbench tab: drag-and-drop graph profiles
+  into a set, review and confirm/reject candidate cross-graph
+  links with evidence (sampled `_from`/`_to` documents).
+- **(v0.6)** "Type Role" editor that replaces "Collection Role"
+  editor when the graph profile is `lpg` or `hybrid` — assigns
+  roles per conceptual entity instead of per collection.
+- **(v0.6)** Sensitivity overlay on properties (badge per
+  property: `none | low | medium | high | restricted`) with a
+  toggle to reveal restricted values that emits an audit event.
 
 ### Requirements Studio
 
@@ -1277,6 +1658,152 @@ Exit Criteria:
 - Business users can publish immutable report snapshots.
 - Admins can review audit events and manage retention.
 
+### Phase 6: Multi-Graph and LPG-Aware Schema (new in v0.6)
+
+This phase implements FR-56..FR-72. Sequenced as four sub-phases so each
+ships in roughly two-week increments and Phase 6a is independently
+useful (it makes the existing PG path more reliable even before LPG
+arrives).
+
+#### Phase 6a — Schema analyzer integration (foundation)
+
+Deliverables:
+
+- New module `graph_analytics_ai/ai/schema/acquire.py` modeled after
+  `arango-cypher-py/arango_cypher/schema_acquire.py`. Exposes
+  `acquire_schema(db, *, strategy="auto", force_refresh=False)`
+  returning a typed `SchemaAcquisitionBundle` dataclass.
+- Optional dependency `arangodb-schema-analyzer>=0.6.1,<0.7` declared
+  in `pyproject.toml` / `requirements.txt`. Wired through
+  `graph_analytics_ai/ai/schema/__init__.py` so callers can opt in.
+- New `GraphSchema.conceptual_schema`, `physical_mapping`, and
+  `analyzer_metadata` fields on
+  `graph_analytics_ai/ai/schema/models.py:GraphSchema`. Backward-
+  compatible: legacy code paths see empty/optional values.
+- New `aga_schema_snapshots` collection + repository methods
+  (`product/repository.py`).
+- Two-tier cache (in-memory dict + persistent collection) keyed by
+  `(connection_profile_id, database, graph_name)`.
+- `_shape_fingerprint` and `_full_fingerprint` wrappers (delegate to
+  `schema_analyzer.fingerprint_physical_shape` /
+  `fingerprint_physical_counts` when available, fallback fingerprint
+  otherwise).
+- `GET /api/graph-profiles/{id}/schema-change` endpoint (FR-60).
+
+Exit Criteria:
+
+- The existing PG demo databases (AdTech, ecommerce sample) produce
+  byte-identical conceptual schemas before and after the cutover.
+- The new module is exercised by unit tests for both
+  `analyzer-installed` and `analyzer-missing` code paths.
+- The schema-change probe responds in under 200ms on a 50-collection
+  database.
+
+#### Phase 6b — Schema kind, multi-graph, GraphSet
+
+Deliverables:
+
+- `schema_kind` and `graph_purpose` classifiers
+  (`graph_analytics_ai/ai/schema/classify.py`). The `graph_purpose`
+  classifier consumes the conceptual schema + collection-name patterns
+  to pick `corpus | knowledge_graph | structured | analytics | hybrid |
+  unknown`.
+- `discover_graph_profile` updated to (a) list all named graphs in
+  the database, (b) emit one `GraphProfile` per named graph (plus a
+  synthetic `__db__` profile for loose collections), (c) populate
+  `schema_kind`, `graph_purpose`, `conceptual_schema`,
+  `physical_mapping`, and `analyzer_metadata` on each profile.
+- New `GraphSet` model (`product/models.py`), repository, and APIs
+  (`POST/GET /api/workspaces/{id}/graph-sets`, `PATCH
+  /api/graph-sets/{id}/cross-graph-links`).
+- Cross-graph link detector
+  (`graph_analytics_ai/ai/schema/cross_graph.py`) — inspects edge
+  collections for `_from`/`_to` that span multiple named graphs and
+  emits candidate links with confidence.
+- New Graph Explorer UI: per-named-graph cards with kind badges
+  (`PG`, `LPG`, `Hybrid`, `RPT`, `Unknown`), purpose badges
+  (`Corpus`, `Knowledge Graph`, `Structured`, `Analytics`),
+  conceptual entity/relationship list, per-type counts, and a
+  "Confidence: 0.92" / review-required indicator.
+- New GraphSet workbench UI: drag-and-drop graph profiles into a
+  set, review and confirm/reject candidate cross-graph links.
+
+Exit Criteria:
+
+- Discovering a database with both a corpus graph and a knowledge
+  graph produces two profiles with the right `schema_kind` and
+  `graph_purpose` plus a candidate `MENTIONED_IN`-bridged
+  cross-graph link.
+- Discovering an HRIS-style database produces a single `pg`/
+  `structured` profile that round-trips through the new UI without
+  visual regressions.
+- GraphSet APIs round-trip via the API and are written into
+  `aga_graph_sets`.
+
+#### Phase 6c — LPG-aware template generation and typed projections
+
+Deliverables:
+
+- `TemplateGenerator` updated to consume the conceptual schema and
+  emit `physical_mapping`-aware AQL fragments (FR-70), reusing
+  `schema_analyzer.PhysicalMapping.aql_entity_match` /
+  `aql_relationship_traversal` rather than hand-rolling the AQL.
+- `AnalysisExecutor` updated to materialize typed GAE projections
+  (FR-71) before running PageRank/WCC/SCC/etc. on `LABEL` /
+  `GENERIC_WITH_TYPE` conceptual targets. Two strategies:
+  - `view` — server-side AQL view + GAE smart-graph wrapper.
+  - `clone` — temporary edge/vertex collections populated by an AQL
+    `INSERT INTO`. Used when the deployment doesn't support `view`
+    or when the projection is large enough to warrant a clone for
+    repeat runs.
+
+  Projection lifecycle is managed by a new `projections` repository
+  with TTL-based cleanup; the executor records the projection ID on
+  each `analysis_executions` row.
+- `UseCaseGenerator` updated to scope suggested algorithms per
+  conceptual entity/relationship type, with the
+  `from_entity`/`to_entity` constraints carried through into the
+  generated template.
+- Cost estimator updated to account for projection materialization
+  cost (rows scanned + indexes) and surface it in the "Approve
+  Template" UI before launch.
+
+Exit Criteria:
+
+- Running PageRank against a `Person` entity (via a `WORKS_FOR`
+  `GENERIC_WITH_TYPE` relationship) on a GraphRAG KG produces correct
+  per-Person results, indexed and filtered server-side.
+- The Analysis Catalog records the projection used per execution.
+- A test fixture (`tests/fixtures/hr_graphrag_kg.py`) seeds a
+  representative LPG KG and is exercised end-to-end through the
+  workflow runner.
+
+#### Phase 6d — Schema-aware Requirements Copilot and reporting
+
+Deliverables:
+
+- Requirements Copilot (`product/service.py:_schema_observations_*`,
+  `_requirements_copilot_questions`) updated to surface conceptual
+  per-type counts, `graph_purpose`, cross-graph links, and per-
+  entity-type algorithm suggestions (FR-72).
+- BRD draft template updated to label every statement with its
+  provenance: `observed_from_schema`, `inferred_from_schema`,
+  `analyzer_assumption`, `user_provided`, `assumption_requires_
+  confirmation`.
+- Report rendering pipeline updated to display result rows by
+  conceptual type (e.g., "Top 10 Person nodes by PageRank" instead
+  of "Top 10 Entities") and to include the projection ID + source
+  documents (chunks) for every result row when the result trace
+  through `MENTIONED_IN → Chunk → PART_OF → Document` is available.
+
+Exit Criteria:
+
+- The HR demo workflow ("Run influence analysis on a GraphRAG-built
+  HR knowledge graph") produces a report whose result tables are
+  typed, citations include source document IDs, and the BRD
+  faithfully reflects the analyzer-detected purposes/kinds.
+- Acceptance tests cover the full corpus + KG end-to-end pipeline.
+
 ---
 
 ## Success Metrics
@@ -1357,6 +1884,170 @@ Mitigation:
 
 - Sequence delivery around replacing wrapper repo needs first.
 - Treat graph visualization and SaaS control-plane features as later phases.
+
+### Risk: LLM Cost Runaway During Schema Acquisition (v0.6)
+
+LPG schema analysis with LLM repair on a 100+ collection database can
+issue dozens of LLM calls per acquisition. With aggressive cache misses
+this can dominate per-workspace cost.
+
+Mitigation:
+
+- The default strategy is `auto` with deterministic baseline first; LLM
+  repair only fires on the explicit triggers in FR-58.
+- Acquisition results are cached with shape + full fingerprints
+  (FR-59); ordinary writes do not invalidate the cache.
+- Per-workspace LLM token budget for schema analysis (configurable,
+  default 50k tokens / 24h). The acquisition surface returns the
+  baseline + a `degraded: true` flag if the budget is exhausted.
+- The `force_llm=true` API flag is gated by an `analyst` role.
+
+### Risk: Typed Projections Multiply GAE Storage and Cost (v0.6)
+
+LPG `LABEL` and `GENERIC_WITH_TYPE` projections create per-type
+filtered subgraphs; on a KG with 8 entity types and 12 relationship
+types a naive "project everything" pass could produce ~96 collections.
+
+Mitigation:
+
+- Projections are created on demand per use case, not eagerly.
+- Default strategy is `view` (no extra storage); `clone` is opt-in and
+  surfaces an explicit storage estimate before approval.
+- Projection registry (`aga_projections`) carries a TTL; a finalizer
+  cleans up unused projections after `ttl_seconds` (default 24h, max
+  30d).
+- The cost estimator includes projection storage in the run cost
+  before approval.
+
+### Risk: Cross-Graph Link Confidence Misleads Workflow (v0.6)
+
+Auto-detected cross-graph links (e.g., MENTIONED_IN as the bridge
+between corpus and KG) may attach to the wrong entity collection if
+the analyzer's heuristics are surprised by the data.
+
+Mitigation:
+
+- Candidate cross-graph links are surfaced in the GraphSet UI as
+  *candidates*, never auto-confirmed. Workflow runs that depend on a
+  cross-graph traversal MUST reject pending candidates with a clear
+  error.
+- Each link records confidence and the analyzer's evidence (`from`
+  collection sample, `to` collection sample, edge sample).
+- Analyst confirmation is captured in the audit log.
+
+### Risk: PII / Sensitive Field Leakage from HR Schemas (v0.6)
+
+HR knowledge graphs commonly contain salary, performance, SSN,
+disability status, and other restricted fields. These can leak into
+prompts, generated reports, or projections without explicit
+classification.
+
+Mitigation:
+
+- The schema acquisition pipeline runs a sensitivity classifier
+  (regex + name heuristics + analyzer-assisted) over property names
+  and produces `sensitivity_tags` on each conceptual property:
+  `none | low | medium | high | restricted`.
+- The Requirements Copilot prompt redacts `restricted` and `high`
+  values from sample documents before they enter the LLM context.
+- Reports default to suppressing `high`/`restricted` columns in
+  result tables; the user can opt in to display per workspace role.
+- The `aga_audit_events` log captures every `restricted`-field
+  reveal action.
+
+---
+
+## Feature Enhancements Identified During v0.6 Analysis
+
+The following enhancements were identified while planning v0.6 and are
+in scope for v0.6 unless explicitly tagged "deferred".
+
+1. **Sensitivity classifier on properties** (in scope, see PII risk
+   above). Without this the HR engagement is a non-starter.
+2. **Embedding-aware analytics** (in scope, lightweight). Corpus
+   chunks usually carry an embedding vector; the use-case generator
+   should suggest semantic-search-augmented templates ("find chunks
+   semantically similar to a seed chunk and run influence analysis
+   on the entities they mention"). Implemented as a new template
+   family `semantic_propagation`.
+3. **Community-aware use cases** (in scope). KGs already carry
+   pre-computed Leiden/Louvain communities. The use-case generator
+   should propose templates that *use* the community assignment as
+   input rather than recomputing it (e.g., "rank Persons within
+   their assigned community by PageRank").
+4. **Provenance trace in reports** (in scope). For LPG KG runs,
+   every result row should be reverse-traceable through
+   `MENTIONED_IN` → Chunk → `PART_OF` → Document. The Report Section
+   `evidence_refs` array gains a `chunk_ids[]` and `document_ids[]`
+   field for this.
+5. **Entity resolution awareness** (in scope, deferred to v0.7).
+   GraphRAG outputs frequently contain unresolved duplicates ("John
+   Doe" mentioned in 3 documents → 3 nodes). Schema analysis should
+   detect ER state (presence of an `ER_resolved_to` edge or a
+   `canonical_id` property) and warn the user when running PageRank
+   without ER first; integrate with the existing `arango-er`
+   tooling for resolution suggestions.
+6. **Time-travel / temporal graph awareness** (in scope, conditional
+   on the temporal-graph skill being installed). HR data has
+   temporal validity (employment intervals, position history). When
+   the analyzer detects ProxyIn/ProxyOut/Entity collections with
+   `created`/`expired` fields, the graph profile records
+   `temporal: true` and templates default to point-in-time queries.
+7. **Schema drift alerts** (in scope, lightweight). The schema-
+   change probe API (FR-60) is the building block; phase 6b adds a
+   dashboard widget that polls it on workspace open and badges the
+   Graph Explorer when the cached profile is stale.
+8. **Domain-knowledge import for Requirements Copilot** (deferred to
+   v0.7). When the analyzer exports OWL Turtle (already supported
+   upstream), the Requirements Copilot can use it as authoritative
+   ontology context instead of inferring labels from collection
+   names.
+9. **Per-graph permissions** (deferred to v0.7). HR engagements
+   typically need read-only audit access to the corpus graph,
+   write access to the KG, and read-only to the structured graph.
+   The `WorkspacePermission` model gains a per-`GraphProfile` ACL.
+10. **Cross-graph workflow templates** (in scope at minimum, a
+    "starter set" of three LPG/multi-graph templates ships with
+    Phase 6c so the HR demo flows end-to-end without bespoke
+    template authoring):
+    - "Influence by Source" — PageRank on a Person/Org subgraph,
+      enriched with a count of corpus chunks that mention each top
+      result, with chunk → document provenance in the report.
+    - "Topic Communities" — surface KG communities, summarize each
+      with the documents whose chunks contributed most to it, and
+      rank by intra-community density.
+    - "Similar Entities by Skill / Policy" — Jaccard / overlap
+      score on `(Person, Skill)` and `(Person, Policy)` projections
+      via WORKS_ON / GOVERNED_BY relationships.
+11. **Schema migration compatibility** (in scope, small). When the
+    persisted GraphProfile predates v0.6, `repository.get_graph_profile`
+    transparently backfills `schema_kind = "pg"` and
+    `graph_purpose = "structured"` so the UI does not break for
+    in-flight workspaces.
+12. **Per-entity-type collection-role overrides** (in scope). The
+    existing `collection_roles` map is per-collection. For LPG it
+    expands to per-conceptual-entity (`role_overrides[entity_name]
+    = {core, satellite, reference, result, excluded}`). The UI
+    Collection Role editor splits into a Type Role editor for LPG
+    profiles.
+13. **Analyzer MCP tool exposure** (deferred to v0.7). The upstream
+    `schema_analyzer.mcp_server` provides `analyze_database`,
+    `get_conceptual_schema`, `get_physical_mapping`, and
+    `validate_pattern`. Re-export these as product MCP tools so
+    external agents can introspect a workspace's schema without
+    Python access.
+14. **Hybrid corpus-only fast path** (in scope, small). When the
+    only graph in scope is a corpus (no KG yet), the use-case
+    generator defaults to a two-step pipeline: (a) recommend running
+    the GraphRAG importer to extract a KG, (b) only then run
+    analytics. This keeps the workflow runner from suggesting
+    PageRank on a `Documents`/`Chunks` graph (which is rarely
+    meaningful).
+15. **Unknown-purpose review queue** (in scope, lightweight). When
+    `graph_purpose == unknown` the profile lands in a workspace-
+    level "Needs Review" tray; the Solutions Architect picks a
+    purpose from a typeahead and the choice trains a per-workspace
+    overrides map that biases future auto-classification.
 
 ---
 
@@ -1812,6 +2503,40 @@ before starting FR-31b).
 6. Which report export formats are mandatory for the first release?
 7. Should workflow progress use polling first, or should the MVP include server-sent events/websockets?
 8. Should the UI call Python service APIs only, or should some MCP tools be reused internally?
+9. **(v0.6)** Should `arangodb-schema-analyzer` be a hard dependency or
+   an optional extra? Hard makes the heuristic fallback dead code in
+   production but simplifies operations; optional preserves the
+   `arango-cypher-py` pattern but means production deployments must
+   be policy-checked. Recommendation: hard dependency for the product
+   API; the underlying `graph_analytics_ai` library keeps it as an
+   extra so library users keep the choice.
+10. **(v0.6)** What is the right default for `schema_strategy` in
+    workspaces that contain hybrid (PG + LPG) data? The `auto`
+    strategy escalates to LLM on every `LABEL` collection that doesn't
+    pin a tier-1 type field, which can be costly. Two viable choices:
+    (a) auto, accept the LLM cost; (b) `analyzer-baseline-only` by
+    default, escalate to LLM on user-clicked "Improve schema accuracy"
+    button. Recommendation: (a) for first run on a new connection
+    profile, (b) for refreshes.
+11. **(v0.6)** When a workspace contains a corpus + KG pair, should
+    the GraphSet be auto-created on discovery, or should the user
+    explicitly group them? Auto is a better demo; explicit is safer
+    for customers with multiple unrelated graphs. Recommendation: auto-
+    create when (a) the discovery run finds exactly one `corpus`
+    profile and exactly one `knowledge_graph` profile in the same
+    database, AND (b) at least one cross-graph link is detected; in
+    every other case prompt the user.
+12. **(v0.6)** GAE typed projections: when (if ever) should the
+    executor reuse a prior projection vs build a fresh one? Reuse
+    saves cost but risks staleness if the underlying KG was updated.
+    Recommendation: reuse iff the projection's `shape_fingerprint` of
+    the source collection (computed on projection creation) matches
+    the current shape; otherwise rebuild.
+13. **(v0.6)** Do we need to expose the OWL Turtle export to the UI in
+    Phase 6, or defer to v0.7? It's free metadata and adds maybe 30
+    LOC to the API; the UI cost is the question. Recommendation:
+    expose via `GET /api/graph-profiles/{id}/owl-turtle` in Phase 6a
+    (cheap), defer the rendered UI tab to v0.7.
 
 ---
 
@@ -1843,4 +2568,33 @@ The MVP is complete when:
 15. A published report links back to requirements, use case, template, execution, and result collection.
 16. AdTech-style YAML/docs and clinical trials/CRO or open source intelligence templates can be imported through a preview-and-apply flow.
 17. Secret values are not stored in product metadata collections.
+18. **(v0.6)** Discovering an ArangoDB GraphRAG project (corpus + KG)
+    in the same database produces two `GraphProfile` rows with
+    `schema_kind ∈ {pg, lpg}`, `graph_purpose ∈ {corpus,
+    knowledge_graph}`, populated `conceptual_schema` and
+    `physical_mapping`, and at least one auto-detected candidate
+    cross-graph link (e.g., `MENTIONED_IN`).
+19. **(v0.6)** Discovering an HRIS-style PG database (e.g., Employee /
+    Department / Position collections with dedicated `reports_to` /
+    `holds_position` edges) produces one `GraphProfile` with
+    `schema_kind == pg`, `graph_purpose == structured`, and the
+    pre-v0.6 collection-centric metadata fields populated for
+    backward compatibility.
+20. **(v0.6)** A workflow run on a `LABEL` entity (e.g., PageRank on
+    Person within a GraphRAG KG) materializes a typed projection,
+    runs the algorithm against it, records the projection ID on the
+    `analysis_executions` row, and the resulting report displays per-
+    Person results with chunk and document provenance citations.
+21. **(v0.6)** When `arangodb-schema-analyzer` is not installed, the
+    discovery flow still produces a heuristic `GraphProfile` with
+    `analyzer_metadata.warnings` containing
+    `ANALYZER_NOT_INSTALLED` and the UI displays a "Schema accuracy
+    is degraded" banner.
+22. **(v0.6)** The schema-change probe API returns
+    `unchanged | stats_changed | shape_changed | no_cache` in under
+    200ms on a 50-collection database with cached state.
+23. **(v0.6)** A property tagged `restricted` by the sensitivity
+    classifier is redacted from the Requirements Copilot LLM
+    context, suppressed from default report tables, and every
+    explicit reveal is recorded in the audit log.
 
