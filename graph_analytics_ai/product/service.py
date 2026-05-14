@@ -7,6 +7,7 @@ coupling the core package to a web framework.
 import hashlib
 import html
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -68,6 +69,8 @@ from .models import (
 )
 from .repository import ProductRepository, WorkspaceSchemaCache
 from .secrets import EnvironmentSecretResolver, SecretResolver
+
+logger = logging.getLogger(__name__)
 
 # PRD v0.6: bundles produced under PRODUCT_SCHEMA_VERSION 1.0.0 / 1.1.0
 # must still import cleanly under the current (1.2.0) version. The
@@ -1832,7 +1835,7 @@ class ProductService:
         connection_profile_id: str,
         workspace_id: str,
         graph_profiles: List[Dict[str, Any]],
-        inventory: "ConnectionGraphInventory",
+        inventory: "ConnectionGraphsResult",
         actor: Optional[str],
     ) -> tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
         """Detect Autograph projects and auto-create one GraphSet each.

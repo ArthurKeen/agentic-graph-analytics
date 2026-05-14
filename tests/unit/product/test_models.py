@@ -87,13 +87,19 @@ def test_connection_profile_round_trip_allows_secret_references():
 
 
 def test_workspace_rejects_secret_like_metadata_keys():
-    """Product metadata rejects fields that look like resolved secrets."""
+    """Product metadata rejects fields that look like resolved secrets.
+
+    NOTE: the placeholder value below is deliberate test scaffolding
+    that exercises the validator's rejection path; it is not a real
+    credential. Tagged with the GitGuardian inline allowlist marker
+    so secret scanners don't flag this assertion as a leak.
+    """
 
     workspace = create_workspace(
         customer_name="Example Customer",
         project_name="Graph Analytics",
         environment="dev",
-        metadata={"password": "do-not-store"},
+        metadata={"password": "<rejected-by-validator>"},  # ggignore
     )
 
     try:
