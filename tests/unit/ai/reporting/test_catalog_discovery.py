@@ -60,4 +60,3 @@ def test_catalog_discovery_generates_report_without_llm():
     formatter = ReportGenerator(use_llm_interpretation=False, enable_charts=False)
     md = formatter.format_report(report, ReportFormat.MARKDOWN)
     assert "Catalog Discovery Report" in md
-

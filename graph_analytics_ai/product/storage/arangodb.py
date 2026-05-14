@@ -93,7 +93,9 @@ class ProductArangoStorage:
             self._create_indexes()
             self._write_schema_version()
         except Exception as exc:
-            raise StorageError(f"Failed to initialize product collections: {exc}") from exc
+            raise StorageError(
+                f"Failed to initialize product collections: {exc}"
+            ) from exc
 
     def _write_schema_version(self) -> None:
         """Store the product schema version as an idempotent metadata document."""
@@ -123,9 +125,7 @@ class ProductArangoStorage:
 
             connections = self.db.collection(CONNECTION_PROFILES_COLLECTION)
             connections.add_hash_index(fields=["workspace_id"], unique=False)
-            connections.add_hash_index(
-                fields=["workspace_id", "name"], unique=False
-            )
+            connections.add_hash_index(fields=["workspace_id", "name"], unique=False)
             connections.add_hash_index(
                 fields=["last_verification_status"], unique=False
             )
@@ -232,7 +232,9 @@ class ProductArangoStorage:
         except NotFoundError:
             raise
         except DocumentGetError as exc:
-            raise NotFoundError(f"Document {key} not found in {collection_name}") from exc
+            raise NotFoundError(
+                f"Document {key} not found in {collection_name}"
+            ) from exc
         except Exception as exc:
             raise StorageError(
                 f"Failed to get document {key} from {collection_name}: {exc}"
@@ -448,9 +450,7 @@ class ProductArangoStorage:
     def insert_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:
         """Insert a schema snapshot row."""
 
-        return self._insert_document(
-            SCHEMA_SNAPSHOTS_COLLECTION, snapshot.to_dict()
-        )
+        return self._insert_document(SCHEMA_SNAPSHOTS_COLLECTION, snapshot.to_dict())
 
     def get_schema_snapshot(self, schema_snapshot_id: str) -> SchemaSnapshot:
         """Get a schema snapshot by ID."""
@@ -467,9 +467,7 @@ class ProductArangoStorage:
         """
 
         snapshot.updated_at = datetime.now(timezone.utc)
-        return self._update_document(
-            SCHEMA_SNAPSHOTS_COLLECTION, snapshot.to_dict()
-        )
+        return self._update_document(SCHEMA_SNAPSHOTS_COLLECTION, snapshot.to_dict())
 
     def get_schema_snapshot_by_cache_key(
         self, cache_key: str
@@ -518,9 +516,7 @@ class ProductArangoStorage:
             cursor = self.db.aql.execute(query, bind_vars={"cache_key": cache_key})
             return sum(1 for _ in cursor)
         except Exception as exc:
-            raise StorageError(
-                f"Failed to delete schema snapshots: {exc}"
-            ) from exc
+            raise StorageError(f"Failed to delete schema snapshots: {exc}") from exc
 
     def list_schema_snapshots(
         self, workspace_id: str, limit: int = 50
@@ -546,9 +542,7 @@ class ProductArangoStorage:
             )
             return [SchemaSnapshot.from_dict(doc) for doc in cursor]
         except Exception as exc:
-            raise StorageError(
-                f"Failed to list schema snapshots: {exc}"
-            ) from exc
+            raise StorageError(f"Failed to list schema snapshots: {exc}") from exc
 
     # --- Graph set operations (PRD v0.6 / FR-68..FR-70) ---
 
@@ -643,7 +637,9 @@ class ProductArangoStorage:
 
         return self._insert_document(REQUIREMENT_VERSIONS_COLLECTION, version.to_dict())
 
-    def get_requirement_version(self, requirement_version_id: str) -> RequirementVersion:
+    def get_requirement_version(
+        self, requirement_version_id: str
+    ) -> RequirementVersion:
         """Get a requirement version by ID."""
 
         return RequirementVersion.from_dict(
@@ -654,9 +650,7 @@ class ProductArangoStorage:
         """Update a requirement version."""
 
         version.updated_at = datetime.now(timezone.utc)
-        return self._update_document(
-            REQUIREMENT_VERSIONS_COLLECTION, version.to_dict()
-        )
+        return self._update_document(REQUIREMENT_VERSIONS_COLLECTION, version.to_dict())
 
     def list_requirement_versions(self, workspace_id: str) -> List[RequirementVersion]:
         """List requirement versions for a workspace."""
@@ -810,7 +804,9 @@ class ProductArangoStorage:
 
         return self._insert_document(AUDIT_EVENTS_COLLECTION, event.to_dict())
 
-    def list_audit_events(self, workspace_id: str, limit: int = 100) -> List[AuditEvent]:
+    def list_audit_events(
+        self, workspace_id: str, limit: int = 100
+    ) -> List[AuditEvent]:
         """List audit events for a workspace."""
 
         query = f"""
@@ -849,4 +845,3 @@ class ProductArangoStorage:
 
         # python-arango database handles do not require explicit close.
         return None
-

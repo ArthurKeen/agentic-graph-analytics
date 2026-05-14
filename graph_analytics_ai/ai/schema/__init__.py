@@ -55,12 +55,14 @@ from .acquire import (
     invalidate_schema_cache,
     reset_default_cache,
 )
+
 # Phase 6b (PRD v0.6 / FR-61..FR-63): graph-purpose classifier.
 from .graph_purpose import (
     GraphPurpose,
     GraphPurposeResult,
     classify_graph_purpose,
 )
+
 # Phase 6d (PRD v0.6 / FR-72): sensitivity classifier.
 from .sensitivity import (
     PropertySensitivity,
@@ -70,6 +72,7 @@ from .sensitivity import (
     classify_property_sensitivity,
     classify_schema_sensitivity,
 )
+
 # v0.6.1 / Phase 6e (FR-73 candidate): first-party Arango product
 # detection (Autograph corpus + KG today). The ``arango_products``
 # module is a shim that prefers the upstream detector in
@@ -81,7 +84,6 @@ from .arango_products import (
     AutographProject,
     detect_arango_products,
 )
-
 
 __all__ = [
     # Models

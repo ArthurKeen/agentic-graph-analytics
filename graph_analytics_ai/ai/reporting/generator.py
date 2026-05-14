@@ -150,7 +150,7 @@ class ReportGenerator:
 
         # Generate summary
         report.summary = self._generate_summary(report)
-        
+
         # Extract action items and risk assessment for HTML formatting
         report.metadata["risk_level"] = self._assess_risk_level(report.insights)
         report.metadata["action_items"] = self._extract_action_items(report)
@@ -407,14 +407,14 @@ class ReportGenerator:
     def _validate_insights(self, insights: List[Insight]) -> List[Insight]:
         """
         Validate insight quality and filter low-quality insights.
-        
+
         Quality criteria:
         - Confidence >= 0.3 (minimum threshold, lowered from 0.4)
         - Title length >= 10 characters (reasonable minimum)
         - Description length >= 50 characters (reduced from 100)
         - Business impact is specific (not purely generic)
         - Contains numbers/metrics (encouraged but not required)
-        
+
         Args:
             insights: List of insights to validate
 
@@ -444,29 +444,35 @@ class ReportGenerator:
 
             # Check 3: Description quality (reduced from 100 to 50)
             if len(insight.description) < 50:
-                issues.append(f"Description too brief ({len(insight.description)} chars)")
+                issues.append(
+                    f"Description too brief ({len(insight.description)} chars)"
+                )
                 quality_score *= 0.7
 
             # Check 4: Contains specific numbers/metrics (softer penalty)
-            has_numbers = bool(re.search(r'\d+\.?\d*%|\d+\.\d+|\d{2,}', insight.description))
+            has_numbers = bool(
+                re.search(r"\d+\.?\d*%|\d+\.\d+|\d{2,}", insight.description)
+            )
             if not has_numbers:
                 issues.append("No specific metrics/numbers")
                 quality_score *= 0.85  # Reduced from 0.7
 
             # Check 5: Business impact specificity (softer penalty, fewer generic phrases)
             generic_impacts = [
-                'further analysis recommended',
-                'requires further analysis',
-                'derived from ai analysis'
+                "further analysis recommended",
+                "requires further analysis",
+                "derived from ai analysis",
             ]
-            if any(phrase in insight.business_impact.lower() for phrase in generic_impacts):
+            if any(
+                phrase in insight.business_impact.lower() for phrase in generic_impacts
+            ):
                 issues.append("Generic business impact")
                 quality_score *= 0.85  # Reduced from 0.8
 
             # Check 6: Title is not purely generic (more lenient)
             generic_titles = [
-                'llm analysis',
-                'analysis results',
+                "llm analysis",
+                "analysis results",
             ]
             if insight.title.lower() in generic_titles:
                 issues.append("Generic title")
@@ -490,9 +496,7 @@ class ReportGenerator:
 
         # If all insights filtered, log error but keep best ones
         if len(validated_insights) == 0 and len(insights) > 0:
-            logger.error(
-                "All insights filtered! Keeping top 3 by original confidence"
-            )
+            logger.error("All insights filtered! Keeping top 3 by original confidence")
             sorted_insights = sorted(insights, key=lambda x: x.confidence, reverse=True)
             validated_insights = sorted_insights[:3]  # Keep top 3 instead of 2
 
@@ -537,7 +541,7 @@ class ReportGenerator:
     def _generate_summary(self, report: AnalysisReport) -> str:
         """
         Generate executive summary with key findings, risks, and actions.
-        
+
         Creates a comprehensive 3-4 sentence summary covering:
         - What was analyzed
         - Key findings (top insights)
@@ -547,7 +551,7 @@ class ReportGenerator:
         lines = []
 
         # Basic stats
-        result_count = report.dataset_info.get('result_count', 0)
+        result_count = report.dataset_info.get("result_count", 0)
         lines.append(
             f"Analysis of {result_count:,} results using {report.algorithm} algorithm"
         )
@@ -555,22 +559,21 @@ class ReportGenerator:
         # Key findings from top insights
         if report.insights:
             lines.append(f"identified {len(report.insights)} key insights")
-            
+
             # Highlight top insight
             top_insight = max(report.insights, key=lambda x: x.confidence)
             if top_insight.confidence >= 0.7:
                 lines.append(f"with highest confidence finding: {top_insight.title}")
-        
+
         # Risk assessment
         risk_level = self._assess_risk_level(report.insights)
         if risk_level != "LOW":
             lines.append(f"**Risk Level: {risk_level}**")
-        
+
         # Priority actions
         if report.recommendations:
             high_priority = [
-                r for r in report.recommendations 
-                if r.priority in ("high", "critical")
+                r for r in report.recommendations if r.priority in ("high", "critical")
             ]
             if high_priority:
                 lines.append(
@@ -579,33 +582,44 @@ class ReportGenerator:
 
         # Join with proper punctuation
         summary = ". ".join(lines)
-        if not summary.endswith('.'):
+        if not summary.endswith("."):
             summary += "."
-        
+
         return summary
-    
+
     def _assess_risk_level(self, insights: List[Insight]) -> str:
         """
         Assess overall risk level from insights.
-        
+
         Returns:
             "CRITICAL", "HIGH", "MEDIUM", or "LOW"
         """
         if not insights:
             return "LOW"
-        
+
         # Check for critical keywords in titles/descriptions (very specific, high-severity terms)
-        critical_keywords = ["fraud", "botnet", "breach", "attack", "failure", "malicious"]
+        critical_keywords = [
+            "fraud",
+            "botnet",
+            "breach",
+            "attack",
+            "failure",
+            "malicious",
+        ]
         high_keywords = ["risk", "suspicious", "over-aggregation", "false positive"]
-        medium_keywords = ["anomaly", "unusual", "inconsisten"]  # Moved anomaly to medium
-        
+        medium_keywords = [
+            "anomaly",
+            "unusual",
+            "inconsisten",
+        ]  # Moved anomaly to medium
+
         critical_count = 0
         high_count = 0
         medium_count = 0
-        
+
         for insight in insights:
             text = (insight.title + " " + insight.description).lower()
-            
+
             # Check in priority order
             if any(kw in text for kw in critical_keywords):
                 critical_count += 1
@@ -613,11 +627,13 @@ class ReportGenerator:
                 high_count += 1
             elif any(kw in text for kw in medium_keywords):
                 medium_count += 1
-        
+
         # Assess based on counts and confidence
         if critical_count > 0:
             return "CRITICAL"
-        elif high_count >= 2 or (high_count >= 1 and any(i.confidence > 0.8 for i in insights)):
+        elif high_count >= 2 or (
+            high_count >= 1 and any(i.confidence > 0.8 for i in insights)
+        ):
             return "HIGH"
         elif high_count >= 1 or medium_count >= 2:
             return "MEDIUM"
@@ -625,53 +641,65 @@ class ReportGenerator:
             return "MEDIUM"
         else:
             return "LOW"
-    
+
     def _extract_action_items(self, report: AnalysisReport) -> List[Dict[str, str]]:
         """
         Extract prioritized action items from insights and recommendations.
-        
+
         Returns:
             List of action items with priority, action, and source
         """
         import re
-        
+
         actions = []
-        
+
         # Extract from insights' business impacts
         for insight in report.insights:
             impact = insight.business_impact
-            
+
             # Look for action keywords
             action_patterns = [
-                (r'IMMEDIATE[:\s]+(.+?)(?:\.|$)', 'IMMEDIATE'),
-                (r'ACTION[:\s]+(.+?)(?:\.|$)', 'HIGH'),
-                (r'RECOMMENDATION[:\s]+(.+?)(?:\.|$)', 'MEDIUM'),
-                (r'CRITICAL[:\s]+(.+?)(?:\.|$)', 'CRITICAL'),
+                (r"IMMEDIATE[:\s]+(.+?)(?:\.|$)", "IMMEDIATE"),
+                (r"ACTION[:\s]+(.+?)(?:\.|$)", "HIGH"),
+                (r"RECOMMENDATION[:\s]+(.+?)(?:\.|$)", "MEDIUM"),
+                (r"CRITICAL[:\s]+(.+?)(?:\.|$)", "CRITICAL"),
             ]
-            
+
             for pattern, priority in action_patterns:
                 matches = re.findall(pattern, impact, re.IGNORECASE)
                 for match in matches:
-                    actions.append({
-                        'priority': priority,
-                        'action': match.strip(),
-                        'source': f"Insight: {insight.title[:50]}...",
-                        'confidence': insight.confidence
-                    })
-        
+                    actions.append(
+                        {
+                            "priority": priority,
+                            "action": match.strip(),
+                            "source": f"Insight: {insight.title[:50]}...",
+                            "confidence": insight.confidence,
+                        }
+                    )
+
         # Extract from recommendations
         for rec in report.recommendations:
-            actions.append({
-                'priority': rec.priority.upper() if rec.priority else 'MEDIUM',
-                'action': rec.description,
-                'source': f"Recommendation: {rec.title[:50]}...",
-                'confidence': 0.8  # Recommendations generally high confidence
-            })
-        
+            actions.append(
+                {
+                    "priority": rec.priority.upper() if rec.priority else "MEDIUM",
+                    "action": rec.description,
+                    "source": f"Recommendation: {rec.title[:50]}...",
+                    "confidence": 0.8,  # Recommendations generally high confidence
+                }
+            )
+
         # Sort by priority (CRITICAL > IMMEDIATE > HIGH > MEDIUM > LOW)
-        priority_order = {'CRITICAL': 0, 'IMMEDIATE': 1, 'HIGH': 2, 'MEDIUM': 3, 'LOW': 4}
-        actions.sort(key=lambda x: (priority_order.get(x['priority'], 5), -x['confidence']))
-        
+        priority_order = {
+            "CRITICAL": 0,
+            "IMMEDIATE": 1,
+            "HIGH": 2,
+            "MEDIUM": 3,
+            "LOW": 4,
+        }
+        actions.sort(
+            key=lambda x: (priority_order.get(x["priority"], 5), -x["confidence"])
+        )
+
         return actions[:10]  # Top 10 actions
 
     def _generate_batch_summary(
@@ -689,24 +717,24 @@ class ReportGenerator:
     def _pagerank_insights(self, results: List[Dict[str, Any]]) -> List[Insight]:
         """Generate statistical insights for PageRank results."""
         insights = []
-        
+
         if not results:
             return insights
-        
+
         # Extract scores
-        scores = [r.get('result', 0) for r in results if 'result' in r]
+        scores = [r.get("result", 0) for r in results if "result" in r]
         if not scores:
             return insights
-        
+
         # Statistical analysis
         total_score = sum(scores)
         scores_sorted = sorted(scores, reverse=True)
-        
+
         # Insight 1: Influence concentration
         if len(scores_sorted) >= 5:
             top_5_score = sum(scores_sorted[:5])
             top_5_pct = (top_5_score / total_score * 100) if total_score > 0 else 0
-            
+
             insights.append(
                 Insight(
                     title=f"Top 5 Nodes Hold {top_5_pct:.1f}% of Total Influence",
@@ -716,19 +744,21 @@ class ReportGenerator:
                     supporting_data={
                         "top_5_score": top_5_score,
                         "total_score": total_score,
-                        "concentration_pct": top_5_pct
+                        "concentration_pct": top_5_pct,
                     },
                     business_impact=f"{'Focus resources on top 5 nodes - they drive majority of influence' if top_5_pct > 50 else 'Distributed influence allows for broader engagement strategy'}",
                 )
             )
-        
+
         # Insight 2: Top influencer details
         if len(results) > 0:
             top_node = results[0]
-            top_score = top_node.get('result', 0)
-            median_score = scores_sorted[len(scores_sorted)//2] if scores_sorted else 0
+            top_score = top_node.get("result", 0)
+            median_score = (
+                scores_sorted[len(scores_sorted) // 2] if scores_sorted else 0
+            )
             multiplier = (top_score / median_score) if median_score > 0 else 0
-            
+
             insights.append(
                 Insight(
                     title=f"Leading Node {multiplier:.1f}x More Influential Than Median",
@@ -739,12 +769,14 @@ class ReportGenerator:
                     business_impact=f"Prioritize engagement with this node. It has disproportionate network impact. Monitor for single point of failure risk.",
                 )
             )
-        
+
         # Insight 3: Long tail analysis
         if len(scores_sorted) > 10:
-            bottom_50_score = sum(scores_sorted[len(scores_sorted)//2:])
-            bottom_50_pct = (bottom_50_score / total_score * 100) if total_score > 0 else 0
-            
+            bottom_50_score = sum(scores_sorted[len(scores_sorted) // 2 :])
+            bottom_50_pct = (
+                (bottom_50_score / total_score * 100) if total_score > 0 else 0
+            )
+
             if bottom_50_pct < 10:
                 insights.append(
                     Insight(
@@ -770,36 +802,45 @@ class ReportGenerator:
 
         # Count communities/labels and sizes
         from collections import Counter
+
         labels = [r.get("label", 0) for r in results]
         label_counts = Counter(labels)
-        
+
         num_communities = len(label_counts)
         total_nodes = len(results)
-        
+
         insights.append(
             Insight(
                 title=f"Discovered {num_communities} Communities in Network of {total_nodes} Nodes",
                 description=f"Graph contains {num_communities} distinct communities via label propagation across {total_nodes} nodes. Average community size: {total_nodes/num_communities:.1f} nodes.",
                 insight_type=InsightType.PATTERN,
                 confidence=0.9,
-                supporting_data={"community_count": num_communities, "total_nodes": total_nodes},
+                supporting_data={
+                    "community_count": num_communities,
+                    "total_nodes": total_nodes,
+                },
                 business_impact="Target strategies per community segment. Develop community-specific engagement approaches.",
             )
         )
-        
+
         # Analyze community size distribution
         if num_communities > 1:
             sizes = sorted(label_counts.values(), reverse=True)
             largest_community = sizes[0]
-            largest_pct = (largest_community / total_nodes * 100) if total_nodes > 0 else 0
-            
+            largest_pct = (
+                (largest_community / total_nodes * 100) if total_nodes > 0 else 0
+            )
+
             insights.append(
                 Insight(
                     title=f"Largest Community Contains {largest_pct:.1f}% of All Nodes",
                     description=f"The dominant community has {largest_community} nodes ({largest_pct:.1f}% of network). This {'indicates a core group with peripheral communities' if largest_pct > 50 else 'suggests relatively balanced community structure'}.",
                     insight_type=InsightType.PATTERN,
                     confidence=0.88,
-                    supporting_data={"largest_size": largest_community, "largest_pct": largest_pct},
+                    supporting_data={
+                        "largest_size": largest_community,
+                        "largest_pct": largest_pct,
+                    },
                     business_impact=f"{'Focus primary engagement on dominant community while nurturing smaller groups' if largest_pct > 50 else 'Balanced communities allow diverse segmentation strategies'}",
                 )
             )
@@ -815,38 +856,51 @@ class ReportGenerator:
 
         # Count components and analyze sizes
         from collections import Counter
+
         components = [r.get("component", 0) for r in results]
         component_counts = Counter(components)
-        
+
         num_components = len(component_counts)
         total_nodes = len(results)
-        
+
         insights.append(
             Insight(
                 title=f"Found {num_components} Connected Components Across {total_nodes} Nodes",
                 description=f"Graph has {num_components} separate weakly connected components. {'Network is highly fragmented' if num_components > total_nodes * 0.1 else 'Network has good overall connectivity' if num_components < 5 else 'Network has moderate fragmentation'}.",
                 insight_type=InsightType.PATTERN,
                 confidence=0.95,
-                supporting_data={"component_count": num_components, "total_nodes": total_nodes},
+                supporting_data={
+                    "component_count": num_components,
+                    "total_nodes": total_nodes,
+                },
                 business_impact="Identify isolated clusters and network structure. Consider strategies to bridge disconnected components.",
             )
         )
-        
+
         # Analyze component size distribution
         if num_components > 1:
             sizes = sorted(component_counts.values(), reverse=True)
             largest_component = sizes[0]
-            largest_pct = (largest_component / total_nodes * 100) if total_nodes > 0 else 0
+            largest_pct = (
+                (largest_component / total_nodes * 100) if total_nodes > 0 else 0
+            )
             singletons = sum(1 for size in sizes if size == 1)
-            
+
             if singletons > 0:
                 insights.append(
                     Insight(
                         title=f"{singletons} Isolated Nodes Detected ({singletons/total_nodes*100:.1f}% of Network)",
                         description=f"Found {singletons} completely isolated singleton nodes with no connections. Main component contains {largest_component} nodes ({largest_pct:.1f}%). Isolated nodes may indicate data quality issues or new additions.",
-                        insight_type=InsightType.ANOMALY if singletons > total_nodes * 0.05 else InsightType.PATTERN,
+                        insight_type=(
+                            InsightType.ANOMALY
+                            if singletons > total_nodes * 0.05
+                            else InsightType.PATTERN
+                        ),
                         confidence=0.92,
-                        supporting_data={"singletons": singletons, "largest_component": largest_component},
+                        supporting_data={
+                            "singletons": singletons,
+                            "largest_component": largest_component,
+                        },
                         business_impact="Investigate why nodes are isolated - likely onboarding issues or data quality problems. Connect isolated nodes to improve network health.",
                     )
                 )
@@ -862,30 +916,34 @@ class ReportGenerator:
 
         # Count components and analyze sizes
         from collections import Counter
+
         components = [r.get("component", 0) for r in results]
         component_counts = Counter(components)
-        
+
         num_components = len(component_counts)
         total_nodes = len(results)
-        
+
         insights.append(
             Insight(
                 title=f"Found {num_components} Strongly Connected Components with Bidirectional Paths",
                 description=f"Graph has {num_components} strongly connected components where all nodes can reach each other via directed paths. Average component size: {total_nodes/num_components:.1f} nodes.",
                 insight_type=InsightType.PATTERN,
                 confidence=0.95,
-                supporting_data={"scc_count": num_components, "total_nodes": total_nodes},
+                supporting_data={
+                    "scc_count": num_components,
+                    "total_nodes": total_nodes,
+                },
                 business_impact="Understand reciprocal relationships and cycles. SCCs indicate mutual dependencies and feedback loops.",
             )
         )
-        
+
         # Analyze SCC size distribution
         if num_components > 1:
             sizes = sorted(component_counts.values(), reverse=True)
             largest_scc = sizes[0]
             largest_pct = (largest_scc / total_nodes * 100) if total_nodes > 0 else 0
             singletons = sum(1 for size in sizes if size == 1)
-            
+
             if largest_pct > 30:
                 insights.append(
                     Insight(
@@ -893,7 +951,11 @@ class ReportGenerator:
                         description=f"The largest strongly connected component has {largest_scc} nodes ({largest_pct:.1f}%). This indicates a core group with strong mutual dependencies and potential feedback loops. {singletons} nodes have no bidirectional connections.",
                         insight_type=InsightType.PATTERN,
                         confidence=0.88,
-                        supporting_data={"largest_scc": largest_scc, "largest_pct": largest_pct, "singletons": singletons},
+                        supporting_data={
+                            "largest_scc": largest_scc,
+                            "largest_pct": largest_pct,
+                            "singletons": singletons,
+                        },
                         business_impact="Core SCC represents tightly coupled system components. Changes propagate throughout this group. Consider resilience to cascading failures.",
                     )
                 )
@@ -910,17 +972,17 @@ class ReportGenerator:
         # Extract betweenness scores
         betweenness_scores = [(r.get("_key"), r.get("betweenness", 0)) for r in results]
         betweenness_scores.sort(key=lambda x: x[1], reverse=True)
-        
+
         if betweenness_scores:
             # Find highest betweenness nodes
             top_nodes = betweenness_scores[:5]
             top_score = top_nodes[0][1]
-            
+
             # Calculate statistics
             all_scores = [score for _, score in betweenness_scores]
             avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
-            median_score = all_scores[len(all_scores)//2] if all_scores else 0
-            
+            median_score = all_scores[len(all_scores) // 2] if all_scores else 0
+
             # Count critical bridges (significantly above average)
             critical_bridges = sum(1 for score in all_scores if score > avg_score * 3)
 
@@ -934,18 +996,22 @@ class ReportGenerator:
                         "top_bridge_nodes": [n[0] for n in top_nodes],
                         "critical_count": critical_bridges,
                         "top_score": top_score,
-                        "median_score": median_score
+                        "median_score": median_score,
                     },
                     business_impact="These bridge nodes are organizational bottlenecks. Network flow depends on them. Ensure redundancy, document their role, and plan for succession. If they fail, connectivity breaks.",
                 )
             )
-            
+
             # Analyze concentration
             if len(all_scores) >= 10:
                 top_5_betweenness = sum([score for _, score in top_nodes])
                 total_betweenness = sum(all_scores)
-                top_5_pct = (top_5_betweenness / total_betweenness * 100) if total_betweenness > 0 else 0
-                
+                top_5_pct = (
+                    (top_5_betweenness / total_betweenness * 100)
+                    if total_betweenness > 0
+                    else 0
+                )
+
                 if top_5_pct > 50:
                     insights.append(
                         Insight(
@@ -1139,28 +1205,30 @@ Focus on:
     ) -> List[Insight]:
         """
         Generate insights using LLM with chain-of-thought reasoning.
-        
+
         This variant asks the LLM to show its reasoning process before
         generating insights, improving quality and explainability.
         """
         try:
             job = execution_result.job
             results_sample = execution_result.results[:10]
-            
+
             # Modified prompt with reasoning chain
-            reasoning_prompt = self._create_reasoning_prompt(job, results_sample, context)
-            
+            reasoning_prompt = self._create_reasoning_prompt(
+                job, results_sample, context
+            )
+
             # Get LLM analysis with reasoning
             response = self.llm_provider.generate(reasoning_prompt)
-            
+
             # Parse response (includes reasoning + insights)
             insights = self._parse_llm_insights_with_reasoning(response.content)
-            
+
             # Validate
             insights = self._validate_insights(insights)
-            
+
             return insights
-            
+
         except Exception as e:
             print(f"LLM insight generation with reasoning failed: {e}")
             return self._generate_insights_heuristic(execution_result)
@@ -1172,10 +1240,10 @@ Focus on:
         context: Optional[Dict[str, Any]],
     ) -> str:
         """Create prompt that requests chain-of-thought reasoning."""
-        
+
         # Get base prompt components
         base_prompt = self._create_insight_prompt(job, results_sample, context)
-        
+
         # Add reasoning instructions
         reasoning_instructions = """
 
@@ -1221,18 +1289,18 @@ Now provide 3-5 insights following the format below.
 - Title: [next insight...]
   ...
 """
-        
+
         return base_prompt + reasoning_instructions
-    
+
     def _parse_llm_insights_with_reasoning(self, llm_response: str) -> List[Insight]:
         """
         Parse LLM response that includes reasoning section.
-        
+
         Extracts both the reasoning and the insights, storing reasoning
         for potential future use.
         """
         import re
-        
+
         # Try to separate reasoning from insights
         insights_section = llm_response
         if "## Insights:" in llm_response:
@@ -1243,14 +1311,14 @@ Now provide 3-5 insights following the format below.
             parts = llm_response.split("# Insights", 1)
             if len(parts) == 2:
                 insights_section = parts[1]
-        
+
         # Use standard parsing on insights section
         return self._parse_llm_insights(insights_section)
 
     def _parse_llm_insights(self, llm_response: str) -> List[Insight]:
         """
         Parse LLM response into insight objects with multiple fallback strategies.
-        
+
         Strategies (in order):
         1. Structured format (Title:/Description:/Business Impact:/Confidence:)
         2. Numbered sections (# Insight 1 (PageRank):)
@@ -1258,34 +1326,41 @@ Now provide 3-5 insights following the format below.
         4. Create generic insight with raw content
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         # Strategy 1: Try structured format (existing logic)
         insights = self._parse_structured_format(llm_response)
         if insights:
-            logger.debug(f"Successfully parsed {len(insights)} insights using structured format")
+            logger.debug(
+                f"Successfully parsed {len(insights)} insights using structured format"
+            )
             return insights
-        
+
         # Strategy 2: Try numbered sections format
         insights = self._parse_numbered_sections(llm_response)
         if insights:
-            logger.info(f"Successfully parsed {len(insights)} insights using numbered sections format")
+            logger.info(
+                f"Successfully parsed {len(insights)} insights using numbered sections format"
+            )
             return insights
-        
+
         # Strategy 3: Re-prompt LLM to reformat (if we have LLM available)
         if self.llm_provider:
             try:
                 insights = self._reformat_and_parse(llm_response)
                 if insights:
-                    logger.info(f"Successfully parsed {len(insights)} insights after re-prompting")
+                    logger.info(
+                        f"Successfully parsed {len(insights)} insights after re-prompting"
+                    )
                     return insights
             except Exception as e:
                 logger.warning(f"Re-prompting failed: {e}")
-        
+
         # Strategy 4: Final fallback - create generic insight
         logger.error("All parsing strategies failed, using fallback generic insight")
         return self._create_generic_insight(llm_response)
-    
+
     def _parse_structured_format(self, llm_response: str) -> List[Insight]:
         """
         Parse structured format:
@@ -1295,51 +1370,64 @@ Now provide 3-5 insights following the format below.
           Confidence: [0.0-1.0]
         """
         import re
-        
+
         insights = []
-        lines = llm_response.strip().split('\n')
-        
+        lines = llm_response.strip().split("\n")
+
         current_insight = {}
         current_field = None
-        
+
         for line in lines:
             line = line.strip()
-            
+
             # Match "- Title:" or "Title:" or "1. Title:"
-            if re.match(r'^[-\d.]*\s*Title:', line, re.IGNORECASE):
+            if re.match(r"^[-\d.]*\s*Title:", line, re.IGNORECASE):
                 # Save previous insight if exists
                 if current_insight:
                     insights.append(self._create_insight_from_dict(current_insight))
-                current_insight = {'title': re.sub(r'^[-\d.]*\s*Title:\s*', '', line, flags=re.IGNORECASE)}
-                current_field = 'title'
-                
-            elif re.match(r'^\s*Description:', line, re.IGNORECASE):
-                current_insight['description'] = re.sub(r'^\s*Description:\s*', '', line, flags=re.IGNORECASE)
-                current_field = 'description'
-                
-            elif re.match(r'^\s*Business Impact:', line, re.IGNORECASE):
-                current_insight['business_impact'] = re.sub(r'^\s*Business Impact:\s*', '', line, flags=re.IGNORECASE)
-                current_field = 'business_impact'
-                
-            elif re.match(r'^\s*Confidence:', line, re.IGNORECASE):
-                conf_str = re.sub(r'^\s*Confidence:\s*', '', line, flags=re.IGNORECASE)
+                current_insight = {
+                    "title": re.sub(
+                        r"^[-\d.]*\s*Title:\s*", "", line, flags=re.IGNORECASE
+                    )
+                }
+                current_field = "title"
+
+            elif re.match(r"^\s*Description:", line, re.IGNORECASE):
+                current_insight["description"] = re.sub(
+                    r"^\s*Description:\s*", "", line, flags=re.IGNORECASE
+                )
+                current_field = "description"
+
+            elif re.match(r"^\s*Business Impact:", line, re.IGNORECASE):
+                current_insight["business_impact"] = re.sub(
+                    r"^\s*Business Impact:\s*", "", line, flags=re.IGNORECASE
+                )
+                current_field = "business_impact"
+
+            elif re.match(r"^\s*Confidence:", line, re.IGNORECASE):
+                conf_str = re.sub(r"^\s*Confidence:\s*", "", line, flags=re.IGNORECASE)
                 try:
-                    current_insight['confidence'] = float(conf_str)
+                    current_insight["confidence"] = float(conf_str)
                 except:
-                    current_insight['confidence'] = 0.7
-                current_field = 'confidence'
-                
-            elif line and current_field and not line.startswith('-') and not line.startswith('#'):
+                    current_insight["confidence"] = 0.7
+                current_field = "confidence"
+
+            elif (
+                line
+                and current_field
+                and not line.startswith("-")
+                and not line.startswith("#")
+            ):
                 # Continuation of current field
                 if current_field in current_insight:
-                    current_insight[current_field] += ' ' + line
-        
+                    current_insight[current_field] += " " + line
+
         # Don't forget last insight
         if current_insight:
             insights.append(self._create_insight_from_dict(current_insight))
-        
+
         return insights
-    
+
     def _parse_numbered_sections(self, llm_response: str) -> List[Insight]:
         """
         Parse numbered sections format like:
@@ -1350,53 +1438,64 @@ Now provide 3-5 insights following the format below.
           **Confidence**: 0.94
         """
         import re
-        
+
         insights = []
-        
+
         # Split by insight headers (# Insight 1, # Insight 2, etc)
-        insight_pattern = r'#\s*Insight\s*\d+[^:]*:'
+        insight_pattern = r"#\s*Insight\s*\d+[^:]*:"
         sections = re.split(insight_pattern, llm_response)
-        
+
         # Skip first section (usually intro text)
         for section in sections[1:]:
             insight_data = {}
-            
+
             # Extract title (look for **Title: or - **Title:)
-            title_match = re.search(r'\*\*Title:\s*([^\*\n]+)', section, re.IGNORECASE)
+            title_match = re.search(r"\*\*Title:\s*([^\*\n]+)", section, re.IGNORECASE)
             if title_match:
-                insight_data['title'] = title_match.group(1).strip()
-            
+                insight_data["title"] = title_match.group(1).strip()
+
             # Extract description
-            desc_match = re.search(r'\*\*Description\*\*:\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)', section, re.IGNORECASE)
+            desc_match = re.search(
+                r"\*\*Description\*\*:\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)",
+                section,
+                re.IGNORECASE,
+            )
             if desc_match:
-                insight_data['description'] = desc_match.group(1).strip()
-            
+                insight_data["description"] = desc_match.group(1).strip()
+
             # Extract business impact
-            impact_match = re.search(r'\*\*Business Impact\*\*:\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)', section, re.IGNORECASE)
+            impact_match = re.search(
+                r"\*\*Business Impact\*\*:\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)",
+                section,
+                re.IGNORECASE,
+            )
             if impact_match:
-                insight_data['business_impact'] = impact_match.group(1).strip()
-            
+                insight_data["business_impact"] = impact_match.group(1).strip()
+
             # Extract confidence
-            conf_match = re.search(r'\*\*Confidence\*\*:\s*([\d.]+)', section, re.IGNORECASE)
+            conf_match = re.search(
+                r"\*\*Confidence\*\*:\s*([\d.]+)", section, re.IGNORECASE
+            )
             if conf_match:
                 try:
-                    insight_data['confidence'] = float(conf_match.group(1))
+                    insight_data["confidence"] = float(conf_match.group(1))
                 except:
-                    insight_data['confidence'] = 0.7
-            
+                    insight_data["confidence"] = 0.7
+
             # Only add if we have at least title and description
-            if 'title' in insight_data and 'description' in insight_data:
+            if "title" in insight_data and "description" in insight_data:
                 insights.append(self._create_insight_from_dict(insight_data))
-        
+
         return insights
-    
+
     def _reformat_and_parse(self, llm_response: str) -> List[Insight]:
         """
         Ask LLM to reformat its response into structured format.
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
+
         reformat_prompt = f"""The following analysis needs to be reformatted into a structured format.
 
 Extract insights from this text and reformat as:
@@ -1421,25 +1520,28 @@ Provide ONLY the reformatted insights, nothing else."""
                 prompt=reformat_prompt,
                 system_prompt="You are a data analyst that extracts and structures insights.",
                 max_tokens=1500,
-                temperature=0.3
+                temperature=0.3,
             )
-            
+
             # Try parsing the reformatted response
             return self._parse_structured_format(response.content)
         except Exception as e:
             logger.warning(f"Reformatting attempt failed: {e}")
             return []
-    
+
     def _create_generic_insight(self, llm_response: str) -> List[Insight]:
         """
         Fallback: Create a generic insight with the raw LLM output.
         This preserves content but flags it as low confidence.
         """
         import logging
+
         logger = logging.getLogger(__name__)
-        
-        logger.error(f"Creating generic fallback insight for unparseable response: {llm_response[:200]}...")
-        
+
+        logger.error(
+            f"Creating generic fallback insight for unparseable response: {llm_response[:200]}..."
+        )
+
         return [
             Insight(
                 title="Analysis Results (Unparsed)",
@@ -1449,26 +1551,33 @@ Provide ONLY the reformatted insights, nothing else."""
                 business_impact="Further analysis recommended. Note: This insight could not be automatically parsed.",
             )
         ]
-    
+
     def _create_insight_from_dict(self, insight_dict: Dict[str, Any]) -> Insight:
         """Create Insight object from parsed dictionary."""
         return Insight(
-            title=insight_dict.get('title', 'Insight'),
-            description=insight_dict.get('description', ''),
-            insight_type=self._infer_insight_type(insight_dict.get('title', '')),
-            confidence=insight_dict.get('confidence', 0.7),
-            business_impact=insight_dict.get('business_impact', 'Requires further analysis'),
+            title=insight_dict.get("title", "Insight"),
+            description=insight_dict.get("description", ""),
+            insight_type=self._infer_insight_type(insight_dict.get("title", "")),
+            confidence=insight_dict.get("confidence", 0.7),
+            business_impact=insight_dict.get(
+                "business_impact", "Requires further analysis"
+            ),
         )
-    
+
     def _infer_insight_type(self, title: str) -> InsightType:
         """Infer insight type from title."""
         title_lower = title.lower()
-        
-        if any(word in title_lower for word in ['anomaly', 'unusual', 'unexpected', 'outlier']):
+
+        if any(
+            word in title_lower
+            for word in ["anomaly", "unusual", "unexpected", "outlier"]
+        ):
             return InsightType.ANOMALY
-        elif any(word in title_lower for word in ['pattern', 'trend', 'distribution']):
+        elif any(word in title_lower for word in ["pattern", "trend", "distribution"]):
             return InsightType.PATTERN
-        elif any(word in title_lower for word in ['correlation', 'relationship', 'connected']):
+        elif any(
+            word in title_lower for word in ["correlation", "relationship", "connected"]
+        ):
             return InsightType.CORRELATION
         else:
             return InsightType.KEY_FINDING

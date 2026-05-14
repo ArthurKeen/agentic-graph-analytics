@@ -311,9 +311,7 @@ Your goal: Transform business needs into structured requirements."""
             try:
                 self._track_requirements(requirements)
             except Exception as e:
-                self.log(
-                    f"Failed to track requirements in catalog: {e}", "warning"
-                )
+                self.log(f"Failed to track requirements in catalog: {e}", "warning")
 
         self.log(
             f"Extracted: {len(requirements.objectives)} objectives, "
@@ -399,9 +397,7 @@ Your goal: Transform business needs into structured requirements."""
             try:
                 await self._track_requirements_async(requirements)
             except Exception as e:
-                self.log(
-                    f"Failed to track requirements in catalog: {e}", "warning"
-                )
+                self.log(f"Failed to track requirements in catalog: {e}", "warning")
 
         self.log(
             f"Extracted: {len(requirements.objectives)} objectives, "
@@ -503,7 +499,9 @@ Your goal: Generate actionable analytics use cases."""
         # Opt-in Discovery Mode: add a deterministic unknown-unknowns bundle first
         if state.metadata.get("discovery_mode"):
             try:
-                from ..generation.discovery_use_cases import generate_discovery_use_cases
+                from ..generation.discovery_use_cases import (
+                    generate_discovery_use_cases,
+                )
 
                 discovery_cases = generate_discovery_use_cases(
                     state.schema, state.schema_analysis
@@ -560,7 +558,9 @@ Your goal: Generate actionable analytics use cases."""
 
         if state.metadata.get("discovery_mode"):
             try:
-                from ..generation.discovery_use_cases import generate_discovery_use_cases
+                from ..generation.discovery_use_cases import (
+                    generate_discovery_use_cases,
+                )
 
                 discovery_cases = generate_discovery_use_cases(
                     state.schema, state.schema_analysis
@@ -1019,8 +1019,8 @@ Transform technical graph analysis results into actionable business intelligence
 Remember: Business stakeholders need insights they can act on immediately, not just interesting observations."""
 
     def __init__(
-        self, 
-        llm_provider: LLMProvider, 
+        self,
+        llm_provider: LLMProvider,
         trace_collector: Optional[Any] = None,
         industry: str = "generic",
         catalog: Optional[Any] = None,
@@ -1028,7 +1028,7 @@ Remember: Business stakeholders need insights they can act on immediately, not j
     ):
         """
         Initialize ReportingAgent with industry-specific configuration.
-        
+
         Args:
             llm_provider: LLM provider for generating insights
             trace_collector: Optional trace collector for monitoring
@@ -1037,11 +1037,11 @@ Remember: Business stakeholders need insights they can act on immediately, not j
         """
         # Import industry prompts
         from ..reporting.prompts import get_industry_prompt
-        
+
         # Get industry-specific prompt and prepend to system prompt
         industry_context = get_industry_prompt(industry)
         combined_prompt = f"{industry_context}\n\n{self.SYSTEM_PROMPT}"
-        
+
         super().__init__(
             agent_type=AgentType.REPORTING,
             name=AgentNames.REPORTING_SPECIALIST,
@@ -1049,14 +1049,12 @@ Remember: Business stakeholders need insights they can act on immediately, not j
             system_prompt=combined_prompt,
             trace_collector=trace_collector,
         )
-        
+
         self.industry = industry
         self.catalog = catalog
         self.db = db_connection
         self.generator = ReportGenerator(
-            llm_provider, 
-            use_llm_interpretation=True,
-            industry=industry
+            llm_provider, use_llm_interpretation=True, industry=industry
         )
 
     @handle_agent_errors
@@ -1303,7 +1301,9 @@ Remember: Business stakeholders need insights they can act on immediately, not j
         # Baseline comparisons are I/O heavy (catalog + DB); do them after report generation
         if baseline_epoch_id and self.catalog and self.db:
             try:
-                from ..reporting.baseline_comparison import compare_against_baseline_epoch
+                from ..reporting.baseline_comparison import (
+                    compare_against_baseline_epoch,
+                )
 
                 for idx, result in enumerate(successful_results):
                     try:
@@ -1317,7 +1317,9 @@ Remember: Business stakeholders need insights they can act on immediately, not j
                             ),
                         )
                         if comparison and comparison.insights:
-                            reports[idx].insights = comparison.insights + reports[idx].insights
+                            reports[idx].insights = (
+                                comparison.insights + reports[idx].insights
+                            )
                         if comparison:
                             reports[idx].metadata["baseline_comparison"] = {
                                 "baseline_epoch_id": str(baseline_epoch_id),

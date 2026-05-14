@@ -1,6 +1,10 @@
 """Unit tests for product service factories."""
 
-from graph_analytics_ai.product import ProductRepository, ProductService, create_product_service
+from graph_analytics_ai.product import (
+    ProductRepository,
+    ProductService,
+    create_product_service,
+)
 
 
 def test_create_product_service_uses_injected_repository():

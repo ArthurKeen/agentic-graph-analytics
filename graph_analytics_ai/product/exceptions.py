@@ -29,4 +29,3 @@ class ConflictError(ProductError):
     transitions and a UI-driven write would race with the
     ``StepStatusReporter``. The FastAPI adapter maps this to HTTP 409.
     """
-

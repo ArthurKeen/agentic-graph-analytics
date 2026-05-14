@@ -3,4 +3,3 @@
 from .arangodb import ProductArangoStorage
 
 __all__ = ["ProductArangoStorage"]
-

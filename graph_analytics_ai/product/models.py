@@ -204,8 +204,13 @@ def validate_no_secret_values(payload: Dict[str, Any], path: str = "") -> None:
         if normalized in {"secret_refs", "secret_ref"}:
             continue
 
-        if any(secret_key == normalized or normalized.endswith(f"_{secret_key}") for secret_key in FORBIDDEN_SECRET_KEYS):
-            raise ValidationError(f"Secret-like field is not allowed in product metadata: {current_path}")
+        if any(
+            secret_key == normalized or normalized.endswith(f"_{secret_key}")
+            for secret_key in FORBIDDEN_SECRET_KEYS
+        ):
+            raise ValidationError(
+                f"Secret-like field is not allowed in product metadata: {current_path}"
+            )
 
         if isinstance(value, dict):
             validate_no_secret_values(value, current_path)
@@ -281,7 +286,9 @@ class ConnectionProfile:
     verify_ssl: bool = True
     secret_refs: Dict[str, Dict[str, str]] = field(default_factory=dict)
     last_verified_at: Optional[datetime] = None
-    last_verification_status: ConnectionVerificationStatus = ConnectionVerificationStatus.UNKNOWN
+    last_verification_status: ConnectionVerificationStatus = (
+        ConnectionVerificationStatus.UNKNOWN
+    )
     metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=current_timestamp)
     updated_at: datetime = field(default_factory=current_timestamp)
@@ -399,7 +406,9 @@ class GraphProfile:
             # v0.5 documents that never carried them are not bloated
             # with explicit ``null`` keys.
             **(
-                {"schema_kind": self.schema_kind} if self.schema_kind is not None else {}
+                {"schema_kind": self.schema_kind}
+                if self.schema_kind is not None
+                else {}
             ),
             **(
                 {"graph_purpose": self.graph_purpose}
@@ -440,7 +449,9 @@ class GraphProfile:
             connection_profile_id=data["connection_profile_id"],
             graph_name=data["graph_name"],
             version=data.get("version", 1),
-            status=GraphProfileStatus(data.get("status", GraphProfileStatus.DRAFT.value)),
+            status=GraphProfileStatus(
+                data.get("status", GraphProfileStatus.DRAFT.value)
+            ),
             schema_hash=data.get("schema_hash"),
             vertex_collections=data.get("vertex_collections", []),
             edge_collections=data.get("edge_collections", []),
@@ -601,8 +612,7 @@ class GraphSet:
             description=data.get("description"),
             graph_profile_ids=list(data.get("graph_profile_ids", [])),
             cross_graph_links=[
-                CrossGraphLink.from_dict(d)
-                for d in data.get("cross_graph_links", [])
+                CrossGraphLink.from_dict(d) for d in data.get("cross_graph_links", [])
             ],
             primary_graph_profile_id=data.get("primary_graph_profile_id"),
             created_at=datetime.fromisoformat(data["created_at"]),
@@ -800,7 +810,8 @@ class RequirementInterview:
         """Create an interview from an ArangoDB document."""
 
         return cls(
-            requirement_interview_id=data.get("requirement_interview_id") or data["_key"],
+            requirement_interview_id=data.get("requirement_interview_id")
+            or data["_key"],
             workspace_id=data["workspace_id"],
             graph_profile_id=data["graph_profile_id"],
             status=RequirementInterviewStatus(
@@ -941,7 +952,9 @@ class WorkflowStep:
         return cls(
             step_id=data["step_id"],
             label=data["label"],
-            status=WorkflowStepStatus(data.get("status", WorkflowStepStatus.PENDING.value)),
+            status=WorkflowStepStatus(
+                data.get("status", WorkflowStepStatus.PENDING.value)
+            ),
             agent_name=data.get("agent_name"),
             started_at=_datetime_from_str(data.get("started_at")),
             completed_at=_datetime_from_str(data.get("completed_at")),
@@ -1051,7 +1064,9 @@ class WorkflowRun:
             run_id=data.get("run_id") or data["_key"],
             workspace_id=data["workspace_id"],
             workflow_mode=WorkflowMode(data["workflow_mode"]),
-            status=WorkflowRunStatus(data.get("status", WorkflowRunStatus.QUEUED.value)),
+            status=WorkflowRunStatus(
+                data.get("status", WorkflowRunStatus.QUEUED.value)
+            ),
             requirement_version_id=data.get("requirement_version_id"),
             graph_profile_id=data.get("graph_profile_id"),
             template_ids=data.get("template_ids", []),
@@ -1614,4 +1629,3 @@ def create_audit_event(
         target_id=target_id,
         **kwargs,
     )
-

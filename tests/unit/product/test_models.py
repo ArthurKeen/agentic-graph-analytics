@@ -336,4 +336,3 @@ def test_published_snapshot_and_audit_event_round_trip():
     assert restored_snapshot.export_uris["pdf"] == "s3://bucket/report.pdf"
     assert restored_event.action == "publish_report"
     assert restored_event.details["snapshot_id"] == snapshot.published_snapshot_id
-

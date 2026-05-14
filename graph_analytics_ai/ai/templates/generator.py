@@ -19,7 +19,6 @@ from .models import (
     recommend_engine_size,
 )
 
-
 # Mapping from use case types to algorithm types
 # Only includes algorithms that are actually supported by GAE
 USE_CASE_TO_ALGORITHM = {
@@ -439,10 +438,7 @@ class TemplateGenerator:
                 continue
             # Only project for collections actually requested by the
             # template — don't materialize collections nobody asked for.
-            if (
-                wanted_vertex_collections
-                and source not in wanted_vertex_collections
-            ):
+            if wanted_vertex_collections and source not in wanted_vertex_collections:
                 continue
             target = self._projection_collection_name(source, field_name, str(value))
             projections.append(
@@ -526,7 +522,7 @@ class TemplateGenerator:
                 f"FILTER doc.`{field}` == @value "
                 f"UPSERT {{ _key: doc._key }} "
                 f"INSERT {{ _key: doc._key, _from: doc._from, _to: doc._to, "
-                f"_source: \"{source}\", _logical_type: @value }} "
+                f'_source: "{source}", _logical_type: @value }} '
                 f"UPDATE {{ _from: doc._from, _to: doc._to, "
                 f"_logical_type: @value }} "
                 f"IN `{target}`"

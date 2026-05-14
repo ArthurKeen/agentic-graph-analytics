@@ -21,7 +21,6 @@ from graph_analytics_ai.ai.templates.models import (
     TemplateConfig,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -289,9 +288,7 @@ class TestPlanLpgProjections:
         assert name.startswith("_proj_")
 
     def test_collection_name_is_truncated_to_64_chars(self) -> None:
-        name = TemplateGenerator._projection_collection_name(
-            "a" * 200, "f", "v"
-        )
+        name = TemplateGenerator._projection_collection_name("a" * 200, "f", "v")
         assert len(name) <= 64
 
 

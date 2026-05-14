@@ -132,7 +132,9 @@ class GraphPurposeResult:
             "purpose": self.purpose,
             "confidence": round(self.confidence, 3),
             "reasons": list(self.reasons),
-            "per_rule_scores": {k: round(v, 3) for k, v in self.per_rule_scores.items()},
+            "per_rule_scores": {
+                k: round(v, 3) for k, v in self.per_rule_scores.items()
+            },
             "detected_collections": {
                 k: list(v) for k, v in self.detected_collections.items()
             },
@@ -251,9 +253,7 @@ def _score_corpus(inv: _Inventory) -> Tuple[float, List[str], List[str]]:
         reasons.append("found Chunks collection (corpus subdivision)")
     if edge_hits:
         score += 0.20
-        reasons.append(
-            f"found corpus structural edge(s): {sorted(edge_hits)}"
-        )
+        reasons.append(f"found corpus structural edge(s): {sorted(edge_hits)}")
     if score > 1.0:
         score = 1.0
     detected = sorted(hits | edge_hits)
@@ -271,7 +271,10 @@ def _score_knowledge_graph(inv: _Inventory) -> Tuple[float, List[str], List[str]
         # Fall back to logical-name match so a curated ontology that uses
         # collection names like ``Person``, ``Org``, ``Skill`` and
         # discriminator-style edges still scores.
-        if len(inv.entity_logical_names) >= 3 and len(inv.relationship_logical_names) >= 2:
+        if (
+            len(inv.entity_logical_names) >= 3
+            and len(inv.relationship_logical_names) >= 2
+        ):
             return (
                 0.45,
                 [
@@ -287,24 +290,16 @@ def _score_knowledge_graph(inv: _Inventory) -> Tuple[float, List[str], List[str]
     reasons: List[str] = []
     if entity_hits:
         score += 0.45
-        reasons.append(
-            f"found Entities-style collection(s): {sorted(entity_hits)}"
-        )
+        reasons.append(f"found Entities-style collection(s): {sorted(entity_hits)}")
     if rel_hits:
         score += 0.40
-        reasons.append(
-            f"found Relationships-style collection(s): {sorted(rel_hits)}"
-        )
+        reasons.append(f"found Relationships-style collection(s): {sorted(rel_hits)}")
     if community_hits:
         score += 0.10
-        reasons.append(
-            f"found Communities collection(s): {sorted(community_hits)}"
-        )
+        reasons.append(f"found Communities collection(s): {sorted(community_hits)}")
     if bridge_hits:
         score += 0.10
-        reasons.append(
-            f"found KG bridge edge(s): {sorted(bridge_hits)}"
-        )
+        reasons.append(f"found KG bridge edge(s): {sorted(bridge_hits)}")
     if score > 1.0:
         score = 1.0
     detected = sorted(entity_hits | rel_hits | community_hits | bridge_hits)
@@ -361,9 +356,7 @@ def _score_analytics(inv: _Inventory) -> Tuple[float, List[str], List[str]]:
         return 0.0, [], []
 
     score = min(0.30 + 0.20 * len(matches), 1.0)
-    reasons = [
-        f"matched analytics naming pattern(s) in: {sorted(matches)}"
-    ]
+    reasons = [f"matched analytics naming pattern(s) in: {sorted(matches)}"]
     return score, reasons, sorted(matches)
 
 

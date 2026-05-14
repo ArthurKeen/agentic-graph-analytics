@@ -43,14 +43,20 @@ def connect_arango_database(
     client = client_factory(hosts=endpoint)
 
     if verify_system:
-        sys_db = client.db("_system", username=username, password=password, verify=verify)
+        sys_db = client.db(
+            "_system", username=username, password=password, verify=verify
+        )
         try:
             sys_db.version()
             print(f"✓ Successfully connected to ArangoDB at {endpoint}")
         except Exception as e:
             error_msg = str(e).replace(str(password), "***MASKED***")
             error_str = str(e).lower()
-            if "401" in error_str or "not authorized" in error_str or "err 11" in error_str:
+            if (
+                "401" in error_str
+                or "not authorized" in error_str
+                or "err 11" in error_str
+            ):
                 enhanced_msg = (
                     f"Failed to connect to ArangoDB: {error_msg}\n\n"
                     f"Authorization Error Detected\n\n"
@@ -84,8 +90,14 @@ def connect_arango_database(
             raise
         except Exception as e:
             error_str = str(e).lower()
-            if "401" in error_str or "not authorized" in error_str or "err 11" in error_str:
-                print("Warning: Cannot list databases (user may have limited permissions)")
+            if (
+                "401" in error_str
+                or "not authorized" in error_str
+                or "err 11" in error_str
+            ):
+                print(
+                    "Warning: Cannot list databases (user may have limited permissions)"
+                )
                 print(f"   Attempting direct connection to '{database}' database...")
             else:
                 print(f"Warning: Could not verify database existence: {e}")

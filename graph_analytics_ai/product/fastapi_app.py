@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from .api import PRODUCT_API_ENDPOINTS, ProductAPIDispatcher, ProductAPIEndpoint
 from .factory import create_product_service
 
-
 logger = logging.getLogger(__name__)
 
 # Default origins permitted by the API when no override is supplied. Covers the
@@ -202,9 +201,7 @@ def _make_route_handler(
                 content=result.content,
                 media_type=result.media_type,
                 headers={
-                    "Content-Disposition": (
-                        f'attachment; filename="{result.filename}"'
-                    )
+                    "Content-Disposition": (f'attachment; filename="{result.filename}"')
                 },
             )
 

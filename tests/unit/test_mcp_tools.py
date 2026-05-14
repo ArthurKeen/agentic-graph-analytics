@@ -8,10 +8,10 @@ connection or LLM API key is required.
 from unittest.mock import MagicMock, patch
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # graph.py tools
 # ---------------------------------------------------------------------------
+
 
 class TestGraphTools:
     def test_get_connection_info(self):
@@ -26,6 +26,7 @@ class TestGraphTools:
         ) as mock_info:
             # Import lazily to avoid FastMCP import at collection time
             from graph_analytics_ai.mcp.tools.graph import get_connection_info as tool
+
             mock_info.return_value = expected
             # Call the inner function directly (bypass MCP decorator)
             result = tool.__wrapped__() if hasattr(tool, "__wrapped__") else tool()
@@ -35,8 +36,11 @@ class TestGraphTools:
         fake_db = MagicMock()
         fake_db.graphs.return_value = [{"name": "graph_a"}, {"name": "graph_b"}]
 
-        with patch("graph_analytics_ai.mcp.tools.graph.get_db_connection", return_value=fake_db):
+        with patch(
+            "graph_analytics_ai.mcp.tools.graph.get_db_connection", return_value=fake_db
+        ):
             from graph_analytics_ai.mcp.tools import graph as graph_mod
+
             # Call underlying logic directly
             db = fake_db
             graphs = db.graphs()
@@ -55,7 +59,9 @@ class TestGraphTools:
         fake_db = MagicMock()
         fake_db.graph.return_value = fake_graph
 
-        with patch("graph_analytics_ai.mcp.tools.graph.get_db_connection", return_value=fake_db):
+        with patch(
+            "graph_analytics_ai.mcp.tools.graph.get_db_connection", return_value=fake_db
+        ):
             db = fake_db
             graph = db.graph("my_graph")
             props = graph.properties()
@@ -74,6 +80,7 @@ class TestGraphTools:
 # workflow.py tools
 # ---------------------------------------------------------------------------
 
+
 class TestWorkflowTools:
     def test_start_workflow_returns_job_id(self):
         from graph_analytics_ai.mcp.tools import workflow as wf_mod
@@ -82,7 +89,9 @@ class TestWorkflowTools:
             mock_thread = MagicMock()
             mock_threading.Thread.return_value = mock_thread
 
-            result = wf_mod.start_workflow(graph_name="test_graph", max_executions=2, parallel=False)
+            result = wf_mod.start_workflow(
+                graph_name="test_graph", max_executions=2, parallel=False
+            )
 
             assert result["status"] == "running"
             assert result["graph_name"] == "test_graph"
@@ -119,8 +128,18 @@ class TestWorkflowTools:
         from graph_analytics_ai.mcp.tools import workflow as wf_mod
 
         original = dict(wf_mod._JOBS)
-        wf_mod._JOBS["job-a"] = {"status": "completed", "result": {}, "error": None, "graph_name": "g1"}
-        wf_mod._JOBS["job-b"] = {"status": "running", "result": None, "error": None, "graph_name": "g2"}
+        wf_mod._JOBS["job-a"] = {
+            "status": "completed",
+            "result": {},
+            "error": None,
+            "graph_name": "g1",
+        }
+        wf_mod._JOBS["job-b"] = {
+            "status": "running",
+            "result": None,
+            "error": None,
+            "graph_name": "g2",
+        }
 
         jobs = wf_mod.list_workflow_jobs()
         ids = [j["job_id"] for j in jobs]
@@ -136,6 +155,7 @@ class TestWorkflowTools:
 # catalog.py tools
 # ---------------------------------------------------------------------------
 
+
 class TestCatalogTools:
     def _make_storage_and_catalog(self):
         mock_storage = MagicMock()
@@ -146,8 +166,12 @@ class TestCatalogTools:
         mock_catalog = MagicMock()
         mock_catalog.get_epoch.return_value = None
 
-        with patch("graph_analytics_ai.mcp.tools.catalog._get_catalog", return_value=(mock_catalog, MagicMock())):
+        with patch(
+            "graph_analytics_ai.mcp.tools.catalog._get_catalog",
+            return_value=(mock_catalog, MagicMock()),
+        ):
             from graph_analytics_ai.mcp.tools.catalog import get_epoch
+
             result = get_epoch("nonexistent-id")
             assert "error" in result
 
@@ -163,8 +187,12 @@ class TestCatalogTools:
         mock_catalog = MagicMock()
         mock_catalog.get_epoch.return_value = mock_epoch
 
-        with patch("graph_analytics_ai.mcp.tools.catalog._get_catalog", return_value=(mock_catalog, MagicMock())):
+        with patch(
+            "graph_analytics_ai.mcp.tools.catalog._get_catalog",
+            return_value=(mock_catalog, MagicMock()),
+        ):
             from graph_analytics_ai.mcp.tools.catalog import get_epoch
+
             result = get_epoch("epoch-1")
             assert result["name"] == "Test Epoch"
 
@@ -172,6 +200,7 @@ class TestCatalogTools:
 # ---------------------------------------------------------------------------
 # gae.py tools
 # ---------------------------------------------------------------------------
+
 
 class TestGaeTools:
     def test_cleanup_engines_dry_run(self):
@@ -181,9 +210,11 @@ class TestGaeTools:
             {"id": "eng-2", "status": "running"},
         ]
 
-        with patch("graph_analytics_ai.mcp.tools.gae.GAEManager", return_value=mock_manager), \
-             patch("graph_analytics_ai.mcp.tools.gae.get_gae_config", return_value={}):
+        with patch(
+            "graph_analytics_ai.mcp.tools.gae.GAEManager", return_value=mock_manager
+        ), patch("graph_analytics_ai.mcp.tools.gae.get_gae_config", return_value={}):
             from graph_analytics_ai.mcp.tools.gae import cleanup_engines
+
             result = cleanup_engines(dry_run=True)
             assert result["dry_run"] is True
             assert "eng-1" in result["cleaned_up"]

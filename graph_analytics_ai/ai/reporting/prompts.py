@@ -495,10 +495,10 @@ INDUSTRY_PROMPTS: Dict[str, str] = {
 def get_industry_prompt(industry: str) -> str:
     """
     Get the industry-specific prompt template.
-    
+
     Args:
         industry: Industry identifier (e.g., "adtech", "fintech", "social", "generic")
-    
+
     Returns:
         Industry-specific prompt string
     """

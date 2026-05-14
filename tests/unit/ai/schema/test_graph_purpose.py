@@ -23,7 +23,6 @@ from graph_analytics_ai.ai.schema.graph_purpose import (
     MIN_RULE_SCORE,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -230,8 +229,12 @@ class TestStructuredDetection:
                     "edgeCollectionName": "has_skill",
                 },
             },
-            conceptual_entities=[{"name": n} for n in ("Employee", "Department", "Project", "Skill")],
-            conceptual_relationships=[{"type": t} for t in ("reports_to", "works_on", "has_skill")],
+            conceptual_entities=[
+                {"name": n} for n in ("Employee", "Department", "Project", "Skill")
+            ],
+            conceptual_relationships=[
+                {"type": t} for t in ("reports_to", "works_on", "has_skill")
+            ],
         )
         result = classify_graph_purpose(bundle)
         assert result.purpose == "structured"
@@ -247,7 +250,11 @@ class TestStructuredDetection:
                 "Department": {"style": "COLLECTION", "collectionName": "Department"},
             },
             relationships={},
-            conceptual_entities=[{"name": "Documents"}, {"name": "Employee"}, {"name": "Department"}],
+            conceptual_entities=[
+                {"name": "Documents"},
+                {"name": "Employee"},
+                {"name": "Department"},
+            ],
         )
         result = classify_graph_purpose(bundle)
         # Structured rule must NOT fire because corpus collection name

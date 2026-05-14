@@ -25,7 +25,9 @@ class WorkflowCancelled(Exception):
 
     def __init__(self, observed_at_step: Optional[str] = None) -> None:
         self.observed_at_step = observed_at_step
-        suffix = f" (observed before step={observed_at_step})" if observed_at_step else ""
+        suffix = (
+            f" (observed before step={observed_at_step})" if observed_at_step else ""
+        )
         super().__init__(f"workflow cancelled by cooperative cancel token{suffix}")
 
 

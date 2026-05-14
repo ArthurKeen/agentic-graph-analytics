@@ -44,7 +44,6 @@ from ..ai.agents.constants import WorkflowSteps
 from ..ai.agents.orchestrator import WorkflowCancelled
 from ..ai.tracing import TraceEvent, TraceEventType
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -241,9 +240,7 @@ class StepStatusReporter:
                 outputs = None
                 if isinstance(event.data, dict):
                     outputs = {
-                        k: v
-                        for k, v in event.data.items()
-                        if k not in ("step",)
+                        k: v for k, v in event.data.items() if k not in ("step",)
                     }
                 self._service.update_workflow_step(
                     run_id=self._run_id,
@@ -256,7 +253,9 @@ class StepStatusReporter:
             elif event_type == TraceEventType.AGENT_ERROR:
                 error_message = ""
                 if isinstance(event.data, dict):
-                    error_message = str(event.data.get("error") or event.data.get("message") or "")
+                    error_message = str(
+                        event.data.get("error") or event.data.get("message") or ""
+                    )
                 self._service.update_workflow_step(
                     run_id=self._run_id,
                     step_id=step_id,
@@ -352,7 +351,9 @@ class AgenticRunSupervisor:
         # lifecycle is unified — there is one place to swap in a fake
         # in tests.
         self._db_connector = db_connector or getattr(service, "db_connector", None)
-        self._secret_resolver = secret_resolver or getattr(service, "secret_resolver", None)
+        self._secret_resolver = secret_resolver or getattr(
+            service, "secret_resolver", None
+        )
         self._executor = ThreadPoolExecutor(
             max_workers=max_workers or _default_max_workers(),
             thread_name_prefix="agentic-run",
@@ -380,7 +381,11 @@ class AgenticRunSupervisor:
 
         with self._lock:
             existing = self._handles.get(run_id)
-            if existing is not None and existing.future is not None and not existing.future.done():
+            if (
+                existing is not None
+                and existing.future is not None
+                and not existing.future.done()
+            ):
                 return existing
 
             run = self._service.repository.get_workflow_run(run_id)
@@ -583,7 +588,9 @@ class AgenticRunSupervisor:
                 cancel_token=handle.cancel_event,
             )
 
-            self._finalize_run(run_id, RUN_OUTCOME_COMPLETED, status=WorkflowRunStatus.COMPLETED)
+            self._finalize_run(
+                run_id, RUN_OUTCOME_COMPLETED, status=WorkflowRunStatus.COMPLETED
+            )
 
         except WorkflowCancelled as cancelled:
             self._finalize_run(
@@ -675,7 +682,9 @@ class AgenticRunSupervisor:
             # Audit failure must not mask the actual run outcome —
             # the visualizer should still see status=COMPLETED even
             # if audit write hits a transient repo error.
-            logger.exception("Failed to write execute_workflow audit for run=%s", run_id)
+            logger.exception(
+                "Failed to write execute_workflow audit for run=%s", run_id
+            )
 
     def _build_db_connection(self, run: Any) -> Any:
         """Resolve the ArangoDB connection for the run's graph profile."""
@@ -724,9 +733,7 @@ class AgenticRunSupervisor:
         graph_profile = self._service.repository.get_graph_profile(run.graph_profile_id)
         return graph_profile.graph_name
 
-    def _collection_role_subset(
-        self, run: Any, *, role_keys: tuple
-    ) -> List[str]:
+    def _collection_role_subset(self, run: Any, *, role_keys: tuple) -> List[str]:
         """Pull collection names from the graph profile by role label.
 
         ``GraphProfile.collection_roles`` is a dict mapping collection
@@ -741,7 +748,9 @@ class AgenticRunSupervisor:
         """
 
         try:
-            graph_profile = self._service.repository.get_graph_profile(run.graph_profile_id)
+            graph_profile = self._service.repository.get_graph_profile(
+                run.graph_profile_id
+            )
         except Exception:  # noqa: BLE001
             return []
         roles = graph_profile.collection_roles or {}

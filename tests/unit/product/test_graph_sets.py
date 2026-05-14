@@ -37,7 +37,6 @@ from graph_analytics_ai.product.constants import (
 )
 from graph_analytics_ai.product.exceptions import ValidationError
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -79,9 +78,7 @@ class TestGraphSetModel:
 
     def test_rejects_empty_graph_profile_ids(self):
         with pytest.raises(ValidationError):
-            create_graph_set(
-                workspace_id="ws-1", name="empty", graph_profile_ids=[]
-            )
+            create_graph_set(workspace_id="ws-1", name="empty", graph_profile_ids=[])
 
     def test_rejects_blank_name(self):
         with pytest.raises(ValidationError):
@@ -152,9 +149,7 @@ class _FakeRepository:
 
     # Audit surface ---------------------------------------------------------
     def create_audit_event(self, event):
-        self.audit_calls.append(
-            {"action": event.action, "target_id": event.target_id}
-        )
+        self.audit_calls.append({"action": event.action, "target_id": event.target_id})
         return "audit-id"
 
 
@@ -301,9 +296,7 @@ class TestUpdateGraphSet:
     def test_remove_primary_demotes_to_first_remaining(self):
         service, gs_id = self._seeded()
         # Make primary explicit so we can verify demotion.
-        service.update_graph_set(
-            graph_set_id=gs_id, primary_graph_profile_id="gp-2"
-        )
+        service.update_graph_set(graph_set_id=gs_id, primary_graph_profile_id="gp-2")
         # Remove gp-2 — the primary must auto-demote to the new first.
         result = service.update_graph_set(
             graph_set_id=gs_id, graph_profile_ids=["gp-3"]
@@ -475,11 +468,7 @@ class TestGraphSetEndpoints:
     )
     def test_endpoint_registered(self, method, path, service_method):
         endpoint = next(
-            (
-                e
-                for e in PRODUCT_API_ENDPOINTS
-                if e.path == path and e.method == method
-            ),
+            (e for e in PRODUCT_API_ENDPOINTS if e.path == path and e.method == method),
             None,
         )
         assert endpoint is not None

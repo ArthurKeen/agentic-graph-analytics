@@ -36,7 +36,6 @@ from graph_analytics_ai.ai.schema.acquire import (
     reset_default_cache,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
@@ -160,7 +159,10 @@ class TestHeuristicSchemaKind:
             assert spec["collectionName"] == "Entities"
             assert spec["typeField"] == "type"
         # One relationship per discriminator value.
-        assert set(bundle.physical_mapping["relationships"]) == {"WORKS_FOR", "HAS_SKILL"}
+        assert set(bundle.physical_mapping["relationships"]) == {
+            "WORKS_FOR",
+            "HAS_SKILL",
+        }
         for spec in bundle.physical_mapping["relationships"].values():
             assert spec["style"] == "GENERIC_WITH_TYPE"
             assert spec["edgeCollectionName"] == "Relationships"
@@ -191,7 +193,9 @@ class TestHeuristicSchemaKind:
         assert "Person" in bundle.physical_mapping["entities"]
         assert "Department" in bundle.physical_mapping["entities"]
         assert bundle.physical_mapping["entities"]["Person"]["style"] == "LABEL"
-        assert bundle.physical_mapping["entities"]["Department"]["style"] == "COLLECTION"
+        assert (
+            bundle.physical_mapping["entities"]["Department"]["style"] == "COLLECTION"
+        )
 
     def test_empty_database_classifies_unknown(self):
         db = _make_db(collections=[])
@@ -254,14 +258,22 @@ class TestFingerprints:
             lambda db: acquire_mod._fallback_fingerprint(db, include_counts=True),
         )
         db1 = _make_db(
-            collections=[{"name": "A", "type": "document"}, {"name": "B", "type": "edge"}],
+            collections=[
+                {"name": "A", "type": "document"},
+                {"name": "B", "type": "edge"},
+            ],
             counts={"A": 10, "B": 100},
         )
         db2 = _make_db(
-            collections=[{"name": "A", "type": "document"}, {"name": "B", "type": "edge"}],
+            collections=[
+                {"name": "A", "type": "document"},
+                {"name": "B", "type": "edge"},
+            ],
             counts={"A": 1000, "B": 100000},  # counts changed
         )
-        assert acquire_mod._shape_fingerprint(db1) == acquire_mod._shape_fingerprint(db2)
+        assert acquire_mod._shape_fingerprint(db1) == acquire_mod._shape_fingerprint(
+            db2
+        )
         assert acquire_mod._full_fingerprint(db1) != acquire_mod._full_fingerprint(db2)
 
     def test_shape_fingerprint_changes_when_collection_added(self, monkeypatch):
@@ -277,7 +289,9 @@ class TestFingerprints:
                 {"name": "B", "type": "document"},
             ]
         )
-        assert acquire_mod._shape_fingerprint(db1) != acquire_mod._shape_fingerprint(db2)
+        assert acquire_mod._shape_fingerprint(db1) != acquire_mod._shape_fingerprint(
+            db2
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +322,9 @@ class _RecordingCache:
 
 
 class TestCacheLayering:
-    def _bundle(self, *, shape: str = "S1", full: str = "F1") -> SchemaAcquisitionBundle:
+    def _bundle(
+        self, *, shape: str = "S1", full: str = "F1"
+    ) -> SchemaAcquisitionBundle:
         return SchemaAcquisitionBundle(
             schema_kind="pg",
             conceptual_schema={"entities": [], "relationships": [], "properties": []},
@@ -378,7 +394,9 @@ class TestAcquireSchema:
         with pytest.raises(ValueError):
             acquire_schema(db, strategy="bogus")  # type: ignore[arg-type]
 
-    def test_auto_strategy_falls_back_to_heuristic_when_analyzer_import_fails(self, monkeypatch):
+    def test_auto_strategy_falls_back_to_heuristic_when_analyzer_import_fails(
+        self, monkeypatch
+    ):
         """When AgenticSchemaAnalyzer raises ImportError, auto must fall back
         to the heuristic and attach an ANALYZER_NOT_INSTALLED warning.
         """

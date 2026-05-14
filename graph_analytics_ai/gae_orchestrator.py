@@ -63,7 +63,9 @@ class AnalysisConfig:
     edge_collections: List[str] = field(default_factory=list)
     vertex_attributes: Optional[List[str]] = None  # Attributes to load (e.g., ['_key'])
     database: Optional[str] = None  # None = use default from config
-    graph_name: Optional[str] = None  # Optional named graph (preferred over collection lists)
+    graph_name: Optional[str] = (
+        None  # Optional named graph (preferred over collection lists)
+    )
 
     # Algorithm configuration
     algorithm_params: Dict[str, Any] = field(default_factory=dict)
@@ -83,7 +85,8 @@ class AnalysisConfig:
         default_factory=lambda: os.getenv("GAE_AUTO_CLEANUP", "true").lower() == "true"
     )  # Automatically delete engine after completion
     auto_cleanup_existing: bool = field(
-        default_factory=lambda: os.getenv("GAE_AUTO_CLEANUP_EXISTING", "true").lower() == "true"
+        default_factory=lambda: os.getenv("GAE_AUTO_CLEANUP_EXISTING", "true").lower()
+        == "true"
     )  # Automatically cleanup existing engines before starting
     retry_on_failure: bool = True
     max_retries: int = 3
@@ -300,23 +303,30 @@ class GAEOrchestrator:
                     engine_info = [
                         f"{e['id']} ({e.get('size_id', 'unknown')})" for e in existing
                     ]
-                    
+
                     # Check if auto_cleanup_existing is enabled
-                    config = self.current_analysis.config if self.current_analysis else None
+                    config = (
+                        self.current_analysis.config if self.current_analysis else None
+                    )
                     if config and config.auto_cleanup_existing:
-                        self._log(f"Found {len(existing)} existing engine(s): {', '.join(engine_info)}", "WARN")
+                        self._log(
+                            f"Found {len(existing)} existing engine(s): {', '.join(engine_info)}",
+                            "WARN",
+                        )
                         self._log("auto_cleanup_existing=True, cleaning up...", "INFO")
-                        
+
                         # Cleanup each existing engine
                         for engine in existing:
                             try:
-                                engine_id = engine['id']
+                                engine_id = engine["id"]
                                 self._log(f"Deleting engine {engine_id}...")
                                 self.gae.delete_engine(engine_id)
                                 self._log(f"✓ Deleted engine {engine_id}")
                             except Exception as e:
-                                self._log(f"Failed to delete engine {engine_id}: {e}", "WARN")
-                        
+                                self._log(
+                                    f"Failed to delete engine {engine_id}: {e}", "WARN"
+                                )
+
                         # Wait a moment for deletions to complete
                         time.sleep(2)
                         return

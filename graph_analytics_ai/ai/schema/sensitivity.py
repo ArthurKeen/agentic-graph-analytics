@@ -446,7 +446,13 @@ def _classify_conceptual_schema(
         }
         if {"first_name", "firstname", "given_name", "givenname"}.intersection(
             prop_names_norm
-        ) and {"last_name", "lastname", "family_name", "familyname", "surname"}.intersection(
+        ) and {
+            "last_name",
+            "lastname",
+            "family_name",
+            "familyname",
+            "surname",
+        }.intersection(
             prop_names_norm
         ):
             entity_levels[entity_name] = "high"

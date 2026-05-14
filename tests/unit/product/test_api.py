@@ -108,7 +108,9 @@ def test_product_api_dispatcher_coerces_json_shapes_to_service_types():
             self.step_update_call = None
             self.connection_call = None
 
-        def create_connection_profile(self, workspace_id, deployment_mode: DeploymentMode):
+        def create_connection_profile(
+            self, workspace_id, deployment_mode: DeploymentMode
+        ):
             self.connection_call = {
                 "workspace_id": workspace_id,
                 "deployment_mode": deployment_mode,

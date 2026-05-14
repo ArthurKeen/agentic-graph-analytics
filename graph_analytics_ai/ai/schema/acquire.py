@@ -252,7 +252,10 @@ def _shape_fingerprint(db: "StandardDatabase") -> str:
     except ImportError:
         return _fallback_fingerprint(db, include_counts=False)
     except Exception:  # pragma: no cover — defensive: never crash on probe
-        logger.warning("schema_analyzer.fingerprint_physical_shape failed; using fallback", exc_info=True)
+        logger.warning(
+            "schema_analyzer.fingerprint_physical_shape failed; using fallback",
+            exc_info=True,
+        )
         return _fallback_fingerprint(db, include_counts=False)
 
 
@@ -270,7 +273,10 @@ def _full_fingerprint(db: "StandardDatabase") -> str:
     except ImportError:
         return _fallback_fingerprint(db, include_counts=True)
     except Exception:  # pragma: no cover — defensive
-        logger.warning("schema_analyzer.fingerprint_physical_counts failed; using fallback", exc_info=True)
+        logger.warning(
+            "schema_analyzer.fingerprint_physical_counts failed; using fallback",
+            exc_info=True,
+        )
         return _fallback_fingerprint(db, include_counts=True)
 
 
@@ -288,7 +294,9 @@ def _fallback_fingerprint(db: "StandardDatabase", *, include_counts: bool) -> st
     names = sorted(
         c.get("name", "")
         for c in cols
-        if isinstance(c, dict) and isinstance(c.get("name"), str) and not c["name"].startswith("_")
+        if isinstance(c, dict)
+        and isinstance(c.get("name"), str)
+        and not c["name"].startswith("_")
     )
     parts: List[str] = [getattr(db, "name", ""), *names]
     if include_counts:
@@ -340,7 +348,9 @@ def acquire_schema(
     respects.
     """
     if strategy not in ("auto", "analyzer", "heuristic"):
-        raise ValueError(f"Invalid strategy: {strategy!r}. Must be 'auto', 'analyzer', or 'heuristic'.")
+        raise ValueError(
+            f"Invalid strategy: {strategy!r}. Must be 'auto', 'analyzer', or 'heuristic'."
+        )
 
     database = getattr(db, "name", "")
     key = cache_key(database=database, graph_name=graph_name)
@@ -352,7 +362,9 @@ def acquire_schema(
             if cached.shape_fingerprint == shape_now:
                 full_now = _full_fingerprint(db)
                 if cached.full_fingerprint == full_now:
-                    logger.debug("acquire_schema cache hit (full): %s/%s", database, graph_name)
+                    logger.debug(
+                        "acquire_schema cache hit (full): %s/%s", database, graph_name
+                    )
                     return cached
                 logger.info(
                     "acquire_schema shape stable for %s/%s; refreshing cardinality only",
@@ -362,7 +374,11 @@ def acquire_schema(
                 refreshed = _refresh_statistics(db, cached, full_fingerprint=full_now)
                 _persist_layered(key, refreshed, cache)
                 return refreshed
-            logger.info("acquire_schema shape changed for %s/%s; full re-introspection", database, graph_name)
+            logger.info(
+                "acquire_schema shape changed for %s/%s; full re-introspection",
+                database,
+                graph_name,
+            )
 
     bundle = _build_fresh_bundle(
         db,
@@ -453,7 +469,9 @@ def _persist_layered(
     try:
         persistent.set(key, bundle)
     except Exception:  # pragma: no cover — defensive
-        logger.warning("Persistent schema cache write failed for key %s", key, exc_info=True)
+        logger.warning(
+            "Persistent schema cache write failed for key %s", key, exc_info=True
+        )
 
 
 def invalidate_schema_cache(
@@ -473,7 +491,9 @@ def invalidate_schema_cache(
         try:
             cache.invalidate(key)
         except Exception:  # pragma: no cover — defensive
-            logger.warning("Persistent cache invalidate failed for key %s", key, exc_info=True)
+            logger.warning(
+                "Persistent cache invalidate failed for key %s", key, exc_info=True
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -492,14 +512,20 @@ def _build_fresh_bundle(
     """Run the chosen acquisition strategy and stamp common metadata."""
     if strategy == "analyzer":
         bundle = _build_analyzer_bundle(
-            db, graph_name=graph_name, force_llm=force_llm, review_threshold=review_threshold
+            db,
+            graph_name=graph_name,
+            force_llm=force_llm,
+            review_threshold=review_threshold,
         )
     elif strategy == "heuristic":
         bundle = build_heuristic_bundle(db, graph_name=graph_name)
     else:
         try:
             bundle = _build_analyzer_bundle(
-                db, graph_name=graph_name, force_llm=force_llm, review_threshold=review_threshold
+                db,
+                graph_name=graph_name,
+                force_llm=force_llm,
+                review_threshold=review_threshold,
             )
         except ImportError:
             logger.warning(
@@ -761,7 +787,9 @@ def _list_user_collections(db: "StandardDatabase") -> List[tuple[str, bool]]:
     return out
 
 
-def _sample_collection(db: "StandardDatabase", name: str, sample_size: int) -> List[Dict[str, Any]]:
+def _sample_collection(
+    db: "StandardDatabase", name: str, sample_size: int
+) -> List[Dict[str, Any]]:
     if sample_size <= 0:
         return []
     try:
@@ -797,9 +825,13 @@ def _classify_collection(
                 type_values=tuple(sorted(disc[1])),
                 sampled_docs=sampled,
             )
-        return _CollectionClassification(name=name, is_edge=False, style="COLLECTION", sampled_docs=sampled)
+        return _CollectionClassification(
+            name=name, is_edge=False, style="COLLECTION", sampled_docs=sampled
+        )
 
-    disc = _detect_discriminator(sample, tier_1_fields=_EDGE_TYPE_FIELDS, tier_2_fields=())
+    disc = _detect_discriminator(
+        sample, tier_1_fields=_EDGE_TYPE_FIELDS, tier_2_fields=()
+    )
     if disc is not None:
         return _CollectionClassification(
             name=name,
@@ -809,7 +841,9 @@ def _classify_collection(
             type_values=tuple(sorted(disc[1])),
             sampled_docs=sampled,
         )
-    return _CollectionClassification(name=name, is_edge=True, style="DEDICATED_COLLECTION", sampled_docs=sampled)
+    return _CollectionClassification(
+        name=name, is_edge=True, style="DEDICATED_COLLECTION", sampled_docs=sampled
+    )
 
 
 def _detect_discriminator(
@@ -947,11 +981,17 @@ def _aggregate_schema_kind(
     return "hybrid"
 
 
-def _detected_pattern_tags(classifications: List[_CollectionClassification]) -> List[str]:
+def _detected_pattern_tags(
+    classifications: List[_CollectionClassification],
+) -> List[str]:
     tags: set[str] = set()
     for c in classifications:
         if c.is_edge:
-            tags.add("LPG_GENERIC_EDGE" if c.style == "GENERIC_WITH_TYPE" else "PG_DEDICATED_EDGE")
+            tags.add(
+                "LPG_GENERIC_EDGE"
+                if c.style == "GENERIC_WITH_TYPE"
+                else "PG_DEDICATED_EDGE"
+            )
         else:
             tags.add("LPG_LABEL" if c.style == "LABEL" else "PG_ENTITY_COLLECTION")
     return [t for t in DETECTED_PATTERN_TAGS if t in tags]
@@ -968,10 +1008,14 @@ def _classify_schema_kind(physical_mapping: Dict[str, Any]) -> SchemaKind:
     relationships = physical_mapping.get("relationships") or {}
 
     entity_styles = {
-        spec.get("style") for spec in entities.values() if isinstance(spec, dict) and spec.get("style")
+        spec.get("style")
+        for spec in entities.values()
+        if isinstance(spec, dict) and spec.get("style")
     }
     rel_styles = {
-        spec.get("style") for spec in relationships.values() if isinstance(spec, dict) and spec.get("style")
+        spec.get("style")
+        for spec in relationships.values()
+        if isinstance(spec, dict) and spec.get("style")
     }
 
     if "RPT" in entity_styles and not (entity_styles - {"RPT"}):
@@ -1027,7 +1071,12 @@ def _attach_warning(
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 __all__ = [

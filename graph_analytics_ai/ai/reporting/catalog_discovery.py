@@ -210,7 +210,10 @@ def generate_catalog_discovery_report(
         deltas = _diff(latest_metrics, baseline_metrics)
 
         # Add delta insight when meaningful (algorithm-specific keys)
-        if algorithm in ("pagerank", "betweenness") and abs(deltas.get("top10_share", 0)) >= 0.10:
+        if (
+            algorithm in ("pagerank", "betweenness")
+            and abs(deltas.get("top10_share", 0)) >= 0.10
+        ):
             insights.append(
                 Insight(
                     title=f"Δ {algorithm}: top-10 share {baseline_metrics.get('top10_share',0):.2f} → {latest_metrics.get('top10_share',0):.2f}",
@@ -281,7 +284,10 @@ def generate_catalog_discovery_report(
             lines.append("")
 
         sections.append(
-            ReportSection(title=f"1. {algorithm}: Catalog-only discovery", content="\n".join(lines).strip())
+            ReportSection(
+                title=f"1. {algorithm}: Catalog-only discovery",
+                content="\n".join(lines).strip(),
+            )
         )
 
     summary = (
@@ -303,4 +309,3 @@ def generate_catalog_discovery_report(
             "baseline_epoch_id": baseline_epoch_id,
         },
     )
-

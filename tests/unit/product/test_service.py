@@ -94,7 +94,9 @@ class FakeProductRepository:
 
     def list_graph_profiles(self, workspace_id):
         return [
-            profile for profile in self.graph_profiles if profile.workspace_id == workspace_id
+            profile
+            for profile in self.graph_profiles
+            if profile.workspace_id == workspace_id
         ]
 
     def create_graph_profile(self, profile):
@@ -168,7 +170,9 @@ class FakeProductRepository:
 
     def list_workflow_runs(self, workspace_id):
         return [
-            run for run in self.workflow_runs.values() if run.workspace_id == workspace_id
+            run
+            for run in self.workflow_runs.values()
+            if run.workspace_id == workspace_id
         ]
 
     def create_workflow_run(self, run):
@@ -195,7 +199,9 @@ class FakeProductRepository:
 
     def list_report_manifests(self, workspace_id):
         return [
-            report for report in self.reports.values() if report.workspace_id == workspace_id
+            report
+            for report in self.reports.values()
+            if report.workspace_id == workspace_id
         ]
 
     def list_report_sections(self, report_id):
@@ -365,7 +371,9 @@ def test_archive_workspace_flips_status_and_audits():
     )
     repository.audit_events.clear()
 
-    archived = service.archive_workspace(workspace.workspace_id, actor="ops@example.com")
+    archived = service.archive_workspace(
+        workspace.workspace_id, actor="ops@example.com"
+    )
 
     assert archived.status.value == "archived"
     assert len(repository.audit_events) == 1
@@ -715,7 +723,10 @@ def test_publish_report_creates_snapshot_updates_manifest_and_audits():
 
     updated_report = repository.reports[report.report_id]
     assert updated_report.status == ReportStatus.PUBLISHED
-    assert updated_report.published_snapshot_id == repository.snapshots[0].published_snapshot_id
+    assert (
+        updated_report.published_snapshot_id
+        == repository.snapshots[0].published_snapshot_id
+    )
     assert repository.snapshots[0].content_hash.startswith("sha256:")
     assert repository.audit_events[0].action == "publish_report"
     assert bundle.manifest["status"] == "published"
@@ -1115,7 +1126,9 @@ def test_verify_connection_profile_resolves_secret_and_updates_success_status():
     updated_profile = repository.get_connection_profile(profile.connection_profile_id)
     assert result.status == "success"
     assert result.error_message is None
-    assert updated_profile.last_verification_status == ConnectionVerificationStatus.SUCCESS
+    assert (
+        updated_profile.last_verification_status == ConnectionVerificationStatus.SUCCESS
+    )
     assert updated_profile.last_verified_at is not None
     assert connector_calls[0]["password"] == "resolved-secret"
     assert connector_calls[0]["verify_system"] is True
@@ -1150,7 +1163,9 @@ def test_verify_connection_profile_masks_secret_on_failure():
     assert result.status == "failed"
     assert "resolved-secret" not in result.error_message
     assert "***MASKED***" in result.error_message
-    assert updated_profile.last_verification_status == ConnectionVerificationStatus.FAILED
+    assert (
+        updated_profile.last_verification_status == ConnectionVerificationStatus.FAILED
+    )
 
 
 def test_verify_connection_profile_requires_password_secret_ref():
@@ -1416,9 +1431,13 @@ def test_list_connection_profile_graphs_returns_metadata_per_graph():
 
         def collection(self, name):
             return FakeCollection(
-                {"Device": 10, "IP": 5, "SEEN_ON_IP": 20, "RagDoc": 99, "RagEmbeds": 300}[
-                    name
-                ]
+                {
+                    "Device": 10,
+                    "IP": 5,
+                    "SEEN_ON_IP": 20,
+                    "RagDoc": 99,
+                    "RagEmbeds": 300,
+                }[name]
             )
 
     def fake_connector(**kwargs):
@@ -1470,7 +1489,9 @@ def test_discover_graph_profile_rejects_unknown_requested_graph():
     try:
         ProductService(
             repository,
-            secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+            secret_resolver=MappingSecretResolver(
+                {"ARANGO_PASSWORD": "resolved-secret"}
+            ),
             db_connector=lambda **kwargs: object(),
             schema_extractor_factory=FakeExtractor,
         ).discover_graph_profile(
@@ -1541,7 +1562,9 @@ def test_requirements_copilot_generates_and_approves_draft():
     assert updated_interview.status == RequirementInterviewStatus.READY_FOR_REVIEW
     assert "Observed Graph Schema" in draft.draft_brd
     assert "Improve audience planning" in draft.draft_brd
-    assert any(label["label"] == "observed_from_schema" for label in draft.provenance_labels)
+    assert any(
+        label["label"] == "observed_from_schema" for label in draft.provenance_labels
+    )
     assert any(label["label"] == "user_provided" for label in draft.provenance_labels)
 
     version = service.approve_requirements_copilot_draft(
@@ -1689,9 +1712,7 @@ def test_requirements_copilot_rejects_collision_on_explicit_version():
         question_id="business_goal",
         answer="Goal",
     )
-    service.generate_requirements_copilot_draft(
-        interview_two.requirement_interview_id
-    )
+    service.generate_requirements_copilot_draft(interview_two.requirement_interview_id)
 
     try:
         service.approve_requirements_copilot_draft(

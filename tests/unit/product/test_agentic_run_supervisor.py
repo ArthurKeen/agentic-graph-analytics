@@ -528,8 +528,7 @@ def test_cancel_workflow_run_delivers_to_supervisor_when_owned():
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
         steps = {
-            s.step_id: s.status
-            for s in repository.get_workflow_run(run.run_id).steps
+            s.step_id: s.status for s in repository.get_workflow_run(run.run_id).steps
         }
         if steps["schema_analysis"] == WorkflowStepStatus.COMPLETED:
             break
@@ -589,9 +588,7 @@ def test_sweep_orphan_runs_flips_running_rows_to_failed():
     # Repository extension required by sweep — equivalent to the
     # production storage's "list runs by status" query.
     def list_workflow_runs_by_status(status):
-        return [
-            r for r in repository.workflow_runs.values() if r.status == status
-        ]
+        return [r for r in repository.workflow_runs.values() if r.status == status]
 
     repository.list_workflow_runs_by_status = list_workflow_runs_by_status  # type: ignore[attr-defined]
 

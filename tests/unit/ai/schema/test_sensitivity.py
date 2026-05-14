@@ -15,7 +15,6 @@ from graph_analytics_ai.ai.schema.sensitivity import (
     classify_schema_sensitivity,
 )
 
-
 # ---------------------------------------------------------------------------
 # classify_property_sensitivity
 # ---------------------------------------------------------------------------

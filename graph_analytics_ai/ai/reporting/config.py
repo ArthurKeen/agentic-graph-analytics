@@ -36,9 +36,9 @@ class ReportSection(Enum):
 class LLMReportingConfig:
     """
     Configuration for LLM-based insight generation.
-    
+
     Controls how LLM is used for report generation and quality standards.
-    
+
     Example:
         >>> from graph_analytics_ai.ai.reporting.config import LLMReportingConfig
         >>>
@@ -59,94 +59,112 @@ class LLMReportingConfig:
         >>> # Ad-tech optimized configuration
         >>> config = LLMReportingConfig.for_industry("adtech")
     """
-    
+
     use_llm_interpretation: bool = field(
-        default_factory=lambda: os.getenv("GAE_PLATFORM_USE_LLM_REPORTING", "true").lower() == "true"
+        default_factory=lambda: os.getenv(
+            "GAE_PLATFORM_USE_LLM_REPORTING", "true"
+        ).lower()
+        == "true"
     )
     """Enable LLM-based insight generation (default: True, can set via GAE_PLATFORM_USE_LLM_REPORTING env var)."""
-    
+
     min_confidence: float = field(
-        default_factory=lambda: float(os.getenv("GAE_PLATFORM_REPORTING_MIN_CONFIDENCE", "0.3"))
+        default_factory=lambda: float(
+            os.getenv("GAE_PLATFORM_REPORTING_MIN_CONFIDENCE", "0.3")
+        )
     )
     """Minimum confidence threshold for insights (default: 0.3, can set via GAE_PLATFORM_REPORTING_MIN_CONFIDENCE)."""
-    
+
     use_reasoning_chain: bool = field(
-        default_factory=lambda: os.getenv("GAE_PLATFORM_REPORTING_USE_REASONING", "false").lower() == "true"
+        default_factory=lambda: os.getenv(
+            "GAE_PLATFORM_REPORTING_USE_REASONING", "false"
+        ).lower()
+        == "true"
     )
     """Enable chain-of-thought reasoning for insight generation (default: False, can set via GAE_PLATFORM_REPORTING_USE_REASONING)."""
-    
+
     max_insights_per_report: int = field(
-        default_factory=lambda: int(os.getenv("GAE_PLATFORM_MAX_LLM_INSIGHTS_PER_REPORT", "5"))
+        default_factory=lambda: int(
+            os.getenv("GAE_PLATFORM_MAX_LLM_INSIGHTS_PER_REPORT", "5")
+        )
     )
     """Maximum number of LLM insights per report (default: 5, can set via GAE_PLATFORM_MAX_LLM_INSIGHTS_PER_REPORT)."""
-    
+
     llm_timeout_seconds: int = field(
-        default_factory=lambda: int(os.getenv("GAE_PLATFORM_LLM_REPORTING_TIMEOUT", "30"))
+        default_factory=lambda: int(
+            os.getenv("GAE_PLATFORM_LLM_REPORTING_TIMEOUT", "30")
+        )
     )
     """Timeout for LLM calls in seconds (default: 30, can set via GAE_PLATFORM_LLM_REPORTING_TIMEOUT)."""
-    
+
     fallback_to_heuristics: bool = True
     """Fallback to heuristic insights if LLM fails (always True for reliability)."""
-    
+
     min_description_length: int = 100
     """Minimum description length for quality validation."""
-    
+
     min_title_length: int = 15
     """Minimum title length for quality validation."""
-    
+
     require_quantification: bool = True
     """Require insights to include numbers/metrics."""
-    
+
     filter_generic_impacts: bool = True
     """Filter out insights with generic business impacts."""
-    
+
     # Industry-specific overrides
     industry: str = "generic"
     """Industry identifier for domain-specific validation rules."""
-    
+
     domain_specific_terms: List[str] = field(default_factory=list)
     """Domain-specific terms that should not be penalized as 'generic'."""
-    
+
     def __post_init__(self):
         """Post-initialization validation and industry-specific adjustments."""
         if self.min_confidence < 0.0 or self.min_confidence > 1.0:
-            raise ValueError(f"min_confidence must be between 0.0 and 1.0, got {self.min_confidence}")
-        
+            raise ValueError(
+                f"min_confidence must be between 0.0 and 1.0, got {self.min_confidence}"
+            )
+
         if self.max_insights_per_report < 1:
-            raise ValueError(f"max_insights_per_report must be >= 1, got {self.max_insights_per_report}")
-        
+            raise ValueError(
+                f"max_insights_per_report must be >= 1, got {self.max_insights_per_report}"
+            )
+
         if self.llm_timeout_seconds < 1:
-            raise ValueError(f"llm_timeout_seconds must be >= 1, got {self.llm_timeout_seconds}")
-        
+            raise ValueError(
+                f"llm_timeout_seconds must be >= 1, got {self.llm_timeout_seconds}"
+            )
+
         # Apply industry-specific defaults if not already customized
         if self.industry != "generic":
             self._apply_industry_defaults()
-    
+
     def _apply_industry_defaults(self):
         """Apply industry-specific validation defaults."""
         industry_defaults = get_industry_validation_defaults(self.industry)
-        
+
         # Only override if using defaults (not explicitly set by user)
         if self.domain_specific_terms == []:
             self.domain_specific_terms = industry_defaults.get("domain_terms", [])
-    
+
     @classmethod
-    def for_industry(cls, industry: str) -> 'LLMReportingConfig':
+    def for_industry(cls, industry: str) -> "LLMReportingConfig":
         """
         Create industry-optimized configuration.
-        
+
         Args:
             industry: Industry identifier (e.g., "adtech", "fintech", "social")
-        
+
         Returns:
             LLMReportingConfig with industry-specific defaults
-        
+
         Example:
             >>> config = LLMReportingConfig.for_industry("adtech")
             >>> # Optimized for ad-tech with lenient validation for domain terms
         """
         defaults = get_industry_validation_defaults(industry)
-        
+
         return cls(
             industry=industry,
             min_confidence=defaults.get("min_confidence", 0.3),
@@ -159,7 +177,7 @@ class LLMReportingConfig:
 def get_industry_validation_defaults(industry: str) -> dict:
     """
     Get industry-specific validation defaults.
-    
+
     Returns:
         Dictionary of validation parameters for the industry
     """
@@ -170,40 +188,74 @@ def get_industry_validation_defaults(industry: str) -> dict:
             "filter_generic_impacts": True,  # Still filter true generic terms
             "domain_terms": [
                 # Don't penalize these as "generic"
-                "botnet", "proxy", "residential", "commercial", "ip", "device pool",
-                "household cluster", "cross-device", "attribution", "inventory",
-                "targeting", "fraud", "ivt", "invalid traffic", "ad exchange",
-                "dma", "publisher", "site", "app", "phid", "component",
-            ]
+                "botnet",
+                "proxy",
+                "residential",
+                "commercial",
+                "ip",
+                "device pool",
+                "household cluster",
+                "cross-device",
+                "attribution",
+                "inventory",
+                "targeting",
+                "fraud",
+                "ivt",
+                "invalid traffic",
+                "ad exchange",
+                "dma",
+                "publisher",
+                "site",
+                "app",
+                "phid",
+                "component",
+            ],
         },
         "fintech": {
             "min_confidence": 0.4,  # Higher - financial decisions need certainty
             "require_quantification": True,  # Must quantify risk/exposure
             "filter_generic_impacts": True,
             "domain_terms": [
-                "aml", "kyc", "sanctions", "money laundering", "synthetic identity",
-                "account takeover", "mule", "beneficial ownership", "exposure",
-                "concentration risk", "contagion", "compliance",
-            ]
+                "aml",
+                "kyc",
+                "sanctions",
+                "money laundering",
+                "synthetic identity",
+                "account takeover",
+                "mule",
+                "beneficial ownership",
+                "exposure",
+                "concentration risk",
+                "contagion",
+                "compliance",
+            ],
         },
         "social": {
             "min_confidence": 0.3,  # Balanced
             "require_quantification": True,  # Engagement metrics are quantitative
             "filter_generic_impacts": True,
             "domain_terms": [
-                "community", "engagement", "influence", "reach", "viral",
-                "bot network", "coordinated behavior", "echo chamber",
-                "modularity", "bridge", "influencer",
-            ]
+                "community",
+                "engagement",
+                "influence",
+                "reach",
+                "viral",
+                "bot network",
+                "coordinated behavior",
+                "echo chamber",
+                "modularity",
+                "bridge",
+                "influencer",
+            ],
         },
         "generic": {
             "min_confidence": 0.3,
             "require_quantification": True,
             "filter_generic_impacts": True,
-            "domain_terms": []
-        }
+            "domain_terms": [],
+        },
     }
-    
+
     return INDUSTRY_DEFAULTS.get(industry.lower(), INDUSTRY_DEFAULTS["generic"])
 
 
@@ -271,7 +323,7 @@ class ReportConfig:
 
     decimal_places: int = 2
     """Number of decimal places for metrics."""
-    
+
     llm_config: LLMReportingConfig = field(default_factory=LLMReportingConfig)
     """Configuration for LLM-based insight generation."""
 

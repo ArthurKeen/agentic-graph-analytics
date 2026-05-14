@@ -110,13 +110,9 @@ def test_create_product_fastapi_app_registers_contract_routes(fake_fastapi_modul
 
     app = create_product_fastapi_app(service=object(), title="Product API", version="1")
 
-    route_keys = {
-        (route["methods"][0], route["path"])
-        for route in app.routes
-    }
+    route_keys = {(route["methods"][0], route["path"]) for route in app.routes}
     contract_keys = {
-        (endpoint.method, endpoint.path)
-        for endpoint in PRODUCT_API_ENDPOINTS
+        (endpoint.method, endpoint.path) for endpoint in PRODUCT_API_ENDPOINTS
     }
 
     assert app.title == "Product API"

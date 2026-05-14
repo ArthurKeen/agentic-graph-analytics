@@ -114,4 +114,3 @@ def test_connect_arango_database_masks_password_in_errors():
 
     assert "resolved-secret" not in str(exc_info.value)
     assert "***MASKED***" in str(exc_info.value)
-

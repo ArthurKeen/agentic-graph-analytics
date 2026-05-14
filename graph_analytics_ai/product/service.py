@@ -614,7 +614,10 @@ class ProductService:
             if not stripped:
                 raise ValidationError("Customer name cannot be empty")
             if stripped != workspace.customer_name:
-                changes["customer_name"] = {"from": workspace.customer_name, "to": stripped}
+                changes["customer_name"] = {
+                    "from": workspace.customer_name,
+                    "to": stripped,
+                }
                 workspace.customer_name = stripped
 
         if project_name is not None:
@@ -622,7 +625,10 @@ class ProductService:
             if not stripped:
                 raise ValidationError("Project name cannot be empty")
             if stripped != workspace.project_name:
-                changes["project_name"] = {"from": workspace.project_name, "to": stripped}
+                changes["project_name"] = {
+                    "from": workspace.project_name,
+                    "to": stripped,
+                }
                 workspace.project_name = stripped
 
         if environment is not None:
@@ -636,7 +642,10 @@ class ProductService:
         if description is not None:
             new_description = description.strip()
             if new_description != workspace.description:
-                changes["description"] = {"from": workspace.description, "to": new_description}
+                changes["description"] = {
+                    "from": workspace.description,
+                    "to": new_description,
+                }
                 workspace.description = new_description
 
         if tags is not None:
@@ -804,7 +813,9 @@ class ProductService:
         connection_profiles = self.repository.list_connection_profiles(workspace_id)
         graph_profiles = self.repository.list_graph_profiles(workspace_id)
         source_documents = self.repository.list_source_documents(workspace_id)
-        requirement_interviews = self.repository.list_requirement_interviews(workspace_id)
+        requirement_interviews = self.repository.list_requirement_interviews(
+            workspace_id
+        )
         requirement_versions = self.repository.list_requirement_versions(workspace_id)
         workflow_runs = self.repository.list_workflow_runs(workspace_id)
         reports = self.repository.list_report_manifests(workspace_id)
@@ -924,7 +935,9 @@ class ProductService:
             )
         return steps, edges
 
-    def start_workflow_run(self, run_id: str, actor: Optional[str] = None) -> WorkflowRun:
+    def start_workflow_run(
+        self, run_id: str, actor: Optional[str] = None
+    ) -> WorkflowRun:
         """Mark a queued workflow run as running.
 
         FR-31a: when the run is in AGENTIC mode and a supervisor is
@@ -973,7 +986,9 @@ class ProductService:
 
         return run
 
-    def cancel_workflow_run(self, run_id: str, actor: Optional[str] = None) -> WorkflowRun:
+    def cancel_workflow_run(
+        self, run_id: str, actor: Optional[str] = None
+    ) -> WorkflowRun:
         """Request cooperative cancellation of an agentic run.
 
         Phase 1 semantics:
@@ -1090,10 +1105,7 @@ class ProductService:
         """
 
         run = self.repository.get_workflow_run(run_id)
-        if (
-            not _internal
-            and run.workflow_mode == WorkflowMode.AGENTIC
-        ):
+        if not _internal and run.workflow_mode == WorkflowMode.AGENTIC:
             raise ConflictError(
                 "Step transitions on agentic runs are managed by the "
                 "AgenticRunSupervisor. Use POST /api/runs/{id}/cancel to "
@@ -1111,7 +1123,10 @@ class ProductService:
             WorkflowStepStatus.SKIPPED,
         }:
             step.completed_at = current_timestamp()
-        if previous_status == WorkflowStepStatus.FAILED and status == WorkflowStepStatus.RUNNING:
+        if (
+            previous_status == WorkflowStepStatus.FAILED
+            and status == WorkflowStepStatus.RUNNING
+        ):
             step.retry_count += 1
 
         if outputs is not None:
@@ -1234,7 +1249,9 @@ class ProductService:
         unknown shapes are still inspectable rather than silently dropped.
         """
 
-        text = section.content.get("text") if isinstance(section.content, dict) else None
+        text = (
+            section.content.get("text") if isinstance(section.content, dict) else None
+        )
         if isinstance(text, str) and text.strip():
             return text
         if not section.content:
@@ -1382,7 +1399,9 @@ class ProductService:
 
         lineage_items: List[str] = []
         if manifest.run_id:
-            lineage_items.append(f"<li>Run: <code>{html.escape(manifest.run_id)}</code></li>")
+            lineage_items.append(
+                f"<li>Run: <code>{html.escape(manifest.run_id)}</code></li>"
+            )
         if manifest.workspace_id:
             lineage_items.append(
                 f"<li>Workspace: <code>{html.escape(manifest.workspace_id)}</code></li>"
@@ -1393,11 +1412,17 @@ class ProductService:
                 f"<code>{html.escape(manifest.requirement_version_id)}</code></li>"
             )
         for use_case_id in manifest.use_case_ids:
-            lineage_items.append(f"<li>Use case: <code>{html.escape(use_case_id)}</code></li>")
+            lineage_items.append(
+                f"<li>Use case: <code>{html.escape(use_case_id)}</code></li>"
+            )
         for template_id in manifest.template_ids:
-            lineage_items.append(f"<li>Template: <code>{html.escape(template_id)}</code></li>")
+            lineage_items.append(
+                f"<li>Template: <code>{html.escape(template_id)}</code></li>"
+            )
         for execution_id in manifest.analysis_execution_ids:
-            lineage_items.append(f"<li>Execution: <code>{html.escape(execution_id)}</code></li>")
+            lineage_items.append(
+                f"<li>Execution: <code>{html.escape(execution_id)}</code></li>"
+            )
         for collection in manifest.result_collections:
             lineage_items.append(
                 f"<li>Result collection: <code>{html.escape(collection)}</code></li>"
@@ -1421,12 +1446,10 @@ class ProductService:
 
         return (
             "<!DOCTYPE html>\n"
-            "<html lang=\"en\"><head>"
+            '<html lang="en"><head>'
             f'<meta charset="utf-8"/><title>{title_html}</title>'
             f"<style>{style}</style>"
-            "</head><body>"
-            + "".join(body_parts)
-            + "</body></html>"
+            "</head><body>" + "".join(body_parts) + "</body></html>"
         )
 
     def verify_connection_profile(
@@ -1606,15 +1629,16 @@ class ProductService:
         )
         schema = extractor.extract()
 
-        selected_graph_name = self._select_graph_name(schema, graph_name, profile.database)
+        selected_graph_name = self._select_graph_name(
+            schema, graph_name, profile.database
+        )
 
         graph_scope = self._scope_to_named_graph(db, schema, selected_graph_name)
         scoped_vertex_collections = sorted(graph_scope["vertex_collections"])
         scoped_edge_collections = sorted(graph_scope["edge_collections"])
-        scoped_edge_definitions = (
-            graph_scope["edge_definitions"]
-            or self._schema_edge_definitions(schema)
-        )
+        scoped_edge_definitions = graph_scope[
+            "edge_definitions"
+        ] or self._schema_edge_definitions(schema)
         scoped_counts: Dict[str, int] = {
             "vertex_collections": len(scoped_vertex_collections),
             "edge_collections": len(scoped_edge_collections),
@@ -1980,8 +2004,7 @@ class ProductService:
                 auto_created.append(graph_set.to_dict())
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
-                    "Auto-creating GraphSet for Autograph project '%s' "
-                    "failed: %s",
+                    "Auto-creating GraphSet for Autograph project '%s' " "failed: %s",
                     project.project_name,
                     exc,
                 )
@@ -2117,7 +2140,9 @@ class ProductService:
                 )
 
         graph_profile = self.repository.get_graph_profile(graph_profile_id)
-        before_entities = len((graph_profile.conceptual_schema or {}).get("entities", []))
+        before_entities = len(
+            (graph_profile.conceptual_schema or {}).get("entities", [])
+        )
         before_relationships = len(
             (graph_profile.conceptual_schema or {}).get("relationships", [])
         )
@@ -2157,7 +2182,9 @@ class ProductService:
                     },
                     "after": {
                         "entities": len(conceptual_schema.get("entities", [])),
-                        "relationships": len(conceptual_schema.get("relationships", [])),
+                        "relationships": len(
+                            conceptual_schema.get("relationships", [])
+                        ),
                     },
                 },
             )
@@ -2250,9 +2277,7 @@ class ProductService:
         if not name or not name.strip():
             raise ValidationError("GraphSet name is required")
         if not graph_profile_ids:
-            raise ValidationError(
-                "GraphSet must contain at least one graph_profile_id"
-            )
+            raise ValidationError("GraphSet must contain at least one graph_profile_id")
 
         # Reject duplicates so the workbench's side-by-side render
         # is deterministic and so the cross-graph link validator
@@ -2261,9 +2286,7 @@ class ProductService:
         deduped: List[str] = []
         for pid in graph_profile_ids:
             if pid in seen:
-                raise ValidationError(
-                    f"Duplicate graph_profile_id in GraphSet: {pid}"
-                )
+                raise ValidationError(f"Duplicate graph_profile_id in GraphSet: {pid}")
             seen.add(pid)
             deduped.append(pid)
 
@@ -2353,16 +2376,12 @@ class ProductService:
 
         if graph_profile_ids is not None:
             if not graph_profile_ids:
-                raise ValidationError(
-                    "graph_profile_ids cannot be empty"
-                )
+                raise ValidationError("graph_profile_ids cannot be empty")
             seen: set[str] = set()
             deduped: List[str] = []
             for pid in graph_profile_ids:
                 if pid in seen:
-                    raise ValidationError(
-                        f"Duplicate graph_profile_id: {pid}"
-                    )
+                    raise ValidationError(f"Duplicate graph_profile_id: {pid}")
                 seen.add(pid)
                 deduped.append(pid)
             for pid in deduped:
@@ -2493,7 +2512,11 @@ class ProductService:
 
         # Sort by confidence desc then field name for stable output.
         candidates.sort(
-            key=lambda c: (-c["confidence"], c["from_field"], c["from_graph_profile_id"])
+            key=lambda c: (
+                -c["confidence"],
+                c["from_field"],
+                c["from_graph_profile_id"],
+            )
         )
         return candidates[:max_links]
 
@@ -2558,7 +2581,9 @@ class ProductService:
         """
 
         graph_profile = self.repository.get_graph_profile(graph_profile_id)
-        schema_observations = self._schema_observations_from_graph_profile(graph_profile)
+        schema_observations = self._schema_observations_from_graph_profile(
+            graph_profile
+        )
         questions = self._requirements_copilot_questions(schema_observations)
 
         prefilled_answers: List[Dict[str, Any]] = []
@@ -2813,7 +2838,9 @@ class ProductService:
         connection_profiles = self.repository.list_connection_profiles(workspace_id)
         graph_profiles = self.repository.list_graph_profiles(workspace_id)
         source_documents = self.repository.list_source_documents(workspace_id)
-        requirement_interviews = self.repository.list_requirement_interviews(workspace_id)
+        requirement_interviews = self.repository.list_requirement_interviews(
+            workspace_id
+        )
         requirement_versions = self.repository.list_requirement_versions(workspace_id)
         workflow_runs = self.repository.list_workflow_runs(workspace_id)
         report_manifests = self.repository.list_report_manifests(workspace_id)
@@ -2888,8 +2915,7 @@ class ProductService:
             for version in bundle_doc.get("requirement_versions", [])
         ]
         workflow_runs = [
-            WorkflowRun.from_dict(run)
-            for run in bundle_doc.get("workflow_runs", [])
+            WorkflowRun.from_dict(run) for run in bundle_doc.get("workflow_runs", [])
         ]
 
         for profile in connection_profiles:
@@ -2915,7 +2941,9 @@ class ProductService:
             report_count += 1
 
             for section_doc in report_doc.get("sections", []):
-                self.repository.create_report_section(ReportSection.from_dict(section_doc))
+                self.repository.create_report_section(
+                    ReportSection.from_dict(section_doc)
+                )
                 section_count += 1
             for chart_doc in report_doc.get("charts", []):
                 self.repository.create_chart_spec(ChartSpec.from_dict(chart_doc))
@@ -3124,7 +3152,9 @@ class ProductService:
         for report in bundle_doc.get("reports", []):
             if "manifest" not in report:
                 raise ValidationError("Workspace bundle report is missing manifest")
-            self._validate_workspace_id("reports.manifest", report["manifest"], workspace_id)
+            self._validate_workspace_id(
+                "reports.manifest", report["manifest"], workspace_id
+            )
             for section in report.get("sections", []):
                 self._validate_workspace_id("reports.sections", section, workspace_id)
             for chart in report.get("charts", []):
@@ -3374,8 +3404,12 @@ class ProductService:
         answer_map: Dict[str, str],
     ) -> str:
         observations = interview.schema_observations
-        vertex_collections = ", ".join(observations.get("vertex_collections", [])) or "None observed"
-        edge_collections = ", ".join(observations.get("edge_collections", [])) or "None observed"
+        vertex_collections = (
+            ", ".join(observations.get("vertex_collections", [])) or "None observed"
+        )
+        edge_collections = (
+            ", ".join(observations.get("edge_collections", [])) or "None observed"
+        )
         domain = interview.domain or "Unspecified domain"
 
         return "\n".join(
@@ -3416,8 +3450,14 @@ class ProductService:
     ) -> List[Dict[str, Any]]:
         labels = [
             {"path": "observed_schema.graph_name", "label": "observed_from_schema"},
-            {"path": "observed_schema.vertex_collections", "label": "observed_from_schema"},
-            {"path": "observed_schema.edge_collections", "label": "observed_from_schema"},
+            {
+                "path": "observed_schema.vertex_collections",
+                "label": "observed_from_schema",
+            },
+            {
+                "path": "observed_schema.edge_collections",
+                "label": "observed_from_schema",
+            },
             {"path": "assumptions.review_required", "label": "assumption"},
         ]
         for question_id in sorted(answer_map):

@@ -47,7 +47,6 @@ from graph_analytics_ai.product.constants import (
 )
 from graph_analytics_ai.product.service import SchemaChangeView
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -449,9 +448,7 @@ class _StubServiceRepository:
     def update_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:
         return self._fake.update_schema_snapshot(snapshot)
 
-    def get_schema_snapshot_by_cache_key(
-        self, key: str
-    ) -> Optional[SchemaSnapshot]:
+    def get_schema_snapshot_by_cache_key(self, key: str) -> Optional[SchemaSnapshot]:
         return self._fake.get_schema_snapshot_by_cache_key(key)
 
     def delete_schema_snapshot_by_cache_key(self, key: str) -> int:
@@ -729,8 +726,7 @@ class TestPatchConceptualSchemaEndpoint:
             (
                 e
                 for e in PRODUCT_API_ENDPOINTS
-                if e.path
-                == "/api/graph-profiles/{graph_profile_id}/conceptual-schema"
+                if e.path == "/api/graph-profiles/{graph_profile_id}/conceptual-schema"
             ),
             None,
         )
@@ -1070,9 +1066,7 @@ class _AutographStubRepo(_StubServiceRepository):
 
     def list_graph_sets(self, workspace_id: str) -> List[Any]:
         return [
-            gs
-            for gs in self._graph_sets.values()
-            if gs.workspace_id == workspace_id
+            gs for gs in self._graph_sets.values() if gs.workspace_id == workspace_id
         ]
 
     def create_graph_set(self, graph_set: Any) -> str:
@@ -1143,13 +1137,21 @@ class TestAutographAutoPair:
             named_graphs=[
                 {
                     "name": "P_CorpusGraph",
-                    "vertex_collections": ["P_domains", "P_modules", "P_sources", "P_rags"],
+                    "vertex_collections": [
+                        "P_domains",
+                        "P_modules",
+                        "P_sources",
+                        "P_rags",
+                    ],
                     "edge_collections": ["P_corpus_relations", "P_similarities"],
                 },
                 {
                     "name": "P_kg",
                     "vertex_collections": [
-                        "P_Chunks", "P_Communities", "P_Documents", "P_Entities"
+                        "P_Chunks",
+                        "P_Communities",
+                        "P_Documents",
+                        "P_Entities",
                     ],
                     "edge_collections": ["P_Relations"],
                 },
@@ -1165,9 +1167,7 @@ class TestAutographAutoPair:
         assert result.arango_product["kind"] == "autograph"
         assert len(result.arango_product["projects"]) == 1
         assert result.arango_product["projects"][0]["project_name"] == "P"
-        assert (
-            result.arango_product["projects"][0]["completeness"] == "complete"
-        )
+        assert result.arango_product["projects"][0]["completeness"] == "complete"
 
         # GraphSet auto-created.
         assert len(result.auto_created_graph_sets) == 1
@@ -1188,11 +1188,12 @@ class TestAutographAutoPair:
                 {
                     "name": "P_CorpusGraph",
                     "vertex_collections": [
-                        "P_domains", "P_modules", "P_sources", "P_rags"
+                        "P_domains",
+                        "P_modules",
+                        "P_sources",
+                        "P_rags",
                     ],
-                    "edge_collections": [
-                        "P_corpus_relations", "P_similarities"
-                    ],
+                    "edge_collections": ["P_corpus_relations", "P_similarities"],
                 },
             ],
         )
@@ -1231,9 +1232,9 @@ class TestAutographAutoPair:
             connection_profile_id="cp-1", schema_strategy="heuristic"
         )
         assert len(second.auto_created_graph_sets) == 1
-        assert len(repo._graph_sets) == 1, (
-            "Re-running discover must not create a duplicate GraphSet"
-        )
+        assert (
+            len(repo._graph_sets) == 1
+        ), "Re-running discover must not create a duplicate GraphSet"
 
     def test_no_autograph_names_means_no_detector_or_graph_set(self):
         from graph_analytics_ai.product.service import (

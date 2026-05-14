@@ -51,7 +51,6 @@ from graph_analytics_ai.product.constants import (
     WORKSPACES_COLLECTION,
 )
 
-
 pytestmark = pytest.mark.skipif(
     not os.getenv("ARANGO_TEST_URL"), reason="ArangoDB test instance not configured"
 )
@@ -287,9 +286,9 @@ def test_workflow_run_crud(storage, arango_db):
     updated = repository.get_workflow_run(run_id)
     assert updated.status == WorkflowRunStatus.RUNNING
     assert updated.steps[0].status == WorkflowStepStatus.COMPLETED
-    assert [r.run_id for r in repository.list_workflow_runs(workspace.workspace_id)] == [
-        run_id
-    ]
+    assert [
+        r.run_id for r in repository.list_workflow_runs(workspace.workspace_id)
+    ] == [run_id]
 
 
 def test_report_and_audit_crud(storage, arango_db):
@@ -379,9 +378,9 @@ def test_report_and_audit_crud(storage, arango_db):
     updated_manifest = repository.get_report_manifest(report_id)
     assert updated_manifest.status == ReportStatus.PUBLISHED
     assert updated_manifest.published_snapshot_id == snapshot_id
-    assert [r.report_id for r in repository.list_report_manifests(workspace.workspace_id)] == [
-        report_id
-    ]
+    assert [
+        r.report_id for r in repository.list_report_manifests(workspace.workspace_id)
+    ] == [report_id]
     assert [s.section_id for s in repository.list_report_sections(report_id)] == [
         section_id
     ]
@@ -389,7 +388,6 @@ def test_report_and_audit_crud(storage, arango_db):
     assert [
         s.published_snapshot_id for s in repository.list_published_snapshots(report_id)
     ] == [snapshot_id]
-    assert [e.audit_event_id for e in repository.list_audit_events(workspace.workspace_id)] == [
-        event.audit_event_id
-    ]
-
+    assert [
+        e.audit_event_id for e in repository.list_audit_events(workspace.workspace_id)
+    ] == [event.audit_event_id]

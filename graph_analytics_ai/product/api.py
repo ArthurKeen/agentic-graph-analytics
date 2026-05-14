@@ -423,7 +423,9 @@ class ProductAPIDispatcher:
                 return endpoint
         raise KeyError(f"Product API endpoint not found: {normalized_method} {path}")
 
-    def _coerce_kwargs(self, service_method: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _coerce_kwargs(
+        self, service_method: Any, kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
         method_signature = signature(service_method)
         coerced = dict(kwargs)
         for name, parameter in method_signature.parameters.items():
@@ -463,7 +465,11 @@ class ProductAPIDispatcher:
         if isinstance(annotation, type) and issubclass(annotation, Enum):
             return value if isinstance(value, annotation) else annotation(value)
 
-        if isinstance(annotation, type) and hasattr(annotation, "from_dict") and isinstance(value, dict):
+        if (
+            isinstance(annotation, type)
+            and hasattr(annotation, "from_dict")
+            and isinstance(value, dict)
+        ):
             return annotation.from_dict(value)
 
         return value
@@ -474,8 +480,5 @@ class ProductAPIDispatcher:
         if isinstance(value, list):
             return [self._serialize_response(item) for item in value]
         if isinstance(value, dict):
-            return {
-                key: self._serialize_response(item)
-                for key, item in value.items()
-            }
+            return {key: self._serialize_response(item) for key, item in value.items()}
         return value

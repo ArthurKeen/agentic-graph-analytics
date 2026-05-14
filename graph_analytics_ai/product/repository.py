@@ -201,7 +201,9 @@ class ProductRepository:
 
         return self.storage.insert_requirement_version(version)
 
-    def get_requirement_version(self, requirement_version_id: str) -> RequirementVersion:
+    def get_requirement_version(
+        self, requirement_version_id: str
+    ) -> RequirementVersion:
         """Get a requirement version."""
 
         return self.storage.get_requirement_version(requirement_version_id)
@@ -306,7 +308,9 @@ class ProductRepository:
 
         return self.storage.insert_audit_event(event)
 
-    def list_audit_events(self, workspace_id: str, limit: int = 100) -> List[AuditEvent]:
+    def list_audit_events(
+        self, workspace_id: str, limit: int = 100
+    ) -> List[AuditEvent]:
         """List audit events for a workspace."""
 
         return self.storage.list_audit_events(workspace_id, limit=limit)
@@ -433,4 +437,3 @@ class WorkspaceSchemaCache:
                 key,
                 exc_info=True,
             )
-
