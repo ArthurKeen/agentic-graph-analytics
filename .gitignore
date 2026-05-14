@@ -79,3 +79,8 @@ workflow_output/
 
 # Local documentation reports (not part of the library)
 docs/archive/local-reports/
+
+# Local scratch/staging area (sibling-repo patches, ad-hoc validation
+# scripts, throwaway experiments). Anything intended to live in the
+# repo permanently should land in scripts/, tests/, or the package.
+scratch/

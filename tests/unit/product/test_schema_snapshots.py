@@ -1048,3 +1048,235 @@ class TestDiscoverGraphProfilesBulk:
         )
         assert result.discovered_graph_count == 1
         assert result.graph_profiles[0]["graph_name"] == "real_graph"
+
+
+# ---------------------------------------------------------------------------
+# v0.6.1 — Autograph auto-pairing in discover_graph_profiles
+# ---------------------------------------------------------------------------
+
+
+class _AutographStubRepo(_StubServiceRepository):
+    """Extends the basic stub with GraphSet + audit-event surface so the
+    auto-pair code path exercises end-to-end (not just degrades silently)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._graph_sets: Dict[str, Any] = {}
+        self.audit_events: List[Any] = []
+
+    def create_audit_event(self, event: Any) -> str:
+        self.audit_events.append(event)
+        return getattr(event, "audit_event_id", "ae-1")
+
+    def list_graph_sets(self, workspace_id: str) -> List[Any]:
+        return [
+            gs
+            for gs in self._graph_sets.values()
+            if gs.workspace_id == workspace_id
+        ]
+
+    def create_graph_set(self, graph_set: Any) -> str:
+        self._graph_sets[graph_set.graph_set_id] = graph_set
+        return graph_set.graph_set_id
+
+
+class TestAutographAutoPair:
+    """When discover_graph_profiles encounters Autograph-shaped names,
+    it MUST detect the projects and auto-create one GraphSet per
+    complete project (PRD v0.6.1 / Phase 6e)."""
+
+    def _service_with_autograph(
+        self, named_graphs: List[Dict[str, Any]]
+    ) -> tuple[Any, _AutographStubRepo]:
+        from graph_analytics_ai.product.service import (
+            ConnectionGraphsResult,
+            ConnectionGraphSummary,
+            ProductService,
+        )
+
+        repo = _AutographStubRepo()
+        db = _make_db(
+            collections=[
+                {"name": "P_Entities", "type": "document"},
+                {"name": "P_Documents", "type": "document"},
+                {"name": "P_Chunks", "type": "document"},
+                {"name": "P_Communities", "type": "document"},
+                {"name": "P_domains", "type": "document"},
+                {"name": "P_modules", "type": "document"},
+                {"name": "P_sources", "type": "document"},
+                {"name": "P_rags", "type": "document"},
+                {"name": "P_corpus_relations", "type": "edge"},
+                {"name": "P_Relations", "type": "edge"},
+                {"name": "P_similarities", "type": "edge"},
+            ],
+            samples={},
+        )
+        service = ProductService(
+            repository=repo,  # type: ignore[arg-type]
+            secret_resolver=_StubSecretResolver(),  # type: ignore[arg-type]
+            db_connector=lambda **_: db,
+            schema_extractor_factory=_StubExtractor,
+        )
+        summaries = [
+            ConnectionGraphSummary(
+                name=g["name"],
+                is_system=g.get("is_system", False),
+                vertex_collections=g.get("vertex_collections", []),
+                edge_collections=g.get("edge_collections", []),
+                orphan_collections=[],
+                edge_definitions=[],
+            )
+            for g in named_graphs
+        ]
+        service.list_connection_profile_graphs = MagicMock(  # type: ignore[assignment]
+            return_value=ConnectionGraphsResult(
+                connection_profile_id="cp-1",
+                workspace_id="ws-1",
+                database="hr_demo",
+                graphs=summaries,
+            )
+        )
+        return service, repo
+
+    def test_complete_project_auto_creates_one_graph_set(self):
+        service, repo = self._service_with_autograph(
+            named_graphs=[
+                {
+                    "name": "P_CorpusGraph",
+                    "vertex_collections": ["P_domains", "P_modules", "P_sources", "P_rags"],
+                    "edge_collections": ["P_corpus_relations", "P_similarities"],
+                },
+                {
+                    "name": "P_kg",
+                    "vertex_collections": [
+                        "P_Chunks", "P_Communities", "P_Documents", "P_Entities"
+                    ],
+                    "edge_collections": ["P_Relations"],
+                },
+            ],
+        )
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        assert result.discovered_graph_count == 2
+
+        # Detector ran and surfaced the project.
+        assert result.arango_product is not None
+        assert result.arango_product["kind"] == "autograph"
+        assert len(result.arango_product["projects"]) == 1
+        assert result.arango_product["projects"][0]["project_name"] == "P"
+        assert (
+            result.arango_product["projects"][0]["completeness"] == "complete"
+        )
+
+        # GraphSet auto-created.
+        assert len(result.auto_created_graph_sets) == 1
+        gs = result.auto_created_graph_sets[0]
+        assert gs["name"] == "autograph:P"
+        assert len(gs["graph_profile_ids"]) == 2
+        # Cross-graph link populated from the implicit GraphRAG seed link.
+        assert len(gs["cross_graph_links"]) == 1
+        link = gs["cross_graph_links"][0]
+        assert link["metadata"]["kind"] == "graphrag_entity_type_seed"
+        assert link["metadata"]["discovered_by"] == "autograph_detector"
+        # Persisted in the stub repo.
+        assert len(repo._graph_sets) == 1
+
+    def test_corpus_only_project_auto_creates_single_member_graph_set(self):
+        service, repo = self._service_with_autograph(
+            named_graphs=[
+                {
+                    "name": "P_CorpusGraph",
+                    "vertex_collections": [
+                        "P_domains", "P_modules", "P_sources", "P_rags"
+                    ],
+                    "edge_collections": [
+                        "P_corpus_relations", "P_similarities"
+                    ],
+                },
+            ],
+        )
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        # Detector still fires and reports corpus_only.
+        assert result.arango_product is not None
+        proj = result.arango_product["projects"][0]
+        assert proj["completeness"] == "corpus_only"
+        assert any("INCOMPLETE_AUTOGRAPH_RUN" in w for w in proj["warnings"])
+
+        # Single-member GraphSet auto-created (no cross-graph link
+        # possible without the KG side).
+        assert len(result.auto_created_graph_sets) == 1
+        gs = result.auto_created_graph_sets[0]
+        assert len(gs["graph_profile_ids"]) == 1
+        assert gs["cross_graph_links"] == []
+
+    def test_idempotent_does_not_duplicate_graph_set_on_re_discover(self):
+        service, repo = self._service_with_autograph(
+            named_graphs=[
+                {"name": "P_CorpusGraph"},
+                {"name": "P_kg"},
+            ],
+        )
+        # First run: creates the GraphSet.
+        first = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        assert len(first.auto_created_graph_sets) == 1
+        assert len(repo._graph_sets) == 1
+
+        # Second run: must reuse, not duplicate.
+        second = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        assert len(second.auto_created_graph_sets) == 1
+        assert len(repo._graph_sets) == 1, (
+            "Re-running discover must not create a duplicate GraphSet"
+        )
+
+    def test_no_autograph_names_means_no_detector_or_graph_set(self):
+        from graph_analytics_ai.product.service import (
+            ConnectionGraphsResult,
+            ConnectionGraphSummary,
+            ProductService,
+        )
+
+        repo = _AutographStubRepo()
+        # Plain hand-built schema (no Autograph names anywhere).
+        db = _make_db(
+            collections=[
+                {"name": "Users", "type": "document"},
+                {"name": "Follows", "type": "edge"},
+            ],
+            samples={},
+        )
+        service = ProductService(
+            repository=repo,  # type: ignore[arg-type]
+            secret_resolver=_StubSecretResolver(),  # type: ignore[arg-type]
+            db_connector=lambda **_: db,
+            schema_extractor_factory=_StubExtractor,
+        )
+        service.list_connection_profile_graphs = MagicMock(  # type: ignore[assignment]
+            return_value=ConnectionGraphsResult(
+                connection_profile_id="cp-1",
+                workspace_id="ws-1",
+                database="hr_demo",
+                graphs=[
+                    ConnectionGraphSummary(
+                        name="UserGraph",
+                        is_system=False,
+                        vertex_collections=["Users"],
+                        edge_collections=["Follows"],
+                        orphan_collections=[],
+                        edge_definitions=[],
+                    )
+                ],
+            )
+        )
+        result = service.discover_graph_profiles(
+            connection_profile_id="cp-1", schema_strategy="heuristic"
+        )
+        assert result.arango_product is None
+        assert result.auto_created_graph_sets == []
+        assert len(repo._graph_sets) == 0

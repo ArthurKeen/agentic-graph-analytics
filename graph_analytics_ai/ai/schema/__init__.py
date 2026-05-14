@@ -70,6 +70,17 @@ from .sensitivity import (
     classify_property_sensitivity,
     classify_schema_sensitivity,
 )
+# v0.6.1 / Phase 6e (FR-73 candidate): first-party Arango product
+# detection (Autograph corpus + KG today). The ``arango_products``
+# module is a shim that prefers the upstream detector in
+# ``schema_analyzer.arango_products`` and falls back to the in-tree
+# ``_arango_products_local`` implementation when the analyzer is
+# unavailable. Importers should always go through this re-export.
+from .arango_products import (
+    ArangoProductReport,
+    AutographProject,
+    detect_arango_products,
+)
 
 
 __all__ = [
@@ -110,4 +121,8 @@ __all__ = [
     "classify_conceptual_schema",
     "classify_property_sensitivity",
     "classify_schema_sensitivity",
+    # v0.6.1 / Phase 6e
+    "ArangoProductReport",
+    "AutographProject",
+    "detect_arango_products",
 ]

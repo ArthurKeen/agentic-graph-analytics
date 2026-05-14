@@ -23,6 +23,7 @@ from ..ai.schema.sensitivity import (
     classify_conceptual_schema,
     classify_schema_sensitivity,
 )
+from ..ai.schema.arango_products import detect_arango_products
 from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
 from ..db_connection import connect_arango_database
@@ -289,6 +290,23 @@ class WorkspaceGraphInventoryResult:
     graph_profiles: List[Dict[str, Any]]
     failures: List[Dict[str, Any]] = field(default_factory=list)
     database_only: Optional[Dict[str, Any]] = None
+    arango_product: Optional[Dict[str, Any]] = None
+    """First-party Arango product report (PRD v0.6 / FR-67 follow-up).
+
+    When the connection's database contains artefacts created by an
+    Arango product (today: Autograph corpus + KG projects), this
+    block carries the detection result so the UI can badge the
+    inventory and auto-suggest GraphSets. ``None`` when no product
+    artefacts were detected.
+    """
+    auto_created_graph_sets: List[Dict[str, Any]] = field(default_factory=list)
+    """GraphSets that were auto-created from the detection report.
+
+    One entry per detected Autograph project (corpus + KG bundled
+    together with the implicit ``rags.entity_types ->
+    Entities.entity_type`` cross-graph link). Empty when no
+    Autograph projects were detected.
+    """
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert inventory result to an API-friendly dictionary."""
@@ -301,6 +319,8 @@ class WorkspaceGraphInventoryResult:
             "graph_profiles": self.graph_profiles,
             "failures": self.failures,
             "database_only": self.database_only,
+            "arango_product": self.arango_product,
+            "auto_created_graph_sets": self.auto_created_graph_sets,
         }
 
 
@@ -1781,6 +1801,19 @@ class ProductService:
                         }
                     )
 
+        # PRD v0.6 follow-up: detect first-party Arango product
+        # artefacts (Autograph corpora + KGs) from the inventory and
+        # auto-create one GraphSet per detected project. Failures here
+        # are non-fatal — the inventory still returns even if the
+        # detector or GraphSet creation throws.
+        arango_product_dict, auto_graph_sets = self._detect_and_auto_pair_products(
+            connection_profile_id=connection_profile_id,
+            workspace_id=connection.workspace_id,
+            graph_profiles=graph_profiles,
+            inventory=inventory,
+            actor=created_by,
+        )
+
         return WorkspaceGraphInventoryResult(
             connection_profile_id=connection_profile_id,
             workspace_id=connection.workspace_id,
@@ -1789,7 +1822,168 @@ class ProductService:
             graph_profiles=graph_profiles,
             failures=failures,
             database_only=database_only,
+            arango_product=arango_product_dict,
+            auto_created_graph_sets=auto_graph_sets,
         )
+
+    def _detect_and_auto_pair_products(
+        self,
+        *,
+        connection_profile_id: str,
+        workspace_id: str,
+        graph_profiles: List[Dict[str, Any]],
+        inventory: "ConnectionGraphInventory",
+        actor: Optional[str],
+    ) -> tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+        """Detect Autograph projects and auto-create one GraphSet each.
+
+        Builds a minimal snapshot from the inventory's collection +
+        named-graph names, runs :func:`detect_arango_products`, and
+        for each detected project:
+
+        - Locates the corpus + KG :class:`GraphProfile` records that
+          belong to this project (matched by ``graph_name`` ==
+          ``<project>_CorpusGraph`` / ``<project>_kg``).
+        - Calls :meth:`create_graph_set` to register a workspace
+          GraphSet wrapping both, with the implicit
+          ``rags.entity_types -> Entities.entity_type`` cross-graph
+          link pre-populated.
+
+        Idempotent: if a GraphSet with the same name already exists
+        for the workspace, we attach to it instead of creating a
+        duplicate.
+
+        Returns ``(arango_product_dict_or_None, auto_created_graph_sets)``.
+        """
+
+        # Build the snapshot the detector expects (just names — no
+        # samples needed). Use the inventory we already have rather
+        # than re-querying the DB.
+        try:
+            snapshot = {
+                "collections": [
+                    {"name": name}
+                    for graph in inventory.graphs
+                    for name in (
+                        list(graph.vertex_collections)
+                        + list(graph.edge_collections)
+                        + list(graph.orphan_collections)
+                    )
+                ],
+                "graphs": [{"name": g.name} for g in inventory.graphs],
+            }
+            # De-dupe collection list — multiple graphs may share collections.
+            seen_names: set[str] = set()
+            unique_collections: list[dict[str, str]] = []
+            for entry in snapshot["collections"]:
+                if entry["name"] not in seen_names:
+                    seen_names.add(entry["name"])
+                    unique_collections.append(entry)
+            snapshot["collections"] = unique_collections
+
+            report = detect_arango_products(snapshot)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Autograph detection failed for connection %s: %s",
+                connection_profile_id,
+                exc,
+            )
+            return None, []
+
+        if report.is_empty:
+            return None, []
+
+        product_dict = report.to_dict()
+        auto_created: List[Dict[str, Any]] = []
+
+        # Index the just-discovered graph profiles by graph_name for
+        # quick lookup when pairing corpus + KG into a GraphSet.
+        profiles_by_graph_name: Dict[str, str] = {}
+        for profile_dict in graph_profiles:
+            graph_name = profile_dict.get("graph_name")
+            graph_profile_id = profile_dict.get("graph_profile_id")
+            if graph_name and graph_profile_id:
+                profiles_by_graph_name[graph_name] = graph_profile_id
+
+        for project in report.autograph_projects:
+            corpus_pid = (
+                profiles_by_graph_name.get(project.corpus_graph)
+                if project.corpus_graph
+                else None
+            )
+            kg_pid = (
+                profiles_by_graph_name.get(project.kg_graph)
+                if project.kg_graph
+                else None
+            )
+            members = [pid for pid in (corpus_pid, kg_pid) if pid]
+            if len(members) < 1:
+                # No matching profile in the just-created sweep —
+                # likely the project's graphs were skipped (system or
+                # excluded). Skip auto-creation rather than guessing.
+                continue
+
+            primary = kg_pid or corpus_pid
+            graph_set_name = f"autograph:{project.project_name}"
+
+            # Build cross-graph links from the detector's implicit
+            # links — but only when both endpoints map to actual
+            # GraphProfiles. (When KG is missing for a corpus_only
+            # project, no cross-graph link is possible.)
+            cross_links: List[Dict[str, Any]] = []
+            if corpus_pid and kg_pid:
+                for link in project.implicit_links:
+                    cross_links.append(
+                        {
+                            "from_graph_profile_id": corpus_pid,
+                            "from_field": link["from"],
+                            "to_graph_profile_id": kg_pid,
+                            "to_field": link["to"],
+                            "link_type": "equality",
+                            "confidence": project.confidence,
+                            "metadata": {
+                                "kind": link["kind"],
+                                "discovered_by": "autograph_detector",
+                            },
+                        }
+                    )
+
+            try:
+                # Idempotent: re-use existing GraphSet if same name
+                # already registered for this workspace.
+                existing = [
+                    gs
+                    for gs in self.list_graph_sets(workspace_id=workspace_id)
+                    if gs.name == graph_set_name
+                ]
+                if existing:
+                    auto_created.append(existing[0].to_dict())
+                    continue
+
+                graph_set = self.create_graph_set(
+                    workspace_id=workspace_id,
+                    name=graph_set_name,
+                    description=(
+                        f"Auto-created from detected Autograph project "
+                        f"'{project.project_name}' "
+                        f"({project.completeness}). "
+                        f"{'; '.join(project.warnings) if project.warnings else ''}"
+                    ).strip(),
+                    graph_profile_ids=members,
+                    primary_graph_profile_id=primary,
+                    cross_graph_links=cross_links,
+                    actor=actor,
+                )
+                auto_created.append(graph_set.to_dict())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Auto-creating GraphSet for Autograph project '%s' "
+                    "failed: %s",
+                    project.project_name,
+                    exc,
+                )
+
+        return product_dict, auto_created
 
     def _acquire_and_persist_bundle(
         self,
