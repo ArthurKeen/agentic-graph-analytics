@@ -281,6 +281,20 @@ PRODUCT_API_ENDPOINTS = [
         request_model="CreateWorkflowRunRequest",
         response_model="WorkflowRun",
     ),
+    # PRD v0.7 / FR-73. One-shot prompt analysis: a single
+    # natural-language prompt + graph profile runs the agentic pipeline
+    # end to end with ephemeral (origin=quick_prompt) requirement/run
+    # artifacts. Creates the requirement version + agentic run and starts
+    # it in one call; returns the started WorkflowRun.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/quick-analysis",
+        service_method="quick_analysis",
+        summary="Run a one-shot analysis from a single prompt",
+        tags=["workflow-runs"],
+        request_model="QuickAnalysisRequest",
+        response_model="WorkflowRun",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/runs/{run_id}/start",

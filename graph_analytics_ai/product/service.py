@@ -717,6 +717,15 @@ class ProductService:
         graph_profiles = self.repository.list_graph_profiles(workspace_id)
         source_documents = self.repository.list_source_documents(workspace_id)
         requirement_versions = self.repository.list_requirement_versions(workspace_id)
+        # FR-73: ephemeral quick-analysis requirement versions are run inputs,
+        # not curated requirements — keep them out of the consolidated
+        # Requirements asset list / version dropdown (they remain queryable
+        # by id for lineage and for the run that created them).
+        requirement_versions = [
+            version
+            for version in requirement_versions
+            if not (version.metadata or {}).get("ephemeral")
+        ]
         workflow_runs = self.repository.list_workflow_runs(workspace_id)
         reports = self.repository.list_report_manifests(workspace_id)
         audit_events = self.repository.list_audit_events(
@@ -909,6 +918,112 @@ class ProductService:
         )
         self.repository.create_workflow_run(run)
         return run
+
+    def quick_analysis(
+        self,
+        workspace_id: str,
+        graph_profile_id: str,
+        prompt: str,
+        workflow_mode: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> WorkflowRun:
+        """FR-73 one-shot prompt analysis.
+
+        Runs the agentic pipeline once from a single natural-language
+        prompt against a graph profile — with no manual requirement,
+        use-case, or template approval steps. The prompt is persisted as
+        an *ephemeral*, auto-approved ``RequirementVersion`` (carried in
+        ``metadata.draft_brd``), which the ``AgenticRunSupervisor`` feeds
+        to the runner as an in-memory document. The run is created in the
+        canonical agentic layout and immediately started; the returned
+        ``WorkflowRun`` is ``RUNNING`` once dispatched. Status is then
+        observed via ``get_workflow_run_status`` / the run DAG.
+
+        Artifacts created here are tagged ``origin="quick_prompt"`` and
+        ``ephemeral=True`` so the UI can keep them out of the curated
+        Requirements asset list (FR-17).
+        """
+
+        text = (prompt or "").strip()
+        if not text:
+            raise ValidationError("quick_analysis requires a non-empty prompt")
+
+        # Scope validation: workspace exists and the graph profile is its own.
+        self.repository.get_workspace(workspace_id)
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        if graph_profile.workspace_id != workspace_id:
+            raise ValidationError(
+                "graph_profile_id does not belong to the given workspace"
+            )
+
+        requested_mode = workflow_mode or "agentic"
+        if isinstance(requested_mode, WorkflowMode):
+            requested_mode = requested_mode.value
+        if str(requested_mode) not in ("agentic", "parallel_agentic"):
+            raise ValidationError(
+                "quick_analysis workflow_mode must be 'agentic' or "
+                "'parallel_agentic'"
+            )
+
+        # Ephemeral, auto-approved requirement version carrying the prompt
+        # as the BRD draft. We do NOT supersede prior approved versions
+        # (unlike the copilot approve path) — quick-analysis runs are
+        # one-offs and must not disturb the curated requirement history.
+        existing = self.repository.list_requirement_versions(workspace_id)
+        next_version = max((v.version for v in existing), default=0) + 1
+        requirement_version = create_requirement_version(
+            workspace_id=workspace_id,
+            version=next_version,
+            status=RequirementVersionStatus.APPROVED,
+            summary=text[:280],
+            approved_at=current_timestamp(),
+            metadata={
+                "source": "quick_prompt",
+                "origin": "quick_prompt",
+                "ephemeral": True,
+                "draft_brd": text,
+            },
+        )
+        self.repository.create_requirement_version(requirement_version)
+
+        # parallel_agentic folds to agentic for now: start_workflow_run only
+        # dispatches AGENTIC to the supervisor (FR-31a); parallelism inside
+        # the runner is a later concern.
+        run = self.create_workflow_run_from_steps(
+            workspace_id=workspace_id,
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[],
+            dag_edges=[],
+            requirement_version_id=requirement_version.requirement_version_id,
+            graph_profile_id=graph_profile_id,
+            metadata={
+                "origin": "quick_prompt",
+                "ephemeral": True,
+                "prompt": text[:1000],
+                "requested_mode": str(requested_mode),
+                "options": dict(options or {}),
+            },
+        )
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "workspace-ui",
+                action="quick_analysis",
+                target_type="workflow_run",
+                target_id=run.run_id,
+                metadata={
+                    "graph_profile_id": graph_profile_id,
+                    "requirement_version_id": (
+                        requirement_version.requirement_version_id
+                    ),
+                    "requested_mode": str(requested_mode),
+                },
+            )
+        )
+
+        return self.start_workflow_run(run.run_id, actor=actor)
 
     def _build_canonical_agentic_dag(self):
         """Seed the canonical agentic six-step layout.

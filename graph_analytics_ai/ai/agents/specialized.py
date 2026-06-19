@@ -299,8 +299,10 @@ Your goal: Transform business needs into structured requirements."""
                 risks=[],
             )
         else:
-            # Parse documents
-            parsed_docs = [self.parser.parse(doc) for doc in documents]
+            # Parse documents. Inputs may be file paths (uploaded docs) or
+            # in-memory dicts ({name, content}) — e.g. a Requirements Copilot
+            # BRD draft or an FR-73 Quick Analysis prompt wrapped as a doc.
+            parsed_docs = [self._parse_document_input(doc) for doc in documents]
             requirements = self.extractor.extract(parsed_docs)
 
         state.requirements = requirements
@@ -329,6 +331,26 @@ Your goal: Transform business needs into structured requirements."""
             },
             reply_to=message.message_id,
         )
+
+    def _parse_document_input(self, doc: Any):
+        """Normalize a requirements document input into a parsed Document.
+
+        Accepts either a file-path string (uploaded documents) or an
+        in-memory dict ``{name?, content|text, path?}`` — the shape the
+        product supervisor emits for Requirements Copilot BRD drafts and
+        FR-73 Quick Analysis prompts. In-memory content is parsed without
+        touching disk via :meth:`DocumentParser.parse_content`.
+        """
+        if isinstance(doc, dict):
+            content = doc.get("content") or doc.get("text")
+            name = doc.get("name") or doc.get("filename") or "document.md"
+            if content:
+                return self.parser.parse_content(content, name=name)
+            path = doc.get("path") or doc.get("file_path")
+            if path:
+                return self.parser.parse(path)
+            return self.parser.parse_content("", name=name)
+        return self.parser.parse(doc)
 
     @handle_agent_errors_async
     async def process_async(
@@ -379,7 +401,8 @@ Your goal: Transform business needs into structured requirements."""
             # Parse documents and extract requirements (run in executor)
             loop = asyncio.get_event_loop()
             parsed_docs = await loop.run_in_executor(
-                None, lambda: [self.parser.parse(doc) for doc in documents]
+                None,
+                lambda: [self._parse_document_input(doc) for doc in documents],
             )
             # Check if extractor has async method
             if hasattr(self.extractor, "extract_async"):
