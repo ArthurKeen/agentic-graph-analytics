@@ -86,6 +86,40 @@ class GAEConnectionBase(ABC):
         """
         pass
 
+    def supports_aql_load(self) -> bool:
+        """Whether this engine exposes the ``v1/loaddataaql`` endpoint.
+
+        PRD v0.7 / FR-74. Concrete connections override this; the base
+        default is ``False`` so callers transparently fall back to
+        whole-collection :meth:`load_graph` on engines (or test doubles)
+        that don't implement AQL-based loading.
+        """
+        return False
+
+    def load_graph_aql(
+        self,
+        database: str,
+        phases: List[Dict[str, Any]],
+        vertex_attributes: Optional[List[Dict[str, Any]]] = None,
+        edge_attributes: Optional[List[Dict[str, Any]]] = None,
+        parallelism: Optional[int] = None,
+        batch_size: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Load a filtered/projected graph into the engine via AQL.
+
+        PRD v0.7 / FR-74. Wraps the GAE ``POST v1/loaddataaql`` endpoint,
+        which loads a graph from custom AQL queries (filter / project /
+        traverse at load time) instead of whole collections. ``phases``
+        is a list of query groups executed sequentially; each query
+        returns ``{"vertices": [...]}`` and/or ``{"edges": [...]}``.
+
+        The base implementation raises ``NotImplementedError``; concrete
+        connections override it.
+        """
+        raise NotImplementedError(
+            "This GAE connection does not implement load_graph_aql()"
+        )
+
     @abstractmethod
     def run_pagerank(
         self,
@@ -537,6 +571,53 @@ class GAEManager(GAEConnectionBase):
 
         result = self._engine_api_call("v1/loaddata", method="POST", data=payload)
         print(f"✓ Graph loaded: {result.get('graph_id')}")
+        return result
+
+    def supports_aql_load(self) -> bool:
+        """AMP engines support ``v1/loaddataaql`` (PRD v0.7 / FR-74).
+
+        Honors the ``GAE_DISABLE_LOADDATAAQL`` escape hatch so operators
+        can force the whole-collection path if needed.
+        """
+        return os.getenv("GAE_DISABLE_LOADDATAAQL", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+
+    def load_graph_aql(
+        self,
+        database: str,
+        phases: List[Dict[str, Any]],
+        vertex_attributes: Optional[List[Dict[str, Any]]] = None,
+        edge_attributes: Optional[List[Dict[str, Any]]] = None,
+        parallelism: Optional[int] = None,
+        batch_size: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Load a filtered graph via ``v1/loaddataaql`` (PRD v0.7 / FR-74)."""
+        if not phases:
+            raise ValueError("load_graph_aql requires at least one phase")
+
+        # The GAE loaddataaql endpoint requires vertex_attributes and
+        # edge_attributes to be present in the body (even when empty) —
+        # omitting them yields a 400 "missing field `edge_attributes`".
+        payload: Dict[str, Any] = {
+            "database": database,
+            "phases": phases,
+            "vertex_attributes": vertex_attributes or [],
+            "edge_attributes": edge_attributes or [],
+        }
+        if parallelism is not None:
+            payload["parallelism"] = parallelism
+        if batch_size is not None:
+            payload["batch_size"] = batch_size
+
+        print(
+            f"Loading graph via AQL from database '{database}': "
+            f"{len(phases)} phase(s)"
+        )
+        result = self._engine_api_call("v1/loaddataaql", method="POST", data=payload)
+        print(f"✓ Graph loaded (AQL): {result.get('graph_id')}")
         return result
 
     def run_pagerank(
@@ -1275,6 +1356,69 @@ class GenAIGAEConnection(GAEConnectionBase):
         )
 
         # Extract and display job_id and graph_id
+        job_id = job.get("job_id")
+        graph_id = job.get("graph_id")
+        if job_id and graph_id:
+            print(f"   job_id={job_id}, graph_id={graph_id}")
+
+        return self._normalize_job_response(job)
+
+    def supports_aql_load(self) -> bool:
+        """Self-managed engines support ``v1/loaddataaql`` (PRD v0.7 / FR-74).
+
+        Honors the ``GAE_DISABLE_LOADDATAAQL`` escape hatch.
+        """
+        return os.getenv("GAE_DISABLE_LOADDATAAQL", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+        )
+
+    def load_graph_aql(
+        self,
+        database: str,
+        phases: List[Dict[str, Any]],
+        vertex_attributes: Optional[List[Dict[str, Any]]] = None,
+        edge_attributes: Optional[List[Dict[str, Any]]] = None,
+        parallelism: Optional[int] = None,
+        batch_size: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Load a filtered graph via ``v1/loaddataaql`` (PRD v0.7 / FR-74)."""
+        if not phases:
+            raise ValueError("load_graph_aql requires at least one phase")
+
+        if not self.engine_id:
+            if self.auto_reuse_services:
+                self.ensure_service()
+            else:
+                self.start_engine()
+
+        self._get_engine_url()
+        self._get_headers()
+
+        db = database or self.db_name
+        # vertex_attributes / edge_attributes are required by the GAE
+        # loaddataaql body (even when empty) — see GAEManager.load_graph_aql.
+        payload: Dict[str, Any] = {
+            "database": db,
+            "phases": phases,
+            "vertex_attributes": vertex_attributes or [],
+            "edge_attributes": edge_attributes or [],
+        }
+        if parallelism is not None:
+            payload["parallelism"] = parallelism
+        if batch_size is not None:
+            payload["batch_size"] = batch_size
+
+        print(f"Loading graph via AQL from database '{db}': {len(phases)} phase(s)")
+        job = self._make_request(
+            method="POST",
+            endpoint=f"{API_VERSION_PREFIX}loaddataaql",
+            payload=payload,
+            success_message="Load data (AQL) job submitted",
+            error_message="Failed to load graph via AQL",
+        )
+
         job_id = job.get("job_id")
         graph_id = job.get("graph_id")
         if job_id and graph_id:

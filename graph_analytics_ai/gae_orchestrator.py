@@ -49,6 +49,65 @@ ALGORITHM_RESULT_FIELDS = {
 }
 
 
+def build_aql_load_phases(
+    projections: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Build ``loaddataaql`` ``phases`` from typed LPG projection specs.
+
+    PRD v0.7 / FR-74. Each projection spec (a :meth:`LpgProjection.to_dict`
+    payload) names a generic ``source_collection`` and a
+    ``discriminator_field``/``discriminator_value`` that pins one logical
+    type. We emit one filtered AQL query per projection, returning the
+    GAE-required ``{"vertices": [...]}`` / ``{"edges": [...]}`` shape.
+
+    Vertices load in phase 1 and edges in phase 2 so edge endpoints
+    reference already-loaded vertices (the GAE docs recommend this
+    ordering). Returns ``[]`` when nothing usable is present.
+    """
+    vertex_queries: List[Dict[str, Any]] = []
+    edge_queries: List[Dict[str, Any]] = []
+
+    for spec in projections or []:
+        if not isinstance(spec, dict):
+            continue
+        source = spec.get("source_collection")
+        field_name = spec.get("discriminator_field")
+        value = spec.get("discriminator_value")
+        if not source or not field_name or value is None:
+            continue
+        kind = (spec.get("kind") or "node").lower()
+        if kind == "edge":
+            edge_queries.append(
+                {
+                    "query": (
+                        f"FOR doc IN `{source}` "
+                        f"FILTER doc.`{field_name}` == @value "
+                        f"RETURN {{ edges: [{{ _key: doc._key, "
+                        f"_from: doc._from, _to: doc._to }}] }}"
+                    ),
+                    "bind_vars": {"value": value},
+                }
+            )
+        else:
+            vertex_queries.append(
+                {
+                    "query": (
+                        f"FOR doc IN `{source}` "
+                        f"FILTER doc.`{field_name}` == @value "
+                        f"RETURN {{ vertices: [doc] }}"
+                    ),
+                    "bind_vars": {"value": value},
+                }
+            )
+
+    phases: List[Dict[str, Any]] = []
+    if vertex_queries:
+        phases.append({"queries": vertex_queries})
+    if edge_queries:
+        phases.append({"queries": edge_queries})
+    return phases
+
+
 @dataclass
 class AnalysisConfig:
     """Configuration for a GAE analysis."""
@@ -76,6 +135,23 @@ class AnalysisConfig:
         "e16"  # e4, e8, e16, e32, e64, e128 (AMP only, ignored for self-managed)
     )
     engine_type: str = "gral"
+
+    # Typed-projection / inline-AQL load configuration (PRD v0.7 / FR-71, FR-74)
+    lpg_projections: List[Dict[str, Any]] = field(default_factory=list)
+    """Typed LPG projection specs (from the template's ``LpgProjection``s).
+
+    When non-empty, the orchestrator can load a filtered subgraph into
+    GAE via ``loaddataaql`` instead of loading whole collections.
+    """
+    load_strategy: str = field(
+        default_factory=lambda: os.getenv("GAE_LOAD_STRATEGY", "auto").lower()
+    )
+    """Graph-load strategy: ``auto`` | ``inline_aql`` | ``collections``.
+
+    ``auto`` uses ``inline_aql`` when projections are present and the
+    engine supports ``loaddataaql``, otherwise falls back to loading
+    whole collections.
+    """
 
     # Storage configuration
     target_collection: str = "graph_analysis_results"  # Where to store results
@@ -182,6 +258,10 @@ class AnalysisResult:
     graph_id: Optional[str] = None
     vertex_count: Optional[int] = None
     edge_count: Optional[int] = None
+
+    # Typed-projection provenance (PRD v0.7 / FR-71, FR-74). Records how
+    # the graph was loaded so the catalog can trace it on the execution row.
+    projection: Optional[Dict[str, Any]] = None
 
     # Job info
     job_id: Optional[str] = None
@@ -540,13 +620,7 @@ class GAEOrchestrator:
 
         load_start = datetime.now()
 
-        graph_info = self.gae.load_graph(
-            database=result.config.database,
-            vertex_collections=result.config.vertex_collections,
-            edge_collections=result.config.edge_collections,
-            vertex_attributes=result.config.vertex_attributes,
-            graph_name=result.config.graph_name,
-        )
+        graph_info = self._load_graph_data(result)
 
         result.graph_id = graph_info.get("graph_id") or graph_info.get("id")
 
@@ -579,6 +653,83 @@ class GAEOrchestrator:
             self._log(f"  Vertices: {result.vertex_count:,}")
         if result.edge_count:
             self._log(f"  Edges: {result.edge_count:,}")
+
+    def _load_graph_data(self, result: AnalysisResult) -> Dict[str, Any]:
+        """Load the graph into GAE, preferring inline-AQL typed projections.
+
+        PRD v0.7 / FR-71 + FR-74. When the template carries typed LPG
+        projections and the engine supports ``loaddataaql``, load the
+        filtered subgraph directly via AQL (no temp collections). On any
+        failure, or when inline AQL is unavailable/disabled, fall back to
+        the whole-collection / named-graph :meth:`load_graph` path. The
+        chosen strategy is recorded on ``result.projection`` for catalog
+        lineage.
+        """
+        config = result.config
+        projections = config.lpg_projections or []
+        strategy = (config.load_strategy or "auto").lower()
+
+        engine_supports_aql = bool(
+            getattr(self.gae, "supports_aql_load", lambda: False)()
+        )
+        want_inline = bool(projections) and strategy in ("auto", "inline_aql")
+
+        if want_inline and engine_supports_aql:
+            phases = build_aql_load_phases(projections)
+            if phases:
+                try:
+                    # vertex/edge attributes intentionally omitted: the load
+                    # AQL returns whole documents, and the topology is all GAE
+                    # algorithms here need. (config.vertex_attributes uses the
+                    # loaddata string format, which differs from loaddataaql's
+                    # typed-attribute objects.)
+                    graph_info = self.gae.load_graph_aql(
+                        database=config.database,
+                        phases=phases,
+                    )
+                    result.projection = {
+                        "strategy": "inline_aql",
+                        "phase_count": len(phases),
+                        "logical_types": [
+                            p.get("logical_type")
+                            for p in projections
+                            if isinstance(p, dict)
+                        ],
+                    }
+                    self._log(
+                        f"✓ Loaded typed projection via loaddataaql "
+                        f"({len(projections)} type(s), {len(phases)} phase(s))"
+                    )
+                    return graph_info
+                except Exception as exc:  # noqa: BLE001 - fall back, don't fail the run
+                    self._log(
+                        f"⚠ loaddataaql failed ({exc}); falling back to "
+                        f"whole-collection load"
+                    )
+        elif want_inline and not engine_supports_aql:
+            self._log(
+                "⚠ Typed projections requested but this engine does not "
+                "support loaddataaql; loading whole collections (results "
+                "will span all logical types in the source collections)"
+            )
+
+        graph_info = self.gae.load_graph(
+            database=config.database,
+            vertex_collections=config.vertex_collections,
+            edge_collections=config.edge_collections,
+            vertex_attributes=config.vertex_attributes,
+            graph_name=config.graph_name,
+        )
+        if projections:
+            result.projection = {
+                "strategy": "collections_fallback",
+                "logical_types": [
+                    p.get("logical_type")
+                    for p in projections
+                    if isinstance(p, dict)
+                ],
+            }
+        return graph_info
 
     def _run_algorithm(self, result: AnalysisResult):
         """Run the configured algorithm."""

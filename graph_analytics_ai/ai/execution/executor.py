@@ -173,6 +173,16 @@ class AnalysisExecutor:
                     results = self._collect_results(job)
                     job.result_count = len(results)
 
+                # Surface typed-projection provenance from the orchestrator
+                # result onto the job so it lands in the catalog execution
+                # row (PRD v0.7 / FR-71, FR-74).
+                analysis_result = getattr(self, "_analysis_results", {}).get(
+                    job.job_id
+                )
+                projection = getattr(analysis_result, "projection", None)
+                if projection:
+                    job.metadata["projection"] = projection
+
                 # Track execution in catalog if enabled
                 if self.auto_track and self.catalog:
                     try:
@@ -308,6 +318,10 @@ class AnalysisExecutor:
             target_collection=config_dict.get(
                 "result_collection", "graph_analysis_results"
             ),
+            # Typed LPG projection specs (PRD v0.7 / FR-71, FR-74). Carried
+            # through so the orchestrator can load a filtered subgraph via
+            # loaddataaql instead of whole collections.
+            lpg_projections=config_dict.get("lpg_projections", []) or [],
             # result_field is NOT passed - will be auto-generated as standard name
         )
 
@@ -553,6 +567,9 @@ class AnalysisExecutor:
                     "job_id": job.job_id,
                     "engine_size": job.metadata.get("engine_size", "unknown"),
                     "estimated_runtime": job.metadata.get("estimated_runtime"),
+                    # Typed-projection provenance (PRD v0.7 / FR-71, FR-74):
+                    # which load strategy + logical types fed GAE, for lineage.
+                    "projection": job.metadata.get("projection"),
                 },
             )
 
