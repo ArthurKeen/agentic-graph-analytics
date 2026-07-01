@@ -11,10 +11,12 @@ import {
   demoSourceDocument
 } from "@/lib/product-api/demoData";
 import type {
+  ClusterDatabasesResult,
   ConnectionGraphsResult,
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   CreateConnectionProfileInput,
+  ListClusterDatabasesInput,
   CreateWorkspaceInput,
   CreateWorkflowRunInput,
   CreateWorkflowRunResult,
@@ -22,6 +24,7 @@ import type {
   GraphDiscoveryResult,
   GraphProfileSummary,
   ProductAPIClient,
+  QuickAnalysisInput,
   RequirementInterview,
   RequirementVersion,
   RequirementsDraftResult,
@@ -79,6 +82,16 @@ interface WorkspaceDataResult extends WorkspaceDataState {
    * audit event server-side; the local overview is refreshed so the UI
    * can disable mutating actions on the now-archived workspace. */
   archiveWorkspace: (workspaceId: string, actor?: string) => Promise<WorkspaceSummary>;
+  /** FR-67b: set (or clear) which GraphProfile drives the workbench's
+   * "Analyzing X" banner and the default Requirements Copilot target.
+   * Pass null to clear and fall back to the deterministic positional
+   * rule. Triggers a refreshOverview() so the rest of the UI sees the
+   * change in one round trip. */
+  setActiveGraphProfile: (
+    workspaceId: string,
+    graphProfileId: string | null,
+    actor?: string
+  ) => Promise<WorkspaceSummary>;
   publishReport: (reportId: string, actor?: string) => Promise<ReportBundle>;
   /** Download a rendered report as a Blob (HTML or Markdown). The caller is
    * responsible for triggering the browser download (e.g. via
@@ -92,6 +105,10 @@ interface WorkspaceDataResult extends WorkspaceDataState {
     input: CreateConnectionProfileInput
   ) => Promise<ConnectionProfileSummary>;
   verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
+  /** Two-step connect, part 1: list databases visible to cluster creds. */
+  listClusterDatabases: (
+    input: ListClusterDatabasesInput
+  ) => Promise<ClusterDatabasesResult>;
   listConnectionProfileGraphs: (
     connectionProfileId: string
   ) => Promise<ConnectionGraphsResult>;
@@ -130,6 +147,8 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<CreateWorkflowRunResult>;
+  /** FR-73: one-shot analysis from a prompt against a graph profile. */
+  quickAnalysis: (input: QuickAnalysisInput) => Promise<CreateWorkflowRunResult>;
   startWorkflowRun: (runId: string) => Promise<WorkflowRunSummary>;
   /** FR-31a: cooperative cancel for an agentic run. */
   cancelWorkflowRun: (runId: string, actor?: string) => Promise<WorkflowRunSummary>;
@@ -366,7 +385,8 @@ export function useWorkspaceData({
         environment: input.environment?.trim() || existing.environment || "",
         description: input.description?.trim() ?? existing.description ?? "",
         status: existing.status ?? "active",
-        tags: input.tags ?? existing.tags ?? []
+        tags: input.tags ?? existing.tags ?? [],
+        activeGraphProfileId: existing.active_graph_profile_id ?? null
       };
       setState((current) => ({
         ...current,
@@ -411,7 +431,8 @@ export function useWorkspaceData({
         environment: existing.environment ?? "",
         description: existing.description ?? "",
         status: "archived",
-        tags: existing.tags ?? []
+        tags: existing.tags ?? [],
+        activeGraphProfileId: existing.active_graph_profile_id ?? null
       };
       setState((current) => ({
         ...current,
@@ -428,6 +449,55 @@ export function useWorkspaceData({
     const archived = await apiClient.archiveWorkspace(workspaceId, actor);
     await refreshOverview();
     return archived;
+  };
+
+  const setActiveGraphProfile = async (
+    workspaceId: string,
+    graphProfileId: string | null,
+    actor = "workspace-ui"
+  ): Promise<WorkspaceSummary> => {
+    if (!isLive) {
+      // Demo mode: optimistically mutate the in-memory overview so the
+      // banner switches without a server round-trip. The real backend
+      // is the source of truth in live mode; here we just patch the
+      // workspace subtree and synthesise a WorkspaceSummary response.
+      const existing = state.overview?.workspace;
+      if (!existing) {
+        throw new Error("No workspace loaded");
+      }
+      const nextActiveId = graphProfileId ?? null;
+      const next: WorkspaceSummary = {
+        workspaceId,
+        customerName: existing.customer_name ?? "",
+        projectName: existing.project_name ?? "",
+        environment: existing.environment ?? "",
+        description: existing.description ?? "",
+        status: existing.status ?? "active",
+        tags: existing.tags ?? [],
+        activeGraphProfileId: nextActiveId
+      };
+      setState((current) => ({
+        ...current,
+        overview: current.overview
+          ? {
+              ...current.overview,
+              workspace: {
+                ...current.overview.workspace,
+                active_graph_profile_id: nextActiveId
+              }
+            }
+          : current.overview
+      }));
+      return next;
+    }
+
+    const updated = await apiClient.setActiveGraphProfile(
+      workspaceId,
+      graphProfileId,
+      actor
+    );
+    await refreshOverview();
+    return updated;
   };
 
   const publishReport = async (
@@ -548,6 +618,20 @@ export function useWorkspaceData({
     return verification;
   };
 
+  const listClusterDatabases = async (
+    input: ListClusterDatabasesInput
+  ): Promise<ClusterDatabasesResult> => {
+    if (isLive) {
+      return apiClient.listClusterDatabases(input);
+    }
+    // Demo mode: return a small canned list so the two-step picker is
+    // exercisable without a live cluster.
+    return {
+      endpoint: input.endpoint,
+      databases: ["addtech-knowledge-graph", "FinReflectKG"]
+    };
+  };
+
   const listConnectionProfileGraphs = async (
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult> => {
@@ -656,6 +740,46 @@ export function useWorkspaceData({
     const result = isLive
       ? await apiClient.createWorkflowRun(workspaceId, input)
       : statefulDemoCreateWorkflowRun(workspaceId, input);
+    const asset: WorkspaceAsset = {
+      id: result.workflowRun.runId,
+      kind: "run",
+      label: `Run ${result.workflowRun.runId}`,
+      description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
+    };
+
+    setState((current) => ({
+      ...current,
+      assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+      dagByRunId: {
+        ...current.dagByRunId,
+        [result.workflowRun.runId]: result.dagView
+      },
+      recoveryActionsByRunId: {
+        ...current.recoveryActionsByRunId,
+        [result.workflowRun.runId]: demoRecoveryActions(result.dagView)
+      }
+    }));
+
+    return result;
+  };
+
+  const quickAnalysis = async (
+    input: QuickAnalysisInput
+  ): Promise<CreateWorkflowRunResult> => {
+    const workspaceId = effectiveWorkspaceId ?? demoDag.workspaceId;
+    const result = isLive
+      ? await apiClient.quickAnalysis(workspaceId, input)
+      : statefulDemoCreateWorkflowRun(workspaceId, {
+          workflowMode: input.workflowMode ?? "agentic",
+          stepLabels: [
+            "Schema Analysis",
+            "Requirements Extraction",
+            "Use Case Generation",
+            "Template Generation",
+            "Execution",
+            "Reporting"
+          ]
+        });
     const asset: WorkspaceAsset = {
       id: result.workflowRun.runId,
       kind: "run",
@@ -846,10 +970,12 @@ export function useWorkspaceData({
     createWorkspace,
     updateWorkspace,
     archiveWorkspace,
+    setActiveGraphProfile,
     publishReport,
     exportReport,
     createConnectionProfile,
     verifyConnectionProfile,
+    listClusterDatabases,
     listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -860,6 +986,7 @@ export function useWorkspaceData({
     exportWorkspaceBundle,
     importWorkspaceBundle,
     createWorkflowRun,
+    quickAnalysis,
     startWorkflowRun,
     cancelWorkflowRun,
     getWorkflowRunStatus,
@@ -888,7 +1015,8 @@ function statefulDemoCreateWorkspace(input: CreateWorkspaceInput): WorkspaceSumm
     environment: input.environment.trim(),
     description: input.description?.trim() ?? "",
     status: "active",
-    tags: input.tags ?? []
+    tags: input.tags ?? [],
+    activeGraphProfileId: null
   };
 }
 

@@ -84,3 +84,6 @@ docs/archive/local-reports/
 # scripts, throwaway experiments). Anything intended to live in the
 # repo permanently should land in scripts/, tests/, or the package.
 scratch/
+.prd-drift-queue/
+.claude/
+CLAUDE.md

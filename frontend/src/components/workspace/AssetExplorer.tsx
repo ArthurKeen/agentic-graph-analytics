@@ -33,6 +33,15 @@ interface AssetExplorerProps {
   onRequestPublishReport: (asset: WorkspaceAsset) => void;
   onRequestDeleteRun: (asset: WorkspaceAsset) => void;
   onOpenMenu: (menu: ContextMenuState) => void;
+  /** Primary "where do I start" actions surfaced at the top of the panel. */
+  onRequestConnectDatabase: () => void;
+  /** Three analysis modes (fast → comprehensive). */
+  onRequestQuickAnalysis: () => void;
+  onRequestGuidedAnalysis: () => void;
+  onRequestDetailedAnalysis: () => void;
+  /** Whether the workspace has at least one graph profile (gates the three
+   * analysis modes, which need a graph to run against). */
+  hasGraphProfile: boolean;
 }
 
 export function AssetExplorer({
@@ -53,7 +62,12 @@ export function AssetExplorer({
   onOpenReport,
   onRequestPublishReport,
   onRequestDeleteRun,
-  onOpenMenu
+  onOpenMenu,
+  onRequestConnectDatabase,
+  onRequestQuickAnalysis,
+  onRequestGuidedAnalysis,
+  onRequestDetailedAnalysis,
+  hasGraphProfile
 }: AssetExplorerProps) {
   return (
     <aside className="asset-explorer" aria-label="Workspace assets">
@@ -69,6 +83,64 @@ export function AssetExplorer({
           <h1>Graph Analytics Workspace</h1>
         </div>
       </div>
+
+      <section className="setup-actions" aria-label="Setup">
+        <span className="actions-label">Setup</span>
+        <button
+          type="button"
+          className="primary-button"
+          onClick={onRequestConnectDatabase}
+        >
+          Connect to Database
+        </button>
+      </section>
+
+      <section className="analyze-actions" aria-label="Analyze">
+        <span className="actions-label">Analyze</span>
+        <button
+          type="button"
+          className="analyze-mode-button"
+          disabled={!hasGraphProfile}
+          title={
+            hasGraphProfile
+              ? "Ask one question in plain English, get one report — no approvals"
+              : "Connect to a database and discover a graph first"
+          }
+          onClick={onRequestQuickAnalysis}
+        >
+          <strong>Quick Analysis</strong>
+          <span className="muted">One prompt → one report. Fast, no setup.</span>
+        </button>
+        <button
+          type="button"
+          className="analyze-mode-button"
+          disabled={!hasGraphProfile}
+          title={
+            hasGraphProfile
+              ? "Answer a few questions; we build the requirements, then analyze"
+              : "Connect to a database and discover a graph first"
+          }
+          onClick={onRequestGuidedAnalysis}
+        >
+          <strong>Guided Analysis</strong>
+          <span className="muted">Copilot interview → focused analysis.</span>
+        </button>
+        <button
+          type="button"
+          className="analyze-mode-button"
+          disabled={!hasGraphProfile}
+          title={
+            hasGraphProfile
+              ? "Full study from complete business requirements (multiple use cases)"
+              : "Connect to a database and discover a graph first"
+          }
+          onClick={onRequestDetailedAnalysis}
+        >
+          <strong>Detailed Analysis</strong>
+          <span className="muted">Full requirements → many use cases & reports.</span>
+        </button>
+      </section>
+
       <p>Left-click selects. Right-click opens object actions.</p>
       <WorkspaceHealthSummary health={health} />
       <RecentAuditEvents events={auditEvents} />

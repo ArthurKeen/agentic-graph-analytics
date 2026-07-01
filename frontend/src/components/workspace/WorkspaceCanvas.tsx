@@ -381,7 +381,9 @@ export function WorkspaceCanvas({
         <EmptyCanvasState />
       )}
 
-      <CanvasLensLegend lensName={lensName} />
+      {selectedAsset.kind === "run" ? (
+        <CanvasLensLegend lensName={lensName} />
+      ) : null}
 
       {isAssetInfoOpen && !selectedStep ? (
         <AssetInfoPanel asset={selectedAsset} onClose={onClearAssetSelection} />

@@ -83,6 +83,15 @@ PRODUCT_API_ENDPOINTS = [
         response_model="Workspace",
     ),
     ProductAPIEndpoint(
+        method="PATCH",
+        path="/api/workspaces/{workspace_id}/active-graph-profile",
+        service_method="set_active_graph_profile",
+        summary="Set (or clear) the workspace's active graph profile",
+        tags=["workspaces"],
+        request_model="SetActiveGraphProfileRequest",
+        response_model="Workspace",
+    ),
+    ProductAPIEndpoint(
         method="GET",
         path="/api/workspaces/{workspace_id}/health",
         service_method="check_workspace_health",
@@ -107,6 +116,19 @@ PRODUCT_API_ENDPOINTS = [
         tags=["connection-profiles"],
         request_model="ConnectionVerificationRequest",
         response_model="ConnectionVerificationResult",
+    ),
+    # Two-step connect (UX): given cluster-level credentials (endpoint +
+    # username + password secret-env-var), enumerate the databases those
+    # credentials can see so the UI can present a database picker instead
+    # of requiring the user to type a database name up front.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/connections/list-databases",
+        service_method="list_cluster_databases",
+        summary="List databases visible to a set of cluster credentials",
+        tags=["connection-profiles"],
+        request_model="ListClusterDatabasesRequest",
+        response_model="ClusterDatabasesResult",
     ),
     ProductAPIEndpoint(
         method="GET",

@@ -231,6 +231,14 @@ class Workspace:
     description: str = ""
     status: WorkspaceStatus = WorkspaceStatus.ACTIVE
     tags: List[str] = field(default_factory=list)
+    # Optional pointer to the GraphProfile the workbench should treat as
+    # the workspace's "current" graph (drives the "Analyzing X" banner,
+    # default Requirements Copilot target, etc.). When None, callers must
+    # fall back to a deterministic rule (e.g. most-recently-updated
+    # profile). The id MUST belong to a GraphProfile in this workspace;
+    # validation happens at the service layer because the model itself
+    # has no view of other entities.
+    active_graph_profile_id: Optional[str] = None
     created_at: datetime = field(default_factory=current_timestamp)
     updated_at: datetime = field(default_factory=current_timestamp)
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -247,6 +255,7 @@ class Workspace:
             "description": self.description,
             "status": _enum_value(self.status),
             "tags": self.tags,
+            "active_graph_profile_id": self.active_graph_profile_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "metadata": self.metadata,
@@ -266,6 +275,7 @@ class Workspace:
             description=data.get("description", ""),
             status=WorkspaceStatus(data.get("status", WorkspaceStatus.ACTIVE.value)),
             tags=data.get("tags", []),
+            active_graph_profile_id=data.get("active_graph_profile_id"),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
             metadata=data.get("metadata", {}),

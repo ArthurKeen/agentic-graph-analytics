@@ -1,5 +1,6 @@
 import type {
   ChartSpec,
+  ClusterDatabasesResult,
   ConnectionGraphSummary,
   ConnectionGraphsResult,
   ConnectionProfileSummary,
@@ -11,7 +12,9 @@ import type {
   DiscoverGraphProfileInput,
   GraphDiscoveryResult,
   GraphProfileSummary,
+  ListClusterDatabasesInput,
   ProductAPIClient,
+  QuickAnalysisInput,
   RawConnectionGraphSummary,
   RawConnectionGraphsResult,
   RawConnectionProfileSummary,
@@ -102,6 +105,22 @@ export function createProductAPIClient(
         )
       );
     },
+    async setActiveGraphProfile(
+      workspaceId: string,
+      graphProfileId: string | null,
+      actor = "workspace-ui"
+    ): Promise<WorkspaceSummary> {
+      const payload: Record<string, unknown> = {
+        graph_profile_id: graphProfileId,
+        actor
+      };
+      return mapWorkspaceSummary(
+        await patchJSON<RawWorkspaceSummary>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/active-graph-profile`,
+          payload
+        )
+      );
+    },
     async archiveWorkspace(
       workspaceId: string,
       actor = "workspace-ui"
@@ -147,6 +166,21 @@ export function createProductAPIClient(
           {}
         )
       );
+    },
+    async listClusterDatabases(
+      input: ListClusterDatabasesInput
+    ): Promise<ClusterDatabasesResult> {
+      const raw = await postJSON<{ endpoint: string; databases?: string[] }>(
+        `${normalizedBaseUrl}/api/connections/list-databases`,
+        {
+          endpoint: input.endpoint,
+          username: input.username,
+          password_secret_env_var: input.passwordSecretEnvVar,
+          verify_ssl: input.verifySsl ?? true,
+          ...(input.includeSystem ? { include_system: true } : {})
+        }
+      );
+      return { endpoint: raw.endpoint, databases: raw.databases ?? [] };
     },
     async listConnectionProfileGraphs(
       connectionProfileId: string
@@ -307,6 +341,23 @@ export function createProductAPIClient(
         dagView: mapWorkflowRunToDAGView(workflowRun)
       };
     },
+    async quickAnalysis(
+      workspaceId: string,
+      input: QuickAnalysisInput
+    ): Promise<CreateWorkflowRunResult> {
+      const workflowRun = await postJSON<RawWorkflowRunSummary>(
+        `${normalizedBaseUrl}/api/workspaces/${workspaceId}/quick-analysis`,
+        {
+          graph_profile_id: input.graphProfileId,
+          prompt: input.prompt,
+          ...(input.workflowMode ? { workflow_mode: input.workflowMode } : {})
+        }
+      );
+      return {
+        workflowRun: mapWorkflowRunSummary(workflowRun),
+        dagView: mapWorkflowRunToDAGView(workflowRun)
+      };
+    },
     async startWorkflowRun(runId: string): Promise<WorkflowRunSummary> {
       return mapWorkflowRunSummary(
         await postJSON<RawWorkflowRunSummary>(
@@ -446,7 +497,8 @@ export function mapWorkspaceSummary(raw: RawWorkspaceSummary): WorkspaceSummary 
     environment: raw.environment,
     description: raw.description ?? "",
     status: raw.status ?? "active",
-    tags: raw.tags ?? []
+    tags: raw.tags ?? [],
+    activeGraphProfileId: (raw.active_graph_profile_id as string | null | undefined) ?? null
   };
 }
 
@@ -813,10 +865,14 @@ function createWorkspacePayload(input: CreateWorkspaceInput): Record<string, unk
 function discoverGraphProfilePayload(input: DiscoverGraphProfileInput): Record<string, unknown> {
   const graphName = input.graphName?.trim() ?? "";
   return {
-    ...(graphName ? { graph_name: graphName } : {}),
+    // When forceDatabaseScope is set the backend ignores graph_name and
+    // creates the "default" (all-collections) profile, so we suppress
+    // graph_name in that case to avoid a confusing payload.
+    ...(graphName && !input.forceDatabaseScope ? { graph_name: graphName } : {}),
     sample_size: input.sampleSize,
     max_samples_per_collection: input.maxSamplesPerCollection,
-    verify_system: input.verifySystem
+    verify_system: input.verifySystem,
+    ...(input.forceDatabaseScope ? { force_database_scope: true } : {})
   };
 }
 

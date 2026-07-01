@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArchiveWorkspaceConfirmationOverlay } from "./ArchiveWorkspaceConfirmationOverlay";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
@@ -13,12 +13,14 @@ import { EditWorkspaceOverlay } from "./EditWorkspaceOverlay";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { ImportWorkspaceBundleOverlay } from "./ImportWorkspaceBundleOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
+import { QuickAnalysisOverlay } from "./QuickAnalysisOverlay";
 import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
 import type {
   ConnectionVerificationResult,
+  GraphProfileSummary,
   RequirementInterview,
   RequirementVersion,
   WorkflowDAGNode,
@@ -57,7 +59,9 @@ export function WorkspaceShell({
     createWorkspace,
     updateWorkspace,
     archiveWorkspace,
+    setActiveGraphProfile,
     createConnectionProfile,
+    listClusterDatabases,
     listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -70,6 +74,7 @@ export function WorkspaceShell({
     exportWorkspaceBundle,
     importWorkspaceBundle,
     createWorkflowRun,
+    quickAnalysis,
     startWorkflowRun,
     cancelWorkflowRun,
     getWorkflowRunStatus,
@@ -111,6 +116,9 @@ export function WorkspaceShell({
   const [isArchivingWorkspace, setIsArchivingWorkspace] = useState(false);
   const [showCreateConnectionProfile, setShowCreateConnectionProfile] = useState(false);
   const [showCreateWorkflowRun, setShowCreateWorkflowRun] = useState(false);
+  const [showQuickAnalysis, setShowQuickAnalysis] = useState(false);
+  const [isRunningQuickAnalysis, setIsRunningQuickAnalysis] = useState(false);
+  const [quickAnalysisErrorMessage, setQuickAnalysisErrorMessage] = useState<string | null>(null);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
     null
   );
@@ -315,6 +323,7 @@ export function WorkspaceShell({
       environment: ws.environment,
       description: ws.description ?? "",
       status: ws.status ?? "active",
+      activeGraphProfileId: ws.active_graph_profile_id ?? null,
       tags: ws.tags ?? []
     };
   }, [overview]);
@@ -431,7 +440,21 @@ export function WorkspaceShell({
       .finally(() => setVerifyingConnectionProfileId(null));
   }
 
+  // FR-67b: prefer the workspace's explicitly-chosen active graph
+  // profile so the banner is stable across re-orderings (e.g. a tag
+  // patch on a *different* profile no longer steals focus). Fall back
+  // to the legacy positional rule (latest-updated wins) when the
+  // workspace hasn't picked one yet so older snapshots keep rendering.
   const activeGraphProfile = useMemo(() => {
+    const activeId = overview?.workspace?.active_graph_profile_id ?? null;
+    if (activeId) {
+      const picked = graphProfileById[activeId] ?? overview?.latestGraphProfiles?.find(
+        (profile) => profile.graphProfileId === activeId
+      );
+      if (picked) {
+        return picked;
+      }
+    }
     const fromOverview = overview?.latestGraphProfiles?.[0];
     if (fromOverview) {
       return fromOverview;
@@ -439,6 +462,60 @@ export function WorkspaceShell({
     const profiles = Object.values(graphProfileById);
     return profiles.length > 0 ? profiles[0] : null;
   }, [graphProfileById, overview]);
+
+  const selectableGraphProfiles = useMemo(() => {
+    // De-dupe by id while preserving overview order so the picker
+    // shows the same sort the assets panel does. `default` (database
+    // scope) is pinned to the top so it's the obvious entry point
+    // for users who haven't yet decided on a named-graph scope.
+    const ordered = [
+      ...(overview?.latestGraphProfiles ?? []),
+      ...Object.values(graphProfileById)
+    ];
+    const seen = new Set<string>();
+    const deduped = ordered.filter((profile) => {
+      if (!profile || seen.has(profile.graphProfileId)) return false;
+      seen.add(profile.graphProfileId);
+      return true;
+    });
+    return deduped.sort((a, b) => {
+      const aDefault = a.graphName === "default" ? 0 : 1;
+      const bDefault = b.graphName === "default" ? 0 : 1;
+      if (aDefault !== bDefault) return aDefault - bDefault;
+      return a.graphName.localeCompare(b.graphName);
+    });
+  }, [graphProfileById, overview]);
+
+  const [activeGraphSelectorErrorMessage, setActiveGraphSelectorErrorMessage] =
+    useState<string | null>(null);
+  const [isSettingActiveGraphProfile, setIsSettingActiveGraphProfile] = useState(false);
+  const handleSelectActiveGraphProfile = useCallback(
+    async (graphProfileId: string) => {
+      if (!overview?.workspace?.workspace_id) return;
+      const currentActive = overview.workspace.active_graph_profile_id ?? "";
+      if (graphProfileId === currentActive) {
+        return;
+      }
+      setIsSettingActiveGraphProfile(true);
+      setActiveGraphSelectorErrorMessage(null);
+      try {
+        await setActiveGraphProfile(
+          overview.workspace.workspace_id,
+          graphProfileId || null,
+          "workspace-ui"
+        );
+      } catch (error) {
+        setActiveGraphSelectorErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Failed to update active graph profile"
+        );
+      } finally {
+        setIsSettingActiveGraphProfile(false);
+      }
+    },
+    [overview, setActiveGraphProfile]
+  );
   const activeConnectionProfile = useMemo(() => {
     if (!activeGraphProfile) {
       return null;
@@ -460,6 +537,11 @@ export function WorkspaceShell({
         workspaceName={overview?.workspace?.customer_name}
         graphName={activeGraphProfile?.graphName ?? null}
         databaseName={activeConnectionProfile?.database ?? null}
+        selectableGraphProfiles={selectableGraphProfiles}
+        activeGraphProfileId={overview?.workspace?.active_graph_profile_id ?? null}
+        onSelectActiveGraphProfile={handleSelectActiveGraphProfile}
+        isSettingActiveGraphProfile={isSettingActiveGraphProfile}
+        activeGraphSelectorErrorMessage={activeGraphSelectorErrorMessage}
       />
       <AssetExplorer
         assets={visibleAssets}
@@ -572,6 +654,39 @@ export function WorkspaceShell({
         onRequestPublishReport={(asset) => setPendingPublishReport(asset)}
         onRequestDeleteRun={(asset) => setPendingDeleteRun(asset)}
         onOpenMenu={setMenu}
+        onRequestConnectDatabase={() => {
+          setCreateConnectionErrorMessage(null);
+          setShowCreateConnectionProfile(true);
+        }}
+        onRequestQuickAnalysis={() => {
+          setQuickAnalysisErrorMessage(null);
+          setShowQuickAnalysis(true);
+        }}
+        onRequestGuidedAnalysis={() => {
+          // Guided = Requirements Copilot interview, anchored on the active
+          // graph profile (fallback: first graph-profile asset).
+          const graphProfileAsset =
+            visibleAssets.find(
+              (asset) =>
+                asset.kind === "graph-profile" &&
+                asset.id === activeGraphProfile?.graphProfileId
+            ) ?? visibleAssets.find((asset) => asset.kind === "graph-profile");
+          if (!graphProfileAsset) {
+            setStartCopilotErrorMessage(
+              "Connect to a database and discover a graph profile first."
+            );
+            return;
+          }
+          setStartCopilotErrorMessage(null);
+          setPendingReopenVersion(null);
+          setPendingStartCopilot(graphProfileAsset);
+        }}
+        onRequestDetailedAnalysis={() => {
+          // Detailed = full multi-use-case workflow run.
+          setCreateWorkflowRunErrorMessage(null);
+          setShowCreateWorkflowRun(true);
+        }}
+        hasGraphProfile={selectableGraphProfiles.length > 0}
       />
       <WorkspaceCanvas
         selectedAsset={selectedAsset}
@@ -976,6 +1091,48 @@ export function WorkspaceShell({
           }}
         />
       ) : null}
+      {showQuickAnalysis ? (
+        <QuickAnalysisOverlay
+          graphProfiles={selectableGraphProfiles}
+          connectionProfiles={[
+            ...(overview?.latestConnectionProfiles ?? []),
+            ...Object.values(connectionProfileById)
+          ]}
+          isDemo={status === "demo"}
+          defaultGraphProfileId={
+            overview?.workspace?.active_graph_profile_id ??
+            activeGraphProfile?.graphProfileId ??
+            null
+          }
+          isRunning={isRunningQuickAnalysis}
+          errorMessage={quickAnalysisErrorMessage}
+          onCancel={() => setShowQuickAnalysis(false)}
+          onSubmit={async (input) => {
+            setQuickAnalysisErrorMessage(null);
+            setIsRunningQuickAnalysis(true);
+            try {
+              const result = await quickAnalysis(input);
+              setSelectedAsset({
+                id: result.workflowRun.runId,
+                kind: "run",
+                label: `Run ${result.workflowRun.runId}`,
+                description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
+              });
+              setSelectedStep(null);
+              setShowQuickAnalysis(false);
+              setRunActionMessage(
+                `Started quick analysis run ${result.workflowRun.runId}.`
+              );
+            } catch (error) {
+              setQuickAnalysisErrorMessage(
+                error instanceof Error ? error.message : "Failed to start quick analysis"
+              );
+            } finally {
+              setIsRunningQuickAnalysis(false);
+            }
+          }}
+        />
+      ) : null}
       {runActionMessage || runActionErrorMessage || startingRunId || updatingStepId ? (
         <FloatingDetailPanel
           title="Workflow Run"
@@ -1043,6 +1200,7 @@ export function WorkspaceShell({
           isCreating={isCreatingConnectionProfile}
           errorMessage={createConnectionErrorMessage}
           onCancel={() => setShowCreateConnectionProfile(false)}
+          onListDatabases={listClusterDatabases}
           onSubmit={async (input) => {
             setCreateConnectionErrorMessage(null);
             setIsCreatingConnectionProfile(true);
@@ -1210,15 +1368,33 @@ function DataSourceBanner({
   errorMessage,
   workspaceName,
   graphName,
-  databaseName
+  databaseName,
+  selectableGraphProfiles,
+  activeGraphProfileId,
+  onSelectActiveGraphProfile,
+  isSettingActiveGraphProfile,
+  activeGraphSelectorErrorMessage
 }: {
   status: "demo" | "loading" | "ready" | "error";
   errorMessage?: string;
   workspaceName?: string;
   graphName?: string | null;
   databaseName?: string | null;
+  selectableGraphProfiles?: GraphProfileSummary[];
+  activeGraphProfileId?: string | null;
+  onSelectActiveGraphProfile?: (graphProfileId: string) => void;
+  isSettingActiveGraphProfile?: boolean;
+  activeGraphSelectorErrorMessage?: string | null;
 }) {
   if (status === "ready") {
+    // FR-67b: when the workspace has more than one graph profile, render
+    // an inline <select> so the user can switch the analysed graph
+    // without leaving the banner. With ≤1 profile we fall back to the
+    // simple read-only label to keep the chrome minimal for trivial
+    // workspaces. The currently-active profile is selected so the
+    // <select> survives re-renders.
+    const profiles = selectableGraphProfiles ?? [];
+    const showSelector = profiles.length > 1 && Boolean(onSelectActiveGraphProfile);
     return (
       <div className="data-source-banner data-source-banner-ready" role="status">
         <strong>Live</strong>
@@ -1227,11 +1403,51 @@ function DataSourceBanner({
           {graphName ? (
             <>
               {" · Analyzing "}
-              <span className="data-source-banner-graph">{graphName}</span>
+              {showSelector ? (
+                <select
+                  className="data-source-banner-graph-select"
+                  value={activeGraphProfileId ?? ""}
+                  disabled={isSettingActiveGraphProfile}
+                  onChange={(event) => onSelectActiveGraphProfile?.(event.target.value)}
+                  aria-label="Active graph profile"
+                  title="Switch the graph profile that drives this workspace's analysis"
+                >
+                  {/* Empty option lets the user observe (but not pick)
+                       the case where the workspace has no explicit
+                       active selection yet; the actual displayed graph
+                       is the fallback (latest-updated). Re-rendered as
+                       an italicised hint via CSS. */}
+                  {!activeGraphProfileId ? (
+                    <option value="" disabled>
+                      (auto: {graphName})
+                    </option>
+                  ) : null}
+                  {profiles.map((profile) => {
+                    const isDefault = profile.graphName === "default";
+                    return (
+                      <option key={profile.graphProfileId} value={profile.graphProfileId}>
+                        {isDefault
+                          ? `${profile.graphName} (all collections)`
+                          : profile.graphName}
+                      </option>
+                    );
+                  })}
+                </select>
+              ) : (
+                <span className="data-source-banner-graph">{graphName}</span>
+              )}
               {databaseName ? (
                 <>
                   {" in "}
                   <code className="data-source-banner-database">{databaseName}</code>
+                </>
+              ) : null}
+              {activeGraphSelectorErrorMessage ? (
+                <>
+                  {" · "}
+                  <span className="data-source-banner-error-inline" role="alert">
+                    {activeGraphSelectorErrorMessage}
+                  </span>
                 </>
               ) : null}
             </>

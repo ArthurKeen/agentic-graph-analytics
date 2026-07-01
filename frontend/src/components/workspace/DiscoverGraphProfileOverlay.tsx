@@ -20,6 +20,12 @@ interface DiscoverGraphProfileOverlayProps {
 }
 
 const CUSTOM_GRAPH_VALUE = "__custom__";
+// FR-67b: sentinel for "discover the whole database, not a named
+// graph". The backend creates a profile named "default" with
+// scope=database when force_database_scope is set; we map this
+// sentinel onto that flag in handleSubmit so the picker stays
+// declarative.
+const DEFAULT_GRAPH_VALUE = "__default__";
 
 export function DiscoverGraphProfileOverlay({
   connectionProfile,
@@ -87,6 +93,9 @@ export function DiscoverGraphProfileOverlay({
     setGraphSelection(value);
     if (value === CUSTOM_GRAPH_VALUE || value === "") {
       updateField("graphName", "");
+    } else if (value === DEFAULT_GRAPH_VALUE) {
+      // graphName is irrelevant when forceDatabaseScope wins server-side
+      updateField("graphName", "");
     } else {
       updateField("graphName", value);
     }
@@ -95,12 +104,14 @@ export function DiscoverGraphProfileOverlay({
   const selectedGraph =
     graphs?.find((graph) => graph.name === graphSelection) ?? null;
   const isCustomSelection = graphSelection === CUSTOM_GRAPH_VALUE;
+  const isDefaultSelection = graphSelection === DEFAULT_GRAPH_VALUE;
   const showDropdown = Boolean(onLoadGraphs);
   const hasGraphs = (graphs?.length ?? 0) > 0;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onSubmit(form);
+    // FR-67b: turn the sentinel into an explicit flag for the API.
+    await onSubmit({ ...form, forceDatabaseScope: isDefaultSelection });
   }
 
   return (
@@ -143,6 +154,9 @@ export function DiscoverGraphProfileOverlay({
                 value={graphSelection}
                 onChange={(event) => handleGraphSelectionChange(event.target.value)}
               >
+                <option value={DEFAULT_GRAPH_VALUE}>
+                  default (all collections in database)
+                </option>
                 {graphs?.map((graph) => (
                   <option key={graph.name} value={graph.name}>
                     {graph.name}
@@ -158,7 +172,9 @@ export function DiscoverGraphProfileOverlay({
               </select>
             ) : (
               <span className="muted">
-                No named graphs found in this database. Enter one manually below.
+                No named graphs found in this database. The discover sweep will
+                create the <strong>default</strong> (all-collections) profile, or
+                you can enter a graph name manually below.
               </span>
             )}
           </label>
@@ -176,6 +192,11 @@ export function DiscoverGraphProfileOverlay({
           <p className="muted">
             <strong>{selectedGraph.name}</strong> — {selectedGraph.vertexCollections.length}{" "}
             vertex / {selectedGraph.edgeCollections.length} edge collections.
+          </p>
+        ) : isDefaultSelection ? (
+          <p className="muted">
+            <strong>default</strong> — schema will cover every collection in this
+            database (no named-graph scoping).
           </p>
         ) : null}
 
