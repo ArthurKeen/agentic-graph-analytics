@@ -157,7 +157,6 @@ def get_industry_prompt_with_custom(
     """
     from graph_analytics_ai.ai.reporting.prompts import (
         get_industry_prompt,
-        GENERIC_PROMPT,
     )
 
     if project_root is None:

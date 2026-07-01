@@ -14,7 +14,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..ai.schema.acquire import (
     SchemaAcquisitionBundle,
-    SchemaCache,
     SchemaChangeReport,
     acquire_schema,
     describe_schema_change,
@@ -3679,7 +3678,7 @@ class ProductService:
             [
                 "# Business Requirements Draft",
                 "",
-                f"## Domain",
+                "## Domain",
                 domain,
                 "",
                 "## Observed Graph Schema",

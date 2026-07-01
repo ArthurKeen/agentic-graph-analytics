@@ -51,7 +51,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Protocol
 
 if TYPE_CHECKING:
     from arango.database import StandardDatabase

@@ -1206,14 +1206,20 @@ export function WorkspaceShell({
             setIsCreatingConnectionProfile(true);
             try {
               const profile = await createConnectionProfile(input);
-              setSelectedAsset({
+              const connectionAsset: WorkspaceAsset = {
                 id: profile.connectionProfileId,
                 kind: "connection-profile",
                 label: profile.name,
                 description: `${profile.deploymentMode} connection (${profile.lastVerificationStatus})`
-              });
+              };
+              setSelectedAsset(connectionAsset);
               setSelectedStep(null);
               setShowCreateConnectionProfile(false);
+              // Chain straight into graph selection so the flow reads
+              // Connect → pick database → pick graph → Analyze, instead of
+              // leaving the user on a connection with no obvious next step.
+              setDiscoverGraphErrorMessage(null);
+              setPendingDiscoverGraph(connectionAsset);
             } catch (error) {
               setCreateConnectionErrorMessage(
                 error instanceof Error ? error.message : "Failed to create connection profile"

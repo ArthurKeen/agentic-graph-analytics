@@ -8,7 +8,6 @@ problems the user did not explicitly ask for.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List, Optional
 
 from ..documents.models import Priority

@@ -284,7 +284,7 @@ class TokenHelper:
                 hours_old = age.total_seconds() / 3600
                 hours_remaining = TOKEN_LIFETIME_HOURS - hours_old
 
-                print(f"Cached Token: Found")
+                print("Cached Token: Found")
                 print(f"  Created: {created.strftime('%Y-%m-%d %H:%M:%S')}")
                 print(f"  Age: {hours_old:.1f} hours")
                 print(f"  Expires in: {hours_remaining:.1f} hours")

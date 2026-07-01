@@ -4,6 +4,7 @@ Document parser for extracting text from various file formats.
 Supports: TXT, MD, PDF, DOCX (with optional dependencies).
 """
 
+from pathlib import Path
 from typing import List
 
 # Optional dependencies (exposed for testing/mocking)

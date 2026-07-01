@@ -1004,6 +1004,30 @@ button {
   text-align: center;
 }
 
+.empty-canvas-guide {
+  max-width: 560px;
+  text-align: left;
+  border: 1px solid var(--aga-border);
+  border-radius: 16px;
+  background: var(--aga-panel-soft);
+  padding: 24px 28px;
+}
+
+.empty-canvas-steps {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding-left: 20px;
+}
+
+.empty-canvas-steps ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--aga-muted);
+}
+
 .floating-panel {
   position: absolute;
   top: 88px;

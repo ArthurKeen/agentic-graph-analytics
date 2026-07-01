@@ -314,9 +314,9 @@ def detect_wcc_adtech_patterns(
                 f"({fragmentation_pct:.1f}% fragmentation). High fragmentation indicates missing identity signals "
                 f"or insufficient temporal window. Only {100 - fragmentation_pct:.1f}% of devices successfully "
                 f"resolved to multi-device households.",
-                "business_impact": f"DATA QUALITY: Low cross-device coverage reduces attribution and targeting accuracy. "
-                f"RECOMMENDATION: Extend clustering temporal window from 2 to 4 weeks, validate IP collection, "
-                f"add secondary identity signals (device fingerprints, user IDs).",
+                "business_impact": "DATA QUALITY: Low cross-device coverage reduces attribution and targeting accuracy. "
+                "RECOMMENDATION: Extend clustering temporal window from 2 to 4 weeks, validate IP collection, "
+                "add secondary identity signals (device fingerprints, user IDs).",
                 "confidence": 0.88,
             }
         )
@@ -337,8 +337,8 @@ def detect_wcc_adtech_patterns(
                 "title": f"Healthy Household Distribution: {household_pct:.1f}% Within Expected Range",
                 "description": f"{household_sized} components ({household_pct:.1f}%) fall within typical household size "
                 f"range (3-18 devices). This indicates good identity resolution quality with balanced clustering.",
-                "business_impact": f"POSITIVE: High-quality identity graph enables accurate cross-device targeting and attribution. "
-                f"MAINTAIN: Current clustering parameters are working well.",
+                "business_impact": "POSITIVE: High-quality identity graph enables accurate cross-device targeting and attribution. "
+                "MAINTAIN: Current clustering parameters are working well.",
                 "confidence": 0.90,
             }
         )
@@ -482,9 +482,9 @@ def detect_wcc_fraud_patterns(
                 f"This pattern suggests Benami transactions where the same individual operates multiple accounts "
                 f"through proxies, relatives, or shell companies. After entity resolution, these clusters reveal "
                 f"hidden beneficial ownership and control structures typical of Indian banking fraud.",
-                "business_impact": f"COMPLIANCE: Benami Transactions (Prohibition) Act violation. Update KYC to reflect beneficial "
-                f"ownership. RISK: Layering schemes, tax evasion, circular trading. RECOMMENDATION: Consolidate "
-                f"risk scores across resolved identities, file Enhanced Due Diligence reports.",
+                "business_impact": "COMPLIANCE: Benami Transactions (Prohibition) Act violation. Update KYC to reflect beneficial "
+                "ownership. RISK: Layering schemes, tax evasion, circular trading. RECOMMENDATION: Consolidate "
+                "risk scores across resolved identities, file Enhanced Due Diligence reports.",
                 "confidence": 0.78,
             }
         )
@@ -505,8 +505,8 @@ def detect_wcc_fraud_patterns(
                 "description": f"{singleton_count} entities operate independently without detected connections ({singleton_pct:.1f}% of components). "
                 f"These may be: (1) Early-stage fraud not yet connected to networks, (2) Sophisticated actors "
                 f"maintaining operational security, or (3) False positives from static rules. Requires individual assessment.",
-                "business_impact": f"MONITORING: Flag for enhanced surveillance. INVESTIGATION: Review transaction patterns for each isolated "
-                f"entity. May represent early-stage fraud or sophisticated actors. PRIORITY: Focus on watchlist matches first.",
+                "business_impact": "MONITORING: Flag for enhanced surveillance. INVESTIGATION: Review transaction patterns for each isolated "
+                "entity. May represent early-stage fraud or sophisticated actors. PRIORITY: Focus on watchlist matches first.",
                 "confidence": 0.65,
             }
         )
@@ -550,10 +550,10 @@ def detect_pagerank_fraud_patterns(
                 f"indicates a hub account that aggregates funds from multiple sources (money mule hub) or distributes funds "
                 f"(layering operation). High PageRank in transaction networks reveals accounts that are critical nodes in "
                 f"money flow operations.",
-                "business_impact": f"IMMEDIATE: Freeze account and review all inbound/outbound transactions. INVESTIGATION: Map complete "
-                f"transaction history, identify all counterparties, calculate total volume. REGULATORY: File STR if total "
-                f"volume suggests structuring. HIGH PRIORITY: This is likely the control account in a mule network or "
-                f"layering scheme.",
+                "business_impact": "IMMEDIATE: Freeze account and review all inbound/outbound transactions. INVESTIGATION: Map complete "
+                "transaction history, identify all counterparties, calculate total volume. REGULATORY: File STR if total "
+                "volume suggests structuring. HIGH PRIORITY: This is likely the control account in a mule network or "
+                "layering scheme.",
                 "confidence": 0.88,
             }
         )
@@ -578,9 +578,9 @@ def detect_pagerank_fraud_patterns(
                     f"Combined PageRank: {top_5_sum:.4f} out of {total_sum:.4f}. This extreme concentration indicates "
                     f"that a small number of accounts dominate money flows. In fraud scenarios, this suggests a "
                     f"coordinated operation with central control points.",
-                    "business_impact": f"INVESTIGATION: These 5 accounts are critical to the operation. Investigate relationships between them. "
-                    f"RISK: If these accounts are compromised or involved in fraud, exposure is significant. "
-                    f"MONITORING: Flag all 5 accounts for real-time transaction monitoring.",
+                    "business_impact": "INVESTIGATION: These 5 accounts are critical to the operation. Investigate relationships between them. "
+                    "RISK: If these accounts are compromised or involved in fraud, exposure is significant. "
+                    "MONITORING: Flag all 5 accounts for real-time transaction monitoring.",
                     "confidence": 0.85,
                 }
             )
@@ -598,8 +598,8 @@ def detect_pagerank_fraud_patterns(
                     "description": f"PageRank distribution is relatively flat with top 10 accounts accounting for only {top_10_pct:.1f}% "
                     f"of network activity. This indicates decentralized transaction patterns consistent with normal "
                     f"business operations rather than coordinated fraud.",
-                    "business_impact": f"POSITIVE: Low fraud risk from network topology perspective. MAINTAIN: Continue standard monitoring "
-                    f"protocols. FOCUS: Shift investigative resources to components with concentration patterns.",
+                    "business_impact": "POSITIVE: Low fraud risk from network topology perspective. MAINTAIN: Continue standard monitoring "
+                    "protocols. FOCUS: Shift investigative resources to components with concentration patterns.",
                     "confidence": 0.90,
                 }
             )

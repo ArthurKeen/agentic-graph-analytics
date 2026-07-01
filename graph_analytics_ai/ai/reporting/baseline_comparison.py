@@ -12,7 +12,7 @@ Analysis Catalog. This module:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from ..execution.models import ExecutionResult
 from ..execution.result_selector import ResultSelector

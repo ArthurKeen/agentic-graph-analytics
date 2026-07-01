@@ -766,7 +766,7 @@ class ReportGenerator:
                     insight_type=InsightType.KEY_FINDING,
                     confidence=0.95,
                     supporting_data={"top_node": top_node, "multiplier": multiplier},
-                    business_impact=f"Prioritize engagement with this node. It has disproportionate network impact. Monitor for single point of failure risk.",
+                    business_impact="Prioritize engagement with this node. It has disproportionate network impact. Monitor for single point of failure risk.",
                 )
             )
 
@@ -1299,7 +1299,6 @@ Now provide 3-5 insights following the format below.
         Extracts both the reasoning and the insights, storing reasoning
         for potential future use.
         """
-        import re
 
         # Try to separate reasoning from insights
         insights_section = llm_response
@@ -1408,7 +1407,7 @@ Now provide 3-5 insights following the format below.
                 conf_str = re.sub(r"^\s*Confidence:\s*", "", line, flags=re.IGNORECASE)
                 try:
                     current_insight["confidence"] = float(conf_str)
-                except:
+                except (ValueError, TypeError):
                     current_insight["confidence"] = 0.7
                 current_field = "confidence"
 
@@ -1479,7 +1478,7 @@ Now provide 3-5 insights following the format below.
             if conf_match:
                 try:
                     insight_data["confidence"] = float(conf_match.group(1))
-                except:
+                except (ValueError, TypeError):
                     insight_data["confidence"] = 0.7
 
             # Only add if we have at least title and description

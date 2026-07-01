@@ -123,12 +123,12 @@ async def generate_vertical_async(args):
     logger.info("")
     logger.info("Next steps:")
     logger.info(f"  1. Review the generated vertical: {output_path}")
-    logger.info(f"  2. Edit if needed to refine prompts and patterns")
-    logger.info(f"  3. Use in your workflow:")
-    logger.info(f"     runner = AgenticWorkflowRunner(")
+    logger.info("  2. Edit if needed to refine prompts and patterns")
+    logger.info("  3. Use in your workflow:")
+    logger.info("     runner = AgenticWorkflowRunner(")
     logger.info(f"         graph_name='{args.graph_name}',")
     logger.info(f"         industry='{vertical['metadata']['name']}'")
-    logger.info(f"     )")
+    logger.info("     )")
     logger.info("")
 
     if args.interactive:
