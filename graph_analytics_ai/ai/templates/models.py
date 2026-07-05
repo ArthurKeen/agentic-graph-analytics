@@ -70,6 +70,56 @@ class AlgorithmParameters:
 
 
 @dataclass
+class LpgProjection:
+    """Typed projection plan for an LPG (Labelled Property Graph) source.
+
+    PRD v0.6 / FR-71. GAE engines consume whole collections, so when
+    the source schema is LPG (one generic collection mixing many
+    logical types distinguished by a discriminator property such as
+    ``type`` or ``relType``), the orchestrator MUST materialize a
+    typed projection before launching GAE.
+
+    The plan captures everything the executor needs to do that
+    materialization deterministically:
+
+    - ``logical_type`` — entity / relationship name from the
+      conceptual schema (e.g. ``"Person"``).
+    - ``source_collection`` — generic collection to project from
+      (e.g. ``"nodes"`` or ``"entities"``).
+    - ``discriminator_field`` — property to filter on (e.g. ``"type"``).
+    - ``discriminator_value`` — value the field must equal
+      (e.g. ``"Person"``).
+    - ``kind`` — ``"node"`` or ``"edge"`` so the materializer knows
+      whether to copy ``_from`` / ``_to``.
+    - ``materialization_collection`` — name of the projection
+      collection to create / refresh
+      (e.g. ``"_proj_corpus_Person"``).
+    - ``materialization_aql`` — AQL command the executor can run
+      verbatim. Always ``UPSERT``-shaped so the projection is
+      idempotent.
+    """
+
+    logical_type: str
+    source_collection: str
+    discriminator_field: str
+    discriminator_value: str
+    kind: str = "node"  # "node" | "edge"
+    materialization_collection: str = ""
+    materialization_aql: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "logical_type": self.logical_type,
+            "source_collection": self.source_collection,
+            "discriminator_field": self.discriminator_field,
+            "discriminator_value": self.discriminator_value,
+            "kind": self.kind,
+            "materialization_collection": self.materialization_collection,
+            "materialization_aql": self.materialization_aql,
+        }
+
+
+@dataclass
 class TemplateConfig:
     """Configuration for template generation."""
 
@@ -91,9 +141,24 @@ class TemplateConfig:
     result_collection: Optional[str] = None
     """Collection to store results (auto-generated if None)."""
 
+    schema_kind: Optional[str] = None
+    """Source schema kind ('pg' / 'lpg' / 'hybrid' / 'rpt' / 'unknown').
+
+    PRD v0.6 / FR-71. Set when the template was generated against a
+    :class:`SchemaAcquisitionBundle`. Lets the executor decide whether
+    to materialize typed projections before running GAE.
+    """
+
+    lpg_projections: List[LpgProjection] = field(default_factory=list)
+    """Typed projection plans (PRD v0.6 / FR-71).
+
+    Empty for PG sources. For LPG / hybrid sources, lists the
+    projections the executor must materialize before launching GAE.
+    """
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        payload: Dict[str, Any] = {
             "graph_name": self.graph_name,
             "vertex_collections": self.vertex_collections,
             "edge_collections": self.edge_collections,
@@ -101,6 +166,11 @@ class TemplateConfig:
             "store_results": self.store_results,
             "result_collection": self.result_collection,
         }
+        if self.schema_kind is not None:
+            payload["schema_kind"] = self.schema_kind
+        if self.lpg_projections:
+            payload["lpg_projections"] = [p.to_dict() for p in self.lpg_projections]
+        return payload
 
 
 @dataclass
@@ -151,7 +221,7 @@ class AnalysisTemplate:
 
         Returns dictionary that can be used with GAEOrchestrator.
         """
-        return {
+        payload: Dict[str, Any] = {
             "name": self.name,
             "graph": self.config.graph_name,
             "algorithm": self.algorithm.algorithm.value,
@@ -162,6 +232,13 @@ class AnalysisTemplate:
             "store_results": self.config.store_results,
             "result_collection": self.config.result_collection,
         }
+        if self.config.schema_kind is not None:
+            payload["schema_kind"] = self.config.schema_kind
+        if self.config.lpg_projections:
+            payload["lpg_projections"] = [
+                p.to_dict() for p in self.config.lpg_projections
+            ]
+        return payload
 
 
 # Default algorithm parameters for supported GAE algorithms

@@ -9,64 +9,30 @@ import os
 import sys
 from pathlib import Path
 
+LIBRARY_TEST_DATABASE = "graph-analytics-ai"
+
+
 def test_connection():
     """Test database connection and display connection info."""
-    
+
     print("=" * 70)
     print("DATABASE CONNECTION TEST")
     print("=" * 70)
-    
-    # Show current directory
+
     current_dir = Path.cwd()
     print(f"\n📁 Current Directory: {current_dir}")
-    
-    # Determine which project we're in
-    if "agentic-graph-analytics" in str(current_dir):
-        project_type = "LIBRARY PROJECT"
-        expected_db = "graph-analytics-ai"
-    else:
-        project_type = "CUSTOMER PROJECT"
-        # For customer projects, read expected database from .env
-        from dotenv import load_dotenv
-        load_dotenv()
-        expected_db = os.getenv("ARANGO_DATABASE", "unknown")
-    
-    print(f"🏷️  Project Type: {project_type}")
-    print(f"🎯 Expected Database: {expected_db}")
-    
-    # Check if .env exists
+
+    # Load .env first; the configured database tells us where we're going.
     env_file = current_dir / ".env"
     if not env_file.exists():
         print(f"\n❌ ERROR: .env file not found at {env_file}")
         print("   Create .env file with database credentials")
         return False
-    
     print("\n✅ .env file found")
-    
-    # Load environment and check configuration
+
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        
-        database = os.getenv("ARANGO_DATABASE")
-        endpoint = os.getenv("ARANGO_ENDPOINT")
-        user = os.getenv("ARANGO_USER")
-        
-        print("\n📋 Environment Configuration:")
-        print(f"   Database: {database}")
-        print(f"   Endpoint: {endpoint}")
-        print(f"   User: {user}")
-        
-        # Verify correct database
-        if database != expected_db:
-            print(f"\n⚠️  WARNING: Connected to '{database}' but expected '{expected_db}'")
-            if project_type == "LIBRARY PROJECT":
-                print("   This project should use TEST credentials!")
-            else:
-                print("   This project should use CUSTOMER PRODUCTION credentials!")
-        else:
-            print("\n✅ Correct database configured!")
-        
     except ImportError:
         print("\n❌ ERROR: python-dotenv not installed")
         print("   Run: pip install python-dotenv")
@@ -74,36 +40,62 @@ def test_connection():
     except Exception as e:
         print(f"\n❌ ERROR loading .env: {e}")
         return False
-    
-    # Try to connect
+
+    configured_db = os.getenv("ARANGO_DATABASE")
+    endpoint = os.getenv("ARANGO_ENDPOINT")
+    user = os.getenv("ARANGO_USER")
+
+    in_library_checkout = "agentic-graph-analytics" in str(current_dir)
+    project_type = "LIBRARY PROJECT" if in_library_checkout else "CUSTOMER PROJECT"
+
+    print(f"🏷️  Project Type: {project_type}")
+    print(f"🎯 Configured Database: {configured_db}")
+
+    print("\n📋 Environment Configuration:")
+    print(f"   Database: {configured_db}")
+    print(f"   Endpoint: {endpoint}")
+    print(f"   User: {user}")
+
+    # Informational hint only — running the library checkout against a non-test
+    # database is legitimate (e.g. demoing a customer dataset). We no longer
+    # treat this as a failure.
+    if in_library_checkout and configured_db != LIBRARY_TEST_DATABASE:
+        print(
+            f"\nℹ️  Note: this is the library checkout, but .env points at "
+            f"'{configured_db}' instead of the default test DB "
+            f"'{LIBRARY_TEST_DATABASE}'. That's fine for demoing a customer "
+            f"dataset; switch back to '{LIBRARY_TEST_DATABASE}' for library "
+            f"unit tests."
+        )
+
     print("\n" + "=" * 70)
     print("ATTEMPTING CONNECTION...")
     print("=" * 70)
-    
+
     try:
         from graph_analytics_ai.db_connection import get_db_connection
-        
+
         db = get_db_connection()
         print("\n✅ Successfully connected to ArangoDB!")
         print(f"   Database Name: {db.name}")
         print(f"   Collections: {len(db.collections())}")
-        
-        # List some collections
+
         collections = db.collections()
         if collections:
             print("\n   Sample Collections:")
             for col in collections[:5]:
                 print(f"      - {col['name']}")
-        
-        # Verify correct database
-        if db.name == expected_db:
-            print(f"\n✅ ✅ SUCCESS! Connected to correct database: {db.name}")
-            return True
-        else:
-            print(f"\n⚠️  WARNING: Connected to '{db.name}' but expected '{expected_db}'")
-            print("   Check your .env file configuration!")
+
+        if db.name != configured_db:
+            print(
+                f"\n⚠️  WARNING: Connected to '{db.name}' but .env requested "
+                f"'{configured_db}'. Check your configuration."
+            )
             return False
-            
+
+        print(f"\n✅ Connection verified against configured database: {db.name}")
+        return True
+
     except ImportError as e:
         print("\n❌ ERROR: Cannot import graph_analytics_ai library")
         print(f"   {e}")

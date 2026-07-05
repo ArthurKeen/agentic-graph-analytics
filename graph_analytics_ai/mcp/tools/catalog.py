@@ -189,4 +189,8 @@ def get_catalog_stats() -> dict:
     manager = CatalogManager(storage)
     stats = manager.get_statistics() if hasattr(manager, "get_statistics") else {}
 
-    return stats if isinstance(stats, dict) else (stats.to_dict() if hasattr(stats, "to_dict") else str(stats))
+    return (
+        stats
+        if isinstance(stats, dict)
+        else (stats.to_dict() if hasattr(stats, "to_dict") else str(stats))
+    )

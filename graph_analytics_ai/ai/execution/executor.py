@@ -261,6 +261,9 @@ class AnalysisExecutor:
         vertex_collections = config_dict.get("vertex_collections", [])
         edge_collections = config_dict.get("edge_collections", [])
         algorithm = config_dict.get("algorithm")
+        graph_name = config_dict.get("graph_name") or getattr(
+            template, "graph_name", None
+        )
 
         # DEBUG LOGGING - Track collection and algorithm values
         print("\n[EXECUTOR DEBUG] Template to Config Conversion:")
@@ -298,6 +301,7 @@ class AnalysisExecutor:
             description=template.description,
             vertex_collections=vertex_collections,
             edge_collections=edge_collections,
+            graph_name=graph_name,
             algorithm=algorithm,
             algorithm_params=config_dict["params"],
             engine_size=config_dict.get("engine_size", "e16"),
@@ -434,7 +438,10 @@ class AnalysisExecutor:
             )
 
             selection_desc = effective_selection.strategy.value
-            if effective_selection.strategy.value == "top_k" and effective_selection.sort_field:
+            if (
+                effective_selection.strategy.value == "top_k"
+                and effective_selection.sort_field
+            ):
                 direction = "desc" if effective_selection.sort_desc else "asc"
                 selection_desc = f"top_k({effective_selection.sort_field} {direction})"
             elif (

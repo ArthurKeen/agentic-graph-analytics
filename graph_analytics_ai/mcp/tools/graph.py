@@ -10,7 +10,9 @@ Tools:
 
 from typing import Optional
 
-from graph_analytics_ai.db_connection import get_db_connection  # noqa: F401 – imported for patching
+from graph_analytics_ai.db_connection import (
+    get_db_connection,
+)  # noqa: F401 – imported for patching
 from ..server import mcp
 
 
@@ -64,9 +66,8 @@ def describe_graph(graph_name: str) -> dict:
 
     return {
         "name": props.get("name", graph_name),
-        "vertex_collections": list(props.get("orphan_collections", [])) + [
-            ed["from"][0] for ed in props.get("edge_definitions", [])
-        ],
+        "vertex_collections": list(props.get("orphan_collections", []))
+        + [ed["from"][0] for ed in props.get("edge_definitions", [])],
         "edge_definitions": [
             {
                 "collection": ed["collection"],
@@ -117,7 +118,11 @@ def analyze_schema(
         "collections": [
             {
                 "name": c.name,
-                "type": c.collection_type.value if hasattr(c.collection_type, "value") else str(c.collection_type),
+                "type": (
+                    c.collection_type.value
+                    if hasattr(c.collection_type, "value")
+                    else str(c.collection_type)
+                ),
                 "document_count": c.document_count,
                 "attributes": [a.name for a in (c.attributes or [])],
             }

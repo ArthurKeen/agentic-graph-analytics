@@ -27,7 +27,6 @@ from .base import (
     LLMAuthenticationError,
 )
 
-
 # OpenRouter pricing per 1M tokens (approximate, as of Dec 2025)
 OPENROUTER_PRICING = {
     "google/gemini-2.0-flash-001:free": {"input": 0, "output": 0},

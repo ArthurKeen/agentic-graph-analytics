@@ -659,6 +659,77 @@ if test_connection():
 
 ---
 
+##  Product UI / Workspace API (FR-31a Phase 1)
+
+The platform ships with a Next.js workspace UI backed by a FastAPI
+adapter (`graph_analytics_ai.product.fastapi_app`). The API mirrors
+the visualizer assets — workspaces, connection profiles, graph
+profiles, requirement versions, workflow runs, reports — and exposes
+two FR-31a Phase 1 endpoints that wire the agentic pipeline end to end:
+
+| Endpoint                              | Purpose                                                                     |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `POST /api/runs/{run_id}/start`       | Flips the run to RUNNING and dispatches it to the in-process supervisor.    |
+| `POST /api/runs/{run_id}/cancel`      | Cooperative cancel — stops the run after the current orchestrator step.     |
+| `GET  /api/runs/{run_id}/status`      | Lightweight snapshot (`executor_kind`, supervisor outcome, cancel intent).  |
+
+### Enabling the agentic supervisor
+
+The supervisor is **off by default** so the API can be used purely as
+a UI surface in environments without LLM credentials. Enable it for
+your dev session by either:
+
+```bash
+# Option 1: env var (recommended for shells/CI)
+export AGA_ENABLE_AGENTIC_SUPERVISOR=1
+
+# Option 2: programmatic toggle when constructing the app
+from graph_analytics_ai.product.fastapi_app import create_product_fastapi_app
+app = create_product_fastapi_app(enable_agentic_supervisor=True)
+```
+
+When enabled, `POST /api/runs/{id}/start` for an `agentic` (or
+`parallel_agentic`) run will:
+
+1. Replace any user-supplied step labels with the canonical six-step
+   layout (Schema Analysis → Requirements Extraction → Use Case
+   Generation → Template Generation → Execution → Reporting).
+2. Submit the run to a `ThreadPoolExecutor` that constructs an
+   `AgenticWorkflowRunner` per request.
+3. Stream `STEP_START` / `STEP_END` / `AGENT_ERROR` trace events into
+   per-step status updates the UI sees on its next `/status` poll.
+4. Emit `start_workflow_run` and `execute_workflow` audit events.
+
+On startup, the supervisor sweeps any orphan `RUNNING` rows left over
+from a previous process (Phase 1's executor is in-process, so an API
+restart is by definition a death sentence for in-flight runs). On
+shutdown it signals cancel and drains the worker pool best-effort.
+
+> **Production note** — Phase 1 is single-process and loses in-flight
+> runs on restart. Customer-facing deployments should wait for
+> FR-31b's durable executor migration. See
+> [`docs/PRD_AGENTIC_GRAPH_ANALYTICS_UI.md`](docs/PRD_AGENTIC_GRAPH_ANALYTICS_UI.md)
+> §FR-31a/Decision 2 for the migration plan.
+
+### Running the API + UI locally
+
+```bash
+# Backend (terminal 1) — bypass any sandbox proxy that might block ArangoDB
+env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    AGA_ENABLE_AGENTIC_SUPERVISOR=1 \
+    gaai-product-api
+
+# Frontend (terminal 2)
+cd frontend && npm run dev
+```
+
+The UI auto-discovers the API at `http://localhost:8000`. When it
+finds a live run in `agentic` mode, it polls `/status` every ~3
+seconds and shows executor + supervisor metadata in a panel above the
+DAG.
+
+---
+
 ## 🔌 MCP Server (NEW)
 
 Expose the platform as an **[MCP (Model Context Protocol)](https://modelcontextprotocol.io)** server so any MCP-compatible AI host — Claude Desktop, Cursor, etc. — can call graph analytics directly as tools.

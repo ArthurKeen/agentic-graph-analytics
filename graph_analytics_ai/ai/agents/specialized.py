@@ -8,6 +8,7 @@ import asyncio
 from typing import Any, Optional, List
 
 from ..llm.base import LLMProvider
+from ..schema.acquire import acquire_schema
 from ..schema.extractor import SchemaExtractor
 from ..schema.analyzer import SchemaAnalyzer
 from ..documents.parser import DocumentParser
@@ -67,13 +68,27 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
         """Extract and analyze schema."""
         self.log("Starting schema analysis...")
 
-        # Extract schema
+        # Extract schema (legacy collection-typed view, still required by
+        # downstream agents that haven't been migrated yet).
         schema = self.extractor.extract()
         state.schema = schema
 
         self.log(
             f"Extracted: {len(schema.vertex_collections)}V + {len(schema.edge_collections)}E"
         )
+
+        # PRD v0.6 / FR-56..FR-65: also acquire the typed conceptual +
+        # physical bundle so downstream agents can branch on LPG vs PG
+        # without re-introspecting. Failures degrade silently — the
+        # agent's primary output (state.schema_analysis) is unchanged
+        # by this enrichment.
+        bundle = self._acquire_schema_bundle()
+        state.schema_bundle = bundle
+        if bundle is not None:
+            self.log(
+                f"Schema kind: {bundle.schema_kind} "
+                f"(source={bundle.analyzer_metadata.get('source', 'unknown')})"
+            )
 
         # Analyze schema
         try:
@@ -89,22 +104,45 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
             f"Analysis complete: {analysis.domain}, complexity {analysis.complexity_score:.1f}/10"
         )
 
+        content: dict = {
+            "schema": {
+                "vertices": len(schema.vertex_collections),
+                "edges": len(schema.edge_collections),
+                "total_documents": schema.total_documents,
+                "total_edges": schema.total_edges,
+            },
+            "analysis": {
+                "domain": analysis.domain,
+                "complexity": analysis.complexity_score,
+            },
+        }
+        if bundle is not None:
+            content["schema_bundle"] = {
+                "schema_kind": bundle.schema_kind,
+                "source": bundle.analyzer_metadata.get("source"),
+                "confidence": bundle.analyzer_metadata.get("confidence"),
+            }
+
         return self.create_success_message(
             to_agent="orchestrator",
-            content={
-                "schema": {
-                    "vertices": len(schema.vertex_collections),
-                    "edges": len(schema.edge_collections),
-                    "total_documents": schema.total_documents,
-                    "total_edges": schema.total_edges,
-                },
-                "analysis": {
-                    "domain": analysis.domain,
-                    "complexity": analysis.complexity_score,
-                },
-            },
+            content=content,
             reply_to=message.message_id,
         )
+
+    def _acquire_schema_bundle(self):
+        """Best-effort acquisition for state.schema_bundle.
+
+        Falls back to ``None`` on any error so the agent's primary
+        responsibility (state.schema + state.schema_analysis) is
+        unaffected. The bundle is purely additive — downstream agents
+        check ``if state.schema_bundle is not None`` before branching
+        on the new fields, so the legacy PG path is the safe default.
+        """
+        try:
+            return acquire_schema(self.db, strategy="auto")
+        except Exception as exc:  # noqa: BLE001
+            self.log(f"Schema bundle acquisition failed: {exc}", "warning")
+            return None
 
     @handle_agent_errors_async
     async def process_async(
@@ -122,9 +160,21 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
             f"Extracted: {len(schema.vertex_collections)}V + {len(schema.edge_collections)}E"
         )
 
+        # PRD v0.6: typed bundle acquisition. Mirrors the sync path —
+        # acquire is sync (no LLM call from this code path; the
+        # analyzer's own LLM call is wrapped in its own executor when
+        # invoked via analyze_physical_schema_async, but the default
+        # auto-strategy here uses the baseline path).
+        bundle = await loop.run_in_executor(None, self._acquire_schema_bundle)
+        state.schema_bundle = bundle
+        if bundle is not None:
+            self.log(
+                f"Schema kind: {bundle.schema_kind} "
+                f"(source={bundle.analyzer_metadata.get('source', 'unknown')})"
+            )
+
         # Analyze schema using async LLM if available
         try:
-            # Call analyzer's async method (we'll need to add this)
             if hasattr(self.analyzer, "analyze_async"):
                 analysis = await self.analyzer.analyze_async(schema)
             else:
@@ -144,20 +194,28 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
             f"Analysis complete: {analysis.domain}, complexity {analysis.complexity_score:.1f}/10"
         )
 
+        content: dict = {
+            "schema": {
+                "vertices": len(schema.vertex_collections),
+                "edges": len(schema.edge_collections),
+                "total_documents": schema.total_documents,
+                "total_edges": schema.total_edges,
+            },
+            "analysis": {
+                "domain": analysis.domain,
+                "complexity": analysis.complexity_score,
+            },
+        }
+        if bundle is not None:
+            content["schema_bundle"] = {
+                "schema_kind": bundle.schema_kind,
+                "source": bundle.analyzer_metadata.get("source"),
+                "confidence": bundle.analyzer_metadata.get("confidence"),
+            }
+
         return self.create_success_message(
             to_agent="orchestrator",
-            content={
-                "schema": {
-                    "vertices": len(schema.vertex_collections),
-                    "edges": len(schema.edge_collections),
-                    "total_documents": schema.total_documents,
-                    "total_edges": schema.total_edges,
-                },
-                "analysis": {
-                    "domain": analysis.domain,
-                    "complexity": analysis.complexity_score,
-                },
-            },
+            content=content,
             reply_to=message.message_id,
         )
 
@@ -253,9 +311,7 @@ Your goal: Transform business needs into structured requirements."""
             try:
                 self._track_requirements(requirements)
             except Exception as e:
-                self.log(
-                    f"Failed to track requirements in catalog: {e}", "warning"
-                )
+                self.log(f"Failed to track requirements in catalog: {e}", "warning")
 
         self.log(
             f"Extracted: {len(requirements.objectives)} objectives, "
@@ -341,9 +397,7 @@ Your goal: Transform business needs into structured requirements."""
             try:
                 await self._track_requirements_async(requirements)
             except Exception as e:
-                self.log(
-                    f"Failed to track requirements in catalog: {e}", "warning"
-                )
+                self.log(f"Failed to track requirements in catalog: {e}", "warning")
 
         self.log(
             f"Extracted: {len(requirements.objectives)} objectives, "
@@ -445,7 +499,9 @@ Your goal: Generate actionable analytics use cases."""
         # Opt-in Discovery Mode: add a deterministic unknown-unknowns bundle first
         if state.metadata.get("discovery_mode"):
             try:
-                from ..generation.discovery_use_cases import generate_discovery_use_cases
+                from ..generation.discovery_use_cases import (
+                    generate_discovery_use_cases,
+                )
 
                 discovery_cases = generate_discovery_use_cases(
                     state.schema, state.schema_analysis
@@ -502,7 +558,9 @@ Your goal: Generate actionable analytics use cases."""
 
         if state.metadata.get("discovery_mode"):
             try:
-                from ..generation.discovery_use_cases import generate_discovery_use_cases
+                from ..generation.discovery_use_cases import (
+                    generate_discovery_use_cases,
+                )
 
                 discovery_cases = generate_discovery_use_cases(
                     state.schema, state.schema_analysis
@@ -961,8 +1019,8 @@ Transform technical graph analysis results into actionable business intelligence
 Remember: Business stakeholders need insights they can act on immediately, not just interesting observations."""
 
     def __init__(
-        self, 
-        llm_provider: LLMProvider, 
+        self,
+        llm_provider: LLMProvider,
         trace_collector: Optional[Any] = None,
         industry: str = "generic",
         catalog: Optional[Any] = None,
@@ -970,7 +1028,7 @@ Remember: Business stakeholders need insights they can act on immediately, not j
     ):
         """
         Initialize ReportingAgent with industry-specific configuration.
-        
+
         Args:
             llm_provider: LLM provider for generating insights
             trace_collector: Optional trace collector for monitoring
@@ -979,11 +1037,11 @@ Remember: Business stakeholders need insights they can act on immediately, not j
         """
         # Import industry prompts
         from ..reporting.prompts import get_industry_prompt
-        
+
         # Get industry-specific prompt and prepend to system prompt
         industry_context = get_industry_prompt(industry)
         combined_prompt = f"{industry_context}\n\n{self.SYSTEM_PROMPT}"
-        
+
         super().__init__(
             agent_type=AgentType.REPORTING,
             name=AgentNames.REPORTING_SPECIALIST,
@@ -991,14 +1049,12 @@ Remember: Business stakeholders need insights they can act on immediately, not j
             system_prompt=combined_prompt,
             trace_collector=trace_collector,
         )
-        
+
         self.industry = industry
         self.catalog = catalog
         self.db = db_connection
         self.generator = ReportGenerator(
-            llm_provider, 
-            use_llm_interpretation=True,
-            industry=industry
+            llm_provider, use_llm_interpretation=True, industry=industry
         )
 
     @handle_agent_errors
@@ -1245,7 +1301,9 @@ Remember: Business stakeholders need insights they can act on immediately, not j
         # Baseline comparisons are I/O heavy (catalog + DB); do them after report generation
         if baseline_epoch_id and self.catalog and self.db:
             try:
-                from ..reporting.baseline_comparison import compare_against_baseline_epoch
+                from ..reporting.baseline_comparison import (
+                    compare_against_baseline_epoch,
+                )
 
                 for idx, result in enumerate(successful_results):
                     try:
@@ -1259,7 +1317,9 @@ Remember: Business stakeholders need insights they can act on immediately, not j
                             ),
                         )
                         if comparison and comparison.insights:
-                            reports[idx].insights = comparison.insights + reports[idx].insights
+                            reports[idx].insights = (
+                                comparison.insights + reports[idx].insights
+                            )
                         if comparison:
                             reports[idx].metadata["baseline_comparison"] = {
                                 "baseline_epoch_id": str(baseline_epoch_id),

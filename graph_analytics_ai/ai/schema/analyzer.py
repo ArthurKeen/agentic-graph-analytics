@@ -14,7 +14,6 @@ from typing import Optional, Dict, Any
 from ..llm import LLMProvider, get_default_provider
 from .models import GraphSchema, SchemaAnalysis
 
-
 # LLM prompt for schema analysis with few-shot examples
 SCHEMA_ANALYSIS_PROMPT = """You are a graph database expert analyzing the structure of an ArangoDB graph.
 

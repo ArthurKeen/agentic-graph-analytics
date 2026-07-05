@@ -17,6 +17,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/src/lib/
+!frontend/src/lib/**
 parts/
 sdist/
 var/
@@ -28,6 +30,10 @@ MANIFEST
 
 # Package build artifacts
 graph_analytics_ai.egg-info/
+frontend/.next/
+frontend/node_modules/
+frontend/coverage/
+frontend/tsconfig.tsbuildinfo
 
 # Virtual environments
 venv/
@@ -73,3 +79,8 @@ workflow_output/
 
 # Local documentation reports (not part of the library)
 docs/archive/local-reports/
+
+# Local scratch/staging area (sibling-repo patches, ad-hoc validation
+# scripts, throwaway experiments). Anything intended to live in the
+# repo permanently should land in scripts/, tests/, or the package.
+scratch/

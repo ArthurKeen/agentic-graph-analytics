@@ -86,7 +86,9 @@ def generate_discovery_use_cases(
                     "Top bridge nodes by betweenness centrality",
                     "Bridge concentration and chokepoint candidates",
                 ],
-                success_metrics=["Top bridge nodes with clear blast-radius explanation"],
+                success_metrics=[
+                    "Top bridge nodes with clear blast-radius explanation"
+                ],
             ),
             UseCase(
                 id="UC-D03",
@@ -144,7 +146,9 @@ def generate_discovery_use_cases(
                 expected_outputs=[
                     "Community count, sizes, and dominant communities",
                 ],
-                success_metrics=["Community structure summarized and anomalies highlighted"],
+                success_metrics=[
+                    "Community structure summarized and anomalies highlighted"
+                ],
             ),
         ][:max_use_cases]
 
@@ -160,7 +164,10 @@ def generate_discovery_use_cases(
             priority=Priority.HIGH,
             graph_algorithms=["pagerank"],
             data_needs=[],
-            expected_outputs=["Top-k influential nodes", "Influence concentration/outliers"],
+            expected_outputs=[
+                "Top-k influential nodes",
+                "Influence concentration/outliers",
+            ],
             success_metrics=[],
         ),
         UseCase(
@@ -171,8 +178,10 @@ def generate_discovery_use_cases(
             priority=Priority.MEDIUM,
             graph_algorithms=["wcc"],
             data_needs=[],
-            expected_outputs=["Component count/sizes", "Isolated nodes and fragmentation"],
+            expected_outputs=[
+                "Component count/sizes",
+                "Isolated nodes and fragmentation",
+            ],
             success_metrics=[],
         ),
     ][:max_use_cases]
-

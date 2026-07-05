@@ -637,9 +637,7 @@ class ArangoDBStorage(StorageBackend):
 
     # --- Template Operations ---
 
-    def insert_template(
-        self, template: AnalysisTemplate, upsert: bool = True
-    ) -> str:
+    def insert_template(self, template: AnalysisTemplate, upsert: bool = True) -> str:
         """Insert or update template record.
 
         Args:

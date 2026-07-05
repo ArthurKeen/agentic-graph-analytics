@@ -1,0 +1,717 @@
+export type WorkflowStepStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "paused"
+  // FR-31a AC#5: distinguishes "agent didn't run because the run
+  // was cancelled" from "agent ran and failed". Surfaced by the
+  // backend when ``cancel_workflow_run`` finalizes — the supervisor
+  // flips any in-flight / pending step to ``cancelled`` so the DAG
+  // doesn't show a permanent ``running`` stripe.
+  | "cancelled";
+
+export type WorkspaceAssetKind =
+  | "connection-profile"
+  | "document"
+  | "graph-profile"
+  // The Assets panel surfaces ONE consolidated "Requirements" row per
+  // workspace, even when several RequirementVersion records exist (v1, v2,…).
+  // The asset id is synthetic — `requirements:<workspaceId>` — and the canvas
+  // exposes a version selector dropdown to view active or any historical
+  // version. This avoids the v1/v2/v3/… clutter the per-version model
+  // produced and matches how users think about "the Requirements doc."
+  | "requirements"
+  | "run"
+  | "report";
+
+export interface WorkspaceAsset {
+  id: string;
+  kind: WorkspaceAssetKind;
+  label: string;
+  description?: string;
+}
+
+export interface WorkspaceSummary {
+  workspaceId: string;
+  customerName: string;
+  projectName: string;
+  environment: string;
+  description: string;
+  status: string;
+  tags: string[];
+}
+
+export interface CreateWorkspaceInput {
+  customerName: string;
+  projectName: string;
+  environment: string;
+  description?: string;
+  tags?: string[];
+  actor?: string;
+}
+
+/** Patch payload for ``PATCH /api/workspaces/{id}``. Every field is optional;
+ * only the fields explicitly set are updated server-side. ``status`` is
+ * intentionally NOT here — use the dedicated archive route so the lifecycle
+ * change always emits a typed audit event instead of being mixed into a
+ * generic update diff. */
+export interface UpdateWorkspaceInput {
+  customerName?: string;
+  projectName?: string;
+  environment?: string;
+  description?: string;
+  tags?: string[];
+  actor?: string;
+}
+
+export interface GraphProfileSummary {
+  graphProfileId: string;
+  workspaceId: string;
+  connectionProfileId: string;
+  graphName: string;
+  status: string;
+  version: number;
+  vertexCollections: string[];
+  edgeCollections: string[];
+  edgeDefinitions: Array<Record<string, unknown>>;
+  collectionRoles: Record<string, string[]>;
+  counts: Record<string, number>;
+}
+
+export interface SourceDocumentSummary {
+  documentId: string;
+  workspaceId: string;
+  filename: string;
+  mimeType: string;
+  sha256: string;
+  storageMode: string;
+  storageUri?: string | null;
+  extractedText?: string | null;
+  uploadedAt?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ConnectionProfileSummary {
+  connectionProfileId: string;
+  workspaceId: string;
+  name: string;
+  deploymentMode: string;
+  endpoint: string;
+  database: string;
+  username: string;
+  verifySsl: boolean;
+  secretRefs: Record<string, Record<string, string>>;
+  lastVerificationStatus: string;
+  lastVerifiedAt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreateConnectionProfileInput {
+  name: string;
+  deploymentMode: string;
+  endpoint: string;
+  database: string;
+  username: string;
+  verifySsl: boolean;
+  passwordSecretEnvVar?: string;
+}
+
+export interface ConnectionVerificationResult {
+  connectionProfileId: string;
+  workspaceId: string;
+  status: string;
+  verifiedAt: string;
+  endpoint: string;
+  database: string;
+  errorMessage?: string | null;
+}
+
+export interface DiscoverGraphProfileInput {
+  graphName?: string;
+  sampleSize: number;
+  maxSamplesPerCollection: number;
+  verifySystem: boolean;
+}
+
+export interface GraphDiscoveryResult {
+  graphProfile: GraphProfileSummary;
+  schemaSummary: Record<string, unknown>;
+}
+
+export interface ConnectionGraphSummary {
+  name: string;
+  isSystem: boolean;
+  vertexCollections: string[];
+  edgeCollections: string[];
+  orphanCollections: string[];
+  edgeDefinitions: Array<Record<string, unknown>>;
+  vertexCount?: number | null;
+  edgeCount?: number | null;
+}
+
+export interface ConnectionGraphsResult {
+  connectionProfileId: string;
+  workspaceId: string;
+  database: string;
+  graphs: ConnectionGraphSummary[];
+}
+
+export interface StartRequirementsCopilotInput {
+  domain?: string;
+  createdBy?: string;
+  /** When set, the new interview is pre-populated with answers synthesised from
+   * the named prior RequirementVersion so the user is editing rather than
+   * retyping. The new interview still produces a fresh RequirementVersion on
+   * approve; the prior one is flipped to SUPERSEDED automatically. */
+  basedOnVersionId?: string;
+}
+
+export interface RequirementInterview {
+  requirementInterviewId: string;
+  workspaceId: string;
+  graphProfileId: string;
+  status: string;
+  domain?: string | null;
+  questions: Array<Record<string, unknown>>;
+  answers: Array<Record<string, unknown>>;
+  schemaObservations: Record<string, unknown>;
+  inferences: Array<Record<string, unknown>>;
+  assumptions: Array<Record<string, unknown>>;
+  draftBrd?: string | null;
+  provenanceLabels: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RequirementsDraftResult {
+  requirementInterview: RequirementInterview;
+  draftBrd: string;
+  provenanceLabels: Array<Record<string, unknown>>;
+}
+
+export interface RequirementVersion {
+  requirementVersionId: string;
+  workspaceId: string;
+  version: number;
+  status: string;
+  requirementInterviewId?: string | null;
+  summary: string;
+  objectives: Array<Record<string, unknown>>;
+  requirements: Array<Record<string, unknown>>;
+  constraints: Array<Record<string, unknown>>;
+  approvedAt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface WorkflowDAGNode {
+  id: string;
+  label: string;
+  status: WorkflowStepStatus;
+  agentName?: string;
+  artifactCount: number;
+  warningCount: number;
+  errorCount: number;
+}
+
+export interface WorkflowDAGEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+}
+
+export interface WorkflowDAGView {
+  runId: string;
+  workspaceId: string;
+  status: string;
+  workflowMode: string;
+  nodes: WorkflowDAGNode[];
+  edges: WorkflowDAGEdge[];
+  warnings: string[];
+  errors: string[];
+}
+
+export type WorkflowRecoveryActions = Record<string, string[]>;
+
+export interface WorkflowRunSummary {
+  runId: string;
+  workspaceId: string;
+  workflowMode: string;
+  status: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+}
+
+export interface WorkflowStepUpdateResult {
+  workflowRun: WorkflowRunSummary;
+  dagView: WorkflowDAGView;
+}
+
+export interface CreateWorkflowRunInput {
+  workflowMode: string;
+  stepLabels: string[];
+}
+
+export interface CreateWorkflowRunResult {
+  workflowRun: WorkflowRunSummary;
+  dagView: WorkflowDAGView;
+}
+
+/**
+ * FR-31a Phase 1 status snapshot returned by GET /api/runs/{run_id}/status.
+ *
+ * The UI polls this endpoint to learn the supervisor-side outcome
+ * (e.g. ``cancelled`` after the orchestrator observes the cancel
+ * token) and the run's executor_kind, so it can label rows produced
+ * by the in-process Phase 1 executor distinctly from rows produced
+ * by future durable executors (FR-31b+).
+ */
+export interface WorkflowRunStatusView {
+  runId: string;
+  workspaceId: string;
+  workflowMode: string;
+  status: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  /** "inprocess" for FR-31a Phase 1; future executors will set their own. */
+  executorKind: string | null;
+  /** Supervisor-side outcome string: pending | running | completed | cancelled | failed. */
+  lastOutcome: string | null;
+  errors: string[];
+  supervisor: {
+    supervised: boolean;
+    outcome?: string;
+    cancelRequested?: boolean;
+  };
+}
+
+export interface WorkspaceOverview {
+  workspace: {
+    workspace_id: string;
+    customer_name: string;
+    project_name: string;
+    environment: string;
+    /** Optional fields that the backend always sends as part of
+     * Workspace.to_dict() but were originally omitted from the typed
+     * shape. The Edit/Archive flows need them so the overlays can
+     * pre-fill current values without a separate ``GET /workspaces/{id}``
+     * round trip. */
+    description?: string;
+    status?: string;
+    tags?: string[];
+  };
+  counts: Record<string, number>;
+  latestConnectionProfiles: ConnectionProfileSummary[];
+  latestGraphProfiles: GraphProfileSummary[];
+  latestSourceDocuments: SourceDocumentSummary[];
+  latestRequirementVersions: RequirementVersion[];
+  latestWorkflowRuns: Array<{
+    run_id: string;
+    status: string;
+    workflow_mode: string;
+  }>;
+  latestReports: Array<{
+    report_id: string;
+    title: string;
+    status: string;
+  }>;
+  latestAuditEvents: Array<Record<string, unknown>>;
+}
+
+export interface WorkspaceHealthIssue {
+  severity: "info" | "warning" | "error";
+  code: string;
+  message: string;
+  entityIds: string[];
+}
+
+export interface WorkspaceHealth {
+  workspaceId: string;
+  status: "healthy" | "needs_attention" | string;
+  counts: Record<string, number>;
+  issues: WorkspaceHealthIssue[];
+}
+
+export interface ReportManifest {
+  reportId: string;
+  workspaceId: string;
+  runId: string;
+  title: string;
+  status: string;
+  summary: string;
+  version: number;
+}
+
+export interface ReportSection {
+  sectionId: string;
+  order: number;
+  type: string;
+  title: string;
+  content: Record<string, unknown>;
+  evidenceRefs: Array<Record<string, string>>;
+}
+
+export interface ChartSpec {
+  chartId: string;
+  title: string;
+  chartType: string;
+  dataSource: Record<string, unknown>;
+  data: Record<string, unknown>;
+  encoding: Record<string, unknown>;
+}
+
+export interface ReportBundle {
+  manifest: ReportManifest;
+  sections: ReportSection[];
+  charts: ChartSpec[];
+  snapshots: Array<Record<string, unknown>>;
+}
+
+/** Supported report export formats (PRD FR-42 / MVP acceptance #14). PDF and
+ * JSON are PRD-named but deferred until use-case generation produces enough
+ * content to make them meaningfully different from the HTML/Markdown
+ * exports. */
+export type ReportExportFormat = "html" | "markdown";
+
+export interface ReportExportDownload {
+  blob: Blob;
+  filename: string;
+  format: ReportExportFormat;
+}
+
+export interface WorkspaceBundle {
+  schemaVersion: string;
+  workspace: Record<string, unknown>;
+  connectionProfiles: Array<Record<string, unknown>>;
+  graphProfiles: Array<Record<string, unknown>>;
+  sourceDocuments: Array<Record<string, unknown>>;
+  requirementInterviews: Array<Record<string, unknown>>;
+  requirementVersions: Array<Record<string, unknown>>;
+  workflowRuns: Array<Record<string, unknown>>;
+  reports: Array<Record<string, unknown>>;
+  auditEvents: Array<Record<string, unknown>>;
+}
+
+export interface WorkspaceImportResult {
+  workspaceId: string;
+  counts: Record<string, number>;
+}
+
+export interface ProductAPIClient {
+  createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceSummary>;
+  listWorkspaces(): Promise<WorkspaceSummary[]>;
+  updateWorkspace(
+    workspaceId: string,
+    input: UpdateWorkspaceInput
+  ): Promise<WorkspaceSummary>;
+  /** Soft-delete a workspace by flipping its status to ``archived``. The
+   * actor argument is recorded on the audit event so administrative actions
+   * remain attributable. */
+  archiveWorkspace(workspaceId: string, actor?: string): Promise<WorkspaceSummary>;
+  getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
+  getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
+  createConnectionProfile(
+    workspaceId: string,
+    input: CreateConnectionProfileInput
+  ): Promise<ConnectionProfileSummary>;
+  verifyConnectionProfile(connectionProfileId: string): Promise<ConnectionVerificationResult>;
+  listConnectionProfileGraphs(
+    connectionProfileId: string
+  ): Promise<ConnectionGraphsResult>;
+  discoverGraphProfile(
+    connectionProfileId: string,
+    input: DiscoverGraphProfileInput
+  ): Promise<GraphDiscoveryResult>;
+  startRequirementsCopilot(
+    graphProfileId: string,
+    input: StartRequirementsCopilotInput
+  ): Promise<RequirementInterview>;
+  answerRequirementsCopilotQuestion(
+    requirementInterviewId: string,
+    questionId: string,
+    answer: string,
+    actor?: string
+  ): Promise<RequirementInterview>;
+  generateRequirementsCopilotDraft(
+    requirementInterviewId: string
+  ): Promise<RequirementsDraftResult>;
+  approveRequirementsCopilotDraft(
+    requirementInterviewId: string,
+    /** Pass `null` (recommended) to auto-increment to max(existing.version)+1.
+     * Passing a specific number that collides with an existing version raises
+     * a validation error from the backend. */
+    version: number | null,
+    approvedBy?: string
+  ): Promise<RequirementVersion>;
+  getWorkflowDAG(runId: string): Promise<WorkflowDAGView>;
+  getReportBundle(reportId: string): Promise<ReportBundle>;
+  publishReport(reportId: string, actor: string): Promise<ReportBundle>;
+  exportReport(
+    reportId: string,
+    format: ReportExportFormat
+  ): Promise<ReportExportDownload>;
+  exportWorkspaceBundle(workspaceId: string): Promise<WorkspaceBundle>;
+  importWorkspaceBundle(bundle: WorkspaceBundle): Promise<WorkspaceImportResult>;
+  getWorkflowRecoveryActions(runId: string): Promise<WorkflowRecoveryActions>;
+  createWorkflowRun(
+    workspaceId: string,
+    input: CreateWorkflowRunInput
+  ): Promise<CreateWorkflowRunResult>;
+  startWorkflowRun(runId: string): Promise<WorkflowRunSummary>;
+  /** FR-31a: cooperative cancel of a running agentic workflow. */
+  cancelWorkflowRun(runId: string, actor?: string): Promise<WorkflowRunSummary>;
+  /** FR-31a: lightweight status poll (supervisor + executor metadata). */
+  getWorkflowRunStatus(runId: string): Promise<WorkflowRunStatusView>;
+  updateWorkflowStep(
+    runId: string,
+    stepId: string,
+    status: WorkflowStepStatus
+  ): Promise<WorkflowStepUpdateResult>;
+}
+
+export interface RawWorkspaceOverview {
+  workspace: WorkspaceOverview["workspace"];
+  counts: Record<string, number>;
+  latest_connection_profiles?: RawConnectionProfileSummary[];
+  latest_graph_profiles?: RawGraphProfileSummary[];
+  latest_source_documents?: RawSourceDocumentSummary[];
+  latest_requirement_versions?: RawRequirementVersion[];
+  latest_workflow_runs: WorkspaceOverview["latestWorkflowRuns"];
+  latest_reports: WorkspaceOverview["latestReports"];
+  latest_audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawWorkspaceSummary {
+  workspace_id: string;
+  customer_name: string;
+  project_name: string;
+  environment: string;
+  description?: string;
+  status?: string;
+  tags?: string[];
+}
+
+export interface RawConnectionProfileSummary {
+  connection_profile_id: string;
+  workspace_id: string;
+  name: string;
+  deployment_mode: string;
+  endpoint: string;
+  database: string;
+  username: string;
+  verify_ssl?: boolean;
+  secret_refs?: Record<string, Record<string, string>>;
+  last_verification_status?: string;
+  last_verified_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RawConnectionVerificationResult {
+  connection_profile_id: string;
+  workspace_id: string;
+  status: string;
+  verified_at: string;
+  endpoint: string;
+  database: string;
+  error_message?: string | null;
+}
+
+export interface RawGraphDiscoveryResult {
+  graph_profile: RawGraphProfileSummary;
+  schema_summary: Record<string, unknown>;
+}
+
+export interface RawRequirementInterview {
+  requirement_interview_id: string;
+  workspace_id: string;
+  graph_profile_id: string;
+  status: string;
+  domain?: string | null;
+  questions?: Array<Record<string, unknown>>;
+  answers?: Array<Record<string, unknown>>;
+  schema_observations?: Record<string, unknown>;
+  inferences?: Array<Record<string, unknown>>;
+  assumptions?: Array<Record<string, unknown>>;
+  draft_brd?: string | null;
+  provenance_labels?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RawRequirementsDraftResult {
+  requirement_interview: RawRequirementInterview;
+  draft_brd: string;
+  provenance_labels?: Array<Record<string, unknown>>;
+}
+
+export interface RawRequirementVersion {
+  requirement_version_id: string;
+  workspace_id: string;
+  version: number;
+  status: string;
+  requirement_interview_id?: string | null;
+  summary?: string;
+  objectives?: Array<Record<string, unknown>>;
+  requirements?: Array<Record<string, unknown>>;
+  constraints?: Array<Record<string, unknown>>;
+  approved_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RawSourceDocumentSummary {
+  document_id: string;
+  workspace_id: string;
+  filename: string;
+  mime_type: string;
+  sha256?: string;
+  storage_mode?: string;
+  storage_uri?: string | null;
+  extracted_text?: string | null;
+  uploaded_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RawGraphProfileSummary {
+  graph_profile_id: string;
+  workspace_id: string;
+  connection_profile_id: string;
+  graph_name: string;
+  status: string;
+  version?: number;
+  vertex_collections?: string[];
+  edge_collections?: string[];
+  edge_definitions?: Array<Record<string, unknown>>;
+  collection_roles?: Record<string, string[]>;
+  counts?: Record<string, number>;
+}
+
+export interface RawWorkflowDAGView {
+  run_id: string;
+  workspace_id: string;
+  status: string;
+  workflow_mode: string;
+  nodes: Array<{
+    id: string;
+    label: string;
+    status: WorkflowStepStatus;
+    agent_name?: string;
+    artifact_count: number;
+    warning_count: number;
+    error_count: number;
+  }>;
+  edges: Array<{
+    id: string;
+    from: string;
+    to: string;
+    label?: string;
+  }>;
+  warnings: string[];
+  errors: string[];
+}
+
+export interface RawWorkflowRunSummary {
+  run_id: string;
+  workspace_id: string;
+  workflow_mode: string;
+  status: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  steps?: Array<{
+    step_id: string;
+    label: string;
+    status: WorkflowStepStatus;
+    agent_name?: string;
+    artifact_refs?: Array<Record<string, string>>;
+    warnings?: string[];
+    errors?: string[];
+  }>;
+  dag_edges?: Array<{
+    from_step_id: string;
+    to_step_id: string;
+    label?: string;
+  }>;
+  warnings?: string[];
+  errors?: string[];
+}
+
+export interface RawWorkflowStepUpdateResult {
+  workflow_run: RawWorkflowRunSummary;
+  dag_view: RawWorkflowDAGView;
+}
+
+export interface RawWorkspaceHealth {
+  workspace_id: string;
+  status: string;
+  counts: Record<string, number>;
+  issues: Array<{
+    severity: "info" | "warning" | "error";
+    code: string;
+    message: string;
+    entity_ids?: string[];
+  }>;
+}
+
+export interface RawReportBundle {
+  manifest: {
+    report_id: string;
+    workspace_id: string;
+    run_id: string;
+    title: string;
+    status: string;
+    summary?: string;
+    version?: number;
+  };
+  sections: Array<{
+    section_id: string;
+    order: number;
+    type: string;
+    title: string;
+    content?: Record<string, unknown>;
+    evidence_refs?: Array<Record<string, string>>;
+  }>;
+  charts: Array<{
+    chart_id: string;
+    title: string;
+    chart_type: string;
+    data_source?: Record<string, unknown>;
+    data?: Record<string, unknown>;
+    encoding?: Record<string, unknown>;
+  }>;
+  snapshots: Array<Record<string, unknown>>;
+}
+
+export interface RawWorkspaceBundle {
+  schema_version: string;
+  workspace: Record<string, unknown>;
+  connection_profiles?: Array<Record<string, unknown>>;
+  graph_profiles?: Array<Record<string, unknown>>;
+  source_documents?: Array<Record<string, unknown>>;
+  requirement_interviews?: Array<Record<string, unknown>>;
+  requirement_versions?: Array<Record<string, unknown>>;
+  workflow_runs?: Array<Record<string, unknown>>;
+  reports?: Array<Record<string, unknown>>;
+  audit_events?: Array<Record<string, unknown>>;
+}
+
+export interface RawWorkspaceImportResult {
+  workspace_id: string;
+  counts: Record<string, number>;
+}
+
+export interface RawConnectionGraphSummary {
+  name: string;
+  is_system?: boolean;
+  vertex_collections?: string[];
+  edge_collections?: string[];
+  orphan_collections?: string[];
+  edge_definitions?: Array<Record<string, unknown>>;
+  vertex_count?: number | null;
+  edge_count?: number | null;
+}
+
+export interface RawConnectionGraphsResult {
+  connection_profile_id: string;
+  workspace_id: string;
+  database: string;
+  graphs: RawConnectionGraphSummary[];
+}

@@ -10,7 +10,9 @@ Tools:
 from typing import Any, Dict, List, Optional
 
 from graph_analytics_ai import GAEManager  # noqa: F401 – imported for patching
-from graph_analytics_ai.config import get_gae_config  # noqa: F401 – imported for patching
+from graph_analytics_ai.config import (
+    get_gae_config,
+)  # noqa: F401 – imported for patching
 from ..server import mcp
 
 
@@ -121,7 +123,11 @@ def cleanup_engines(dry_run: bool = True) -> dict:
         idle_ids = []
         for eng in engines:
             eid = eng.get("id") if isinstance(eng, dict) else getattr(eng, "id", None)
-            status = (eng.get("status") if isinstance(eng, dict) else str(getattr(eng, "status", ""))).lower()
+            status = (
+                eng.get("status")
+                if isinstance(eng, dict)
+                else str(getattr(eng, "status", ""))
+            ).lower()
             if status in ("idle", "stopped", "error"):
                 idle_ids.append(eid)
 

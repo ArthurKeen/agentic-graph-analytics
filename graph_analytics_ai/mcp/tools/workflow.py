@@ -14,7 +14,9 @@ import threading
 import uuid
 from typing import Any, Dict, List, Optional
 
-from graph_analytics_ai.ai.agents import AgenticWorkflowRunner  # noqa: F401 – imported for patching
+from graph_analytics_ai.ai.agents import (
+    AgenticWorkflowRunner,
+)  # noqa: F401 – imported for patching
 from ..server import mcp
 
 # In-memory job registry  {job_id: {status, result, error}}
@@ -97,7 +99,12 @@ def start_workflow(
         dict with keys: job_id, status ('running'), graph_name
     """
     job_id = str(uuid.uuid4())
-    _JOBS[job_id] = {"status": "running", "result": None, "error": None, "graph_name": graph_name}
+    _JOBS[job_id] = {
+        "status": "running",
+        "result": None,
+        "error": None,
+        "graph_name": graph_name,
+    }
 
     thread = threading.Thread(
         target=_run_workflow_background,
@@ -128,7 +135,11 @@ def get_workflow_status(job_id: str) -> dict:
           - error: populated when status == 'failed'
     """
     if job_id not in _JOBS:
-        return {"job_id": job_id, "status": "not_found", "error": f"No job with id {job_id!r}"}
+        return {
+            "job_id": job_id,
+            "status": "not_found",
+            "error": f"No job with id {job_id!r}",
+        }
 
     job = _JOBS[job_id]
     return {

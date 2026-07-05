@@ -83,9 +83,11 @@ def adapt_requirements(
                 "id": getattr(obj, "id", ""),
                 "title": getattr(obj, "title", ""),
                 "description": getattr(obj, "description", ""),
-                "priority": getattr(obj.priority, "value", "unknown")
-                if hasattr(obj, "priority")
-                else "unknown",
+                "priority": (
+                    getattr(obj.priority, "value", "unknown")
+                    if hasattr(obj, "priority")
+                    else "unknown"
+                ),
                 "success_criteria": getattr(obj, "success_criteria", []),
             }
         )
@@ -96,12 +98,16 @@ def adapt_requirements(
             {
                 "id": getattr(r, "id", ""),
                 "text": getattr(r, "text", ""),
-                "type": getattr(r.requirement_type, "value", "unknown")
-                if hasattr(r, "requirement_type")
-                else "unknown",
-                "priority": getattr(r.priority, "value", "unknown")
-                if hasattr(r, "priority")
-                else "unknown",
+                "type": (
+                    getattr(r.requirement_type, "value", "unknown")
+                    if hasattr(r, "requirement_type")
+                    else "unknown"
+                ),
+                "priority": (
+                    getattr(r.priority, "value", "unknown")
+                    if hasattr(r, "priority")
+                    else "unknown"
+                ),
             }
         )
 
@@ -150,12 +156,16 @@ def adapt_use_case(
         title=getattr(use_case, "title", ""),
         description=getattr(use_case, "description", ""),
         algorithm=algorithm,
-        business_value=getattr(use_case, "expected_outputs", [""])[0]
-        if getattr(use_case, "expected_outputs", [])
-        else "",
-        priority=getattr(use_case.priority, "value", "medium")
-        if hasattr(use_case, "priority")
-        else "medium",
+        business_value=(
+            getattr(use_case, "expected_outputs", [""])[0]
+            if getattr(use_case, "expected_outputs", [])
+            else ""
+        ),
+        priority=(
+            getattr(use_case.priority, "value", "medium")
+            if hasattr(use_case, "priority")
+            else "medium"
+        ),
         addresses_objectives=[],
         addresses_requirements=getattr(use_case, "related_requirements", []) or [],
         epoch_id=None,
@@ -212,7 +222,11 @@ def adapt_template(
     params = {}
     if hasattr(template, "algorithm"):
         algo_obj = template.algorithm
-        algorithm = getattr(algo_obj.algorithm, "value", str(algo_obj)) if hasattr(algo_obj, "algorithm") else str(algo_obj)
+        algorithm = (
+            getattr(algo_obj.algorithm, "value", str(algo_obj))
+            if hasattr(algo_obj, "algorithm")
+            else str(algo_obj)
+        )
         params = getattr(algo_obj, "parameters", {}) or {}
 
     return CatalogAnalysisTemplate(

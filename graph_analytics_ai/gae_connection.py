@@ -36,7 +36,6 @@ from .constants import (
     TOKEN_REFRESH_THRESHOLD_HOURS,
 )
 
-
 logger = logging.getLogger(__name__)
 
 # Optional: suppress urllib3 SSL warnings when verify_ssl=False
@@ -709,7 +708,9 @@ class GenAIGAEConnection(GAEConnectionBase):
                 "SSL verification is disabled. This may allow man-in-the-middle attacks. "
                 "Only disable SSL verification in trusted environments."
             )
-            suppress = os.getenv("ARANGO_SUPPRESS_INSECURE_WARNINGS", "true").lower() in (
+            suppress = os.getenv(
+                "ARANGO_SUPPRESS_INSECURE_WARNINGS", "true"
+            ).lower() in (
                 "true",
                 "1",
                 "yes",
@@ -840,14 +841,22 @@ class GenAIGAEConnection(GAEConnectionBase):
 
         try:
             response = requests.post(
-                url, json={}, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                url,
+                json={},
+                headers=headers,
+                timeout=self.timeout,
+                verify=self.verify_ssl,
             )
             if response.status_code == 401:
                 # Common in long runs: JWT expires; refresh + retry once.
                 self._refresh_jwt_token()
                 headers = self._get_headers()
                 response = requests.post(
-                    url, json={}, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                    url,
+                    json={},
+                    headers=headers,
+                    timeout=self.timeout,
+                    verify=self.verify_ssl,
                 )
             response.raise_for_status()
 
@@ -878,7 +887,9 @@ class GenAIGAEConnection(GAEConnectionBase):
         reachable before returning; otherwise immediate Engine API calls can
         intermittently fail with 404s during rollout.
         """
-        service_id = self.ensure_service(size_id=size_id, reuse_existing=True, wait_for_ready=True)
+        service_id = self.ensure_service(
+            size_id=size_id, reuse_existing=True, wait_for_ready=True
+        )
         return {"id": service_id, "status": {"is_started": True, "succeeded": True}}
 
     def stop_engine(self, service_id: Optional[str] = None) -> bool:
@@ -909,7 +920,9 @@ class GenAIGAEConnection(GAEConnectionBase):
                 # Some deployments return a 500 with a NOT_FOUND payload when the
                 # Helm release is already gone. Treat that as successfully stopped.
                 body = (response.text or "").lower()
-                if response.status_code == 500 and ("not found" in body or "release" in body):
+                if response.status_code == 500 and (
+                    "not found" in body or "release" in body
+                ):
                     print("Engine already stopped (not found)")
                 else:
                     raise
@@ -1090,7 +1103,10 @@ class GenAIGAEConnection(GAEConnectionBase):
             try:
                 if method == "GET":
                     response = requests.get(
-                        url, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                        url,
+                        headers=headers,
+                        timeout=self.timeout,
+                        verify=self.verify_ssl,
                     )
                 elif method == "POST":
                     response = requests.post(
@@ -1102,7 +1118,10 @@ class GenAIGAEConnection(GAEConnectionBase):
                     )
                 elif method == "DELETE":
                     response = requests.delete(
-                        url, headers=headers, timeout=self.timeout, verify=self.verify_ssl
+                        url,
+                        headers=headers,
+                        timeout=self.timeout,
+                        verify=self.verify_ssl,
                     )
                 else:
                     raise ValueError(f"Unsupported HTTP method: {method}")
@@ -1135,14 +1154,11 @@ class GenAIGAEConnection(GAEConnectionBase):
                 body = (e.response.text or "") if e.response is not None else ""
                 body_l = body.lower()
 
-                is_transient_gral_route = (
-                    status in (404, 503)
-                    and (
-                        "unknown path '/gral/" in body_l
-                        or "upstream connect error" in body_l
-                        or "connection refused" in body_l
-                        or "disconnect/reset before headers" in body_l
-                    )
+                is_transient_gral_route = status in (404, 503) and (
+                    "unknown path '/gral/" in body_l
+                    or "upstream connect error" in body_l
+                    or "connection refused" in body_l
+                    or "disconnect/reset before headers" in body_l
                 )
                 if is_transient_gral_route and attempt < max_attempts:
                     time.sleep(2)
@@ -1151,7 +1167,9 @@ class GenAIGAEConnection(GAEConnectionBase):
                 # If we exhausted retries on a known transient rollout signature,
                 # avoid printing noisy [ERROR] lines. The caller (e.g., ensure_service)
                 # already prints periodic "Waiting for API..." status.
-                log_transient = os.getenv("GAE_LOG_TRANSIENT_ERRORS", "false").lower() in (
+                log_transient = os.getenv(
+                    "GAE_LOG_TRANSIENT_ERRORS", "false"
+                ).lower() in (
                     "true",
                     "1",
                     "yes",

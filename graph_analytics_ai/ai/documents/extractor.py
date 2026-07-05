@@ -21,7 +21,6 @@ from .models import (
     Priority,
 )
 
-
 # LLM prompt for requirements extraction with few-shot examples
 REQUIREMENTS_EXTRACTION_PROMPT = """You are a business analyst expert at extracting requirements from documents.
 

@@ -58,7 +58,8 @@ def _score_concentration_metrics(
     scored = [
         r
         for r in results
-        if isinstance(r.get(score_field), (int, float)) and r.get(score_field) is not None
+        if isinstance(r.get(score_field), (int, float))
+        and r.get(score_field) is not None
     ]
     scored.sort(key=lambda x: x.get(score_field, 0), reverse=True)
     scores = [float(r.get(score_field, 0)) for r in scored]
@@ -83,7 +84,9 @@ def compute_metrics(algorithm: str, results: List[Dict[str, Any]]) -> Dict[str, 
         return _score_concentration_metrics(results, "centrality")
     if algorithm == "label_propagation":
         # Common field names in datasets: community/label
-        community_field = "community" if any("community" in r for r in results) else "label"
+        community_field = (
+            "community" if any("community" in r for r in results) else "label"
+        )
         # Reuse component metrics logic with community field remapped
         remapped = [{"component": r.get(community_field)} for r in results]
         return _component_metrics(remapped)
@@ -96,7 +99,10 @@ def _diff(current: Dict[str, float], baseline: Dict[str, float]) -> Dict[str, fl
 
 
 def _deltas_to_insights(
-    algorithm: str, deltas: Dict[str, float], current: Dict[str, float], baseline: Dict[str, float]
+    algorithm: str,
+    deltas: Dict[str, float],
+    current: Dict[str, float],
+    baseline: Dict[str, float],
 ) -> List[Insight]:
     insights: List[Insight] = []
     algorithm = (algorithm or "").lower()
@@ -118,7 +124,11 @@ def _deltas_to_insights(
                     business_impact=(
                         "Review top ranked nodes for ownership/coverage; treat spikes as risk signals and validate extraction drift."
                     ),
-                    supporting_data={"deltas": deltas, "current": current, "baseline": baseline},
+                    supporting_data={
+                        "deltas": deltas,
+                        "current": current,
+                        "baseline": baseline,
+                    },
                 )
             )
 
@@ -141,7 +151,11 @@ def _deltas_to_insights(
                     business_impact=(
                         "Validate data ingestion/extraction changes between epochs and investigate the largest changed components/communities."
                     ),
-                    supporting_data={"deltas": deltas, "current": current, "baseline": baseline},
+                    supporting_data={
+                        "deltas": deltas,
+                        "current": current,
+                        "baseline": baseline,
+                    },
                 )
             )
 
@@ -190,14 +204,20 @@ def compare_against_baseline_epoch(
             baseline_execution = baseline_execs[0]
 
     current_metrics = compute_metrics(algorithm, execution_result.results)
-    if not baseline_execution or not getattr(baseline_execution, "results_location", None):
+    if not baseline_execution or not getattr(
+        baseline_execution, "results_location", None
+    ):
         return BaselineComparisonResult(
-            baseline_execution_id=getattr(baseline_execution, "execution_id", None)
-            if baseline_execution
-            else None,
-            baseline_template_name=getattr(baseline_execution, "template_name", None)
-            if baseline_execution
-            else None,
+            baseline_execution_id=(
+                getattr(baseline_execution, "execution_id", None)
+                if baseline_execution
+                else None
+            ),
+            baseline_template_name=(
+                getattr(baseline_execution, "template_name", None)
+                if baseline_execution
+                else None
+            ),
             current_metrics=current_metrics,
             baseline_metrics={},
             deltas={},
@@ -228,4 +248,3 @@ def compare_against_baseline_epoch(
         deltas=deltas,
         insights=insights,
     )
-

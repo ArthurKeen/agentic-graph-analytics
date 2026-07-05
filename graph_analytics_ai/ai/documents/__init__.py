@@ -71,7 +71,6 @@ from .parser import (
 
 from .extractor import RequirementsExtractor
 
-
 __all__ = [
     # Models
     "Document",

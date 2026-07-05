@@ -165,4 +165,3 @@ class ResultSelector:
         if len(results) > limit:
             results = results[:limit]
         return results, effective
-

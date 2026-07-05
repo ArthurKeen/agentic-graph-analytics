@@ -45,7 +45,9 @@ class TokenHelper:
         Args:
             cache_dir: Directory for token cache (default: ~/.cache/oasis)
         """
-        self.cache_dir = cache_dir or Path(os.getenv("OASIS_TOKEN_CACHE_DIR", str(DEFAULT_CACHE_DIR)))
+        self.cache_dir = cache_dir or Path(
+            os.getenv("OASIS_TOKEN_CACHE_DIR", str(DEFAULT_CACHE_DIR))
+        )
         self.cache_file = self.cache_dir / TOKEN_CACHE_FILE
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -96,10 +98,12 @@ class TokenHelper:
             data = {
                 "token": token,
                 "created_at": datetime.now().isoformat(),
-                "expires_at": (datetime.now() + timedelta(hours=TOKEN_LIFETIME_HOURS)).isoformat()
+                "expires_at": (
+                    datetime.now() + timedelta(hours=TOKEN_LIFETIME_HOURS)
+                ).isoformat(),
             }
 
-            with open(self.cache_file, 'w') as f:
+            with open(self.cache_file, "w") as f:
                 json.dump(data, f, indent=2)
 
             print(f"Token cached at {self.cache_file}")
@@ -119,7 +123,9 @@ class TokenHelper:
         key_secret = os.getenv("OASIS_KEY_SECRET")
 
         if not key_id or not key_secret:
-            print("Error: OASIS_KEY_ID and OASIS_KEY_SECRET environment variables required")
+            print(
+                "Error: OASIS_KEY_ID and OASIS_KEY_SECRET environment variables required"
+            )
             print("\nSet them with:")
             print("  export OASIS_KEY_ID=your_key_id")
             print("  export OASIS_KEY_SECRET=your_key_secret")
@@ -133,8 +139,10 @@ class TokenHelper:
                 [
                     "oasisctl",
                     "login",
-                    "--key-id", key_id,
-                    "--key-secret", key_secret,
+                    "--key-id",
+                    key_id,
+                    "--key-secret",
+                    key_secret,
                 ],
                 capture_output=True,
                 text=True,
@@ -152,7 +160,7 @@ class TokenHelper:
 
         except subprocess.CalledProcessError as e:
             print(f"\nError: oasisctl failed: {e.stderr}")
-            
+
             # Check for certificate error
             if "certificate" in e.stderr.lower() or "x509" in e.stderr.lower():
                 print("\nCertificate Verification Error Detected!")
@@ -162,7 +170,7 @@ class TokenHelper:
                 print("  2. Use manual token input (see below)")
                 print("  3. Set SSL_CERT_FILE environment variable")
                 print("\nFor more details, see: docs/ENVIRONMENT_VARIABLES.md")
-            
+
             return None
 
         except FileNotFoundError:
@@ -179,9 +187,9 @@ class TokenHelper:
         Returns:
             Manually entered token or None
         """
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("Manual Token Input")
-        print("="*60)
+        print("=" * 60)
         print("\nTo get a token manually:")
         print("  1. Go to https://cloud.arangodb.com/")
         print("  2. Navigate to: Settings > API Keys")
@@ -189,10 +197,12 @@ class TokenHelper:
         print("  4. Paste it below")
         print("\nOr run on a different machine:")
         print("  oasisctl login --key-id=<id> --key-secret=<secret>")
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
 
         try:
-            token = input("\nPaste your OASIS_TOKEN (or press Ctrl+C to cancel): ").strip()
+            token = input(
+                "\nPaste your OASIS_TOKEN (or press Ctrl+C to cancel): "
+            ).strip()
             if token:
                 return token
             else:
@@ -230,8 +240,10 @@ class TokenHelper:
         # If that fails, offer manual input
         if not token:
             print("\nFailed to generate token automatically.")
-            use_manual = input("Would you like to enter token manually? [y/N]: ").lower()
-            if use_manual == 'y':
+            use_manual = input(
+                "Would you like to enter token manually? [y/N]: "
+            ).lower()
+            if use_manual == "y":
                 token = self.get_token_manual()
 
         # Cache the token if we got one
@@ -253,7 +265,7 @@ class TokenHelper:
     def show_status(self) -> None:
         """Show current token status."""
         print("\nOASIS Token Status")
-        print("="*60)
+        print("=" * 60)
 
         # Check environment variable
         env_token = os.getenv("OASIS_TOKEN")
@@ -282,7 +294,7 @@ class TokenHelper:
         else:
             print("Cached Token: Not found")
 
-        print("="*60)
+        print("=" * 60)
 
 
 def get_or_refresh_token(force_refresh: bool = False) -> Optional[str]:
@@ -322,28 +334,16 @@ Examples:
 
   # Export to environment
   export OASIS_TOKEN=$(python scripts/oasis_token_helper.py --quiet)
-        """
+        """,
     )
 
     parser.add_argument(
-        "--refresh", "-r",
-        action="store_true",
-        help="Force token refresh"
+        "--refresh", "-r", action="store_true", help="Force token refresh"
     )
+    parser.add_argument("--status", "-s", action="store_true", help="Show token status")
+    parser.add_argument("--clear", "-c", action="store_true", help="Clear cached token")
     parser.add_argument(
-        "--status", "-s",
-        action="store_true",
-        help="Show token status"
-    )
-    parser.add_argument(
-        "--clear", "-c",
-        action="store_true",
-        help="Clear cached token"
-    )
-    parser.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="Quiet mode (only output token)"
+        "--quiet", "-q", action="store_true", help="Quiet mode (only output token)"
     )
 
     args = parser.parse_args()
@@ -370,7 +370,9 @@ Examples:
             print("\nTo use in your scripts:")
             print(f"  export OASIS_TOKEN={token[:20]}...")
             print("\nOr run:")
-            print("  export OASIS_TOKEN=$(python scripts/oasis_token_helper.py --quiet)")
+            print(
+                "  export OASIS_TOKEN=$(python scripts/oasis_token_helper.py --quiet)"
+            )
         return 0
     else:
         if not args.quiet:

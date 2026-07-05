@@ -32,7 +32,6 @@ from graph_analytics_ai.catalog.exceptions import (
     DuplicateError,
 )
 
-
 # Skip these tests if no ArangoDB available
 pytestmark = pytest.mark.skipif(
     not os.getenv("ARANGO_TEST_URL"), reason="ArangoDB test instance not configured"
