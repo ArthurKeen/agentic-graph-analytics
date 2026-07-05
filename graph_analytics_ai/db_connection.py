@@ -4,9 +4,30 @@ ArangoDB Connection Helper
 Provides a unified interface to connect to ArangoDB clusters.
 """
 
+import os
+
 from arango import ArangoClient
 
 from .config import get_arango_config, parse_ssl_verify
+
+# Default HTTP request timeout (seconds) for ArangoDB calls. python-arango's
+# own default is 60s, which is too low for large graphs / busier clusters
+# (a full agentic run against a multi-million-node graph can make queries
+# that exceed a minute). Overridable via ARANGO_TIMEOUT.
+DEFAULT_ARANGO_REQUEST_TIMEOUT = 300
+
+
+def _resolve_request_timeout(request_timeout=None):
+    """Resolve the HTTP request timeout from arg → ARANGO_TIMEOUT → default."""
+    if request_timeout is not None:
+        return request_timeout
+    raw = os.getenv("ARANGO_TIMEOUT")
+    if raw:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_ARANGO_REQUEST_TIMEOUT
 
 
 def connect_arango_database(
@@ -17,6 +38,7 @@ def connect_arango_database(
     verify_ssl=True,
     verify_system=True,
     client_factory=None,
+    request_timeout=None,
 ):
     """
     Connect to an explicit ArangoDB database descriptor.
@@ -40,7 +62,12 @@ def connect_arango_database(
     verify = parse_ssl_verify(verify_ssl) if isinstance(verify_ssl, str) else verify_ssl
     if client_factory is None:
         client_factory = ArangoClient
-    client = client_factory(hosts=endpoint)
+    timeout = _resolve_request_timeout(request_timeout)
+    try:
+        client = client_factory(hosts=endpoint, request_timeout=timeout)
+    except TypeError:
+        # Test doubles / older client factories may not accept request_timeout.
+        client = client_factory(hosts=endpoint)
 
     if verify_system:
         sys_db = client.db(

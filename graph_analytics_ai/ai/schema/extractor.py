@@ -56,12 +56,20 @@ class SchemaExtractor:
         self.sample_size = sample_size
         self.max_samples_per_collection = max_samples_per_collection
 
-    def extract(self) -> GraphSchema:
+    def extract(self, graph_name: Optional[str] = None) -> GraphSchema:
         """
-        Extract complete schema from the database.
+        Extract schema from the database.
+
+        Args:
+            graph_name: When provided and it names an existing named graph,
+                restrict extraction to that graph's vertex + edge (+ orphan)
+                collections. This avoids sampling every collection in the
+                database (e.g. corpus/benchmark tables) when the analysis
+                only targets one named graph. When omitted or unresolved,
+                all user collections are extracted (backward compatible).
 
         Returns:
-            GraphSchema containing all schema information.
+            GraphSchema containing schema information.
         """
         schema = GraphSchema(database_name=self.db.name)
 
@@ -72,6 +80,13 @@ class SchemaExtractor:
         user_collections = [
             col for col in collections if not col["name"].startswith("_")
         ]
+
+        # PRD v0.7: scope to a named graph's collections when requested.
+        scoped = self._named_graph_collection_names(graph_name)
+        if scoped:
+            user_collections = [
+                col for col in user_collections if col["name"] in scoped
+            ]
 
         # Process each collection
         for col_info in user_collections:
@@ -103,6 +118,35 @@ class SchemaExtractor:
             schema.graph_names = []
 
         return schema
+
+    def _named_graph_collection_names(self, graph_name: Optional[str]):
+        """Return the set of collection names in a named graph, or None.
+
+        Returns None (meaning "no scoping") when ``graph_name`` is falsy,
+        doesn't resolve to an existing graph, or exposes no collections —
+        so callers fall back to extracting every user collection.
+        """
+        if not graph_name:
+            return None
+        try:
+            graph = self.db.graph(graph_name)
+        except Exception:
+            return None
+        names: Set[str] = set()
+        try:
+            for edge_def in graph.edge_definitions() or []:
+                if edge_def.get("edge_collection"):
+                    names.add(edge_def["edge_collection"])
+                names.update(edge_def.get("from_vertex_collections") or [])
+                names.update(edge_def.get("to_vertex_collections") or [])
+        except Exception:
+            pass
+        try:
+            names.update(graph.vertex_collections() or [])
+        except Exception:
+            pass
+        names.discard(None)
+        return names or None
 
     def _determine_collection_type(self, col_info: Dict[str, Any]) -> CollectionType:
         """Determine if collection is vertex, edge, or document."""

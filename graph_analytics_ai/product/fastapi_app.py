@@ -11,10 +11,15 @@ from .factory import create_product_service
 logger = logging.getLogger(__name__)
 
 # Default origins permitted by the API when no override is supplied. Covers the
-# common Next.js dev ports for the workspace UI.
+# common Next.js dev ports for the workspace UI (3000 is the Next.js default;
+# 3010 is what this repo's dev script binds to). Add more via
+# ``AGA_PRODUCT_CORS_ORIGINS``. A rejected preflight makes the UI silently fall
+# back to demo mode, so keeping the repo's own dev port here matters.
 _DEFAULT_CORS_ORIGINS = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3010",
+    "http://127.0.0.1:3010",
 )
 
 

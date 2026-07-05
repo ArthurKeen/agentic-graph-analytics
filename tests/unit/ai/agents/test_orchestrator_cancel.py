@@ -18,7 +18,6 @@ cancel/no-cancel paths are easy to assert without invoking real LLMs.
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict
 
 import pytest
 
@@ -167,3 +166,45 @@ def test_run_workflow_runs_to_completion_when_no_cancel_token():
         WorkflowSteps.EXECUTION,
         WorkflowSteps.REPORTING,
     }
+
+
+# --- live step-status telemetry ----------------------------------------------
+
+
+def test_run_workflow_emits_step_events_that_drive_the_reporter():
+    """Regression: the orchestrator must emit STEP_START/STEP_END per phase.
+
+    These events (agent_name == the phase) are what the product-layer
+    ``StepStatusReporter`` maps to WorkflowStep rows. Before this was
+    wired, the events were defined but never recorded, so the run DAG
+    stayed ``pending`` for the whole run.
+    """
+
+    from graph_analytics_ai.ai.tracing import TraceCollector, TraceEventType
+    from graph_analytics_ai.product.agentic_run_supervisor import StepStatusReporter
+    from graph_analytics_ai.product.models import WorkflowStepStatus
+
+    orchestrator = _build_orchestrator()
+    collector = TraceCollector("workflow-step-events")
+    orchestrator.trace_collector = collector
+
+    # Raw event capture (phase routing) + the real reporter (status).
+    raw: list[tuple] = []
+    collector.add_listener(lambda e: raw.append((e.event_type, e.agent_name)))
+    transitions: list[tuple] = []
+
+    class _RecordingService:
+        def update_workflow_step(self, run_id, step_id, status, **kwargs):
+            transitions.append((step_id, status))
+
+    collector.add_listener(
+        StepStatusReporter(run_id="run-x", service=_RecordingService())
+    )
+
+    orchestrator.run_workflow()
+
+    for step in WorkflowSteps.STANDARD_WORKFLOW:
+        assert (TraceEventType.STEP_START, step) in raw
+        assert (TraceEventType.STEP_END, step) in raw
+        assert (step, WorkflowStepStatus.RUNNING) in transitions
+        assert (step, WorkflowStepStatus.COMPLETED) in transitions

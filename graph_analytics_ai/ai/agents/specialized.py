@@ -5,6 +5,7 @@ Each agent has specific expertise and responsibilities.
 """
 
 import asyncio
+import os
 from typing import Any, Optional, List
 
 from ..llm.base import LLMProvider
@@ -51,6 +52,7 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
         llm_provider: LLMProvider,
         db_connection,
         trace_collector: Optional[Any] = None,
+        graph_name: Optional[str] = None,
     ):
         super().__init__(
             agent_type=AgentType.SCHEMA_ANALYSIS,
@@ -62,6 +64,11 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
         self.db = db_connection
         self.extractor = SchemaExtractor(db_connection)
         self.analyzer = SchemaAnalyzer(llm_provider)
+        # PRD v0.7: scope extraction to this named graph's collections when
+        # set (avoids sampling unrelated corpus/benchmark collections). The
+        # runner passes the workspace's graph profile graph_name. A literal
+        # "graph" (the runner default placeholder) means "no scope".
+        self.graph_name = graph_name if graph_name and graph_name != "graph" else None
 
     @handle_agent_errors
     def process(self, message: AgentMessage, state: AgentState) -> AgentMessage:
@@ -69,8 +76,9 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
         self.log("Starting schema analysis...")
 
         # Extract schema (legacy collection-typed view, still required by
-        # downstream agents that haven't been migrated yet).
-        schema = self.extractor.extract()
+        # downstream agents that haven't been migrated yet). Scoped to the
+        # workspace's named graph when set (PRD v0.7).
+        schema = self.extractor.extract(graph_name=self.graph_name)
         state.schema = schema
 
         self.log(
@@ -138,8 +146,13 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
         check ``if state.schema_bundle is not None`` before branching
         on the new fields, so the legacy PG path is the safe default.
         """
+        # Strategy is configurable (PRD v0.7): the default "auto" escalates
+        # to the LLM on hard/high-cardinality LABEL collections, which is
+        # expensive on very large graphs. Deployments can set
+        # AGA_SCHEMA_STRATEGY=heuristic for a fast, LLM-free acquisition.
+        strategy = os.getenv("AGA_SCHEMA_STRATEGY", "auto")
         try:
-            return acquire_schema(self.db, strategy="auto")
+            return acquire_schema(self.db, strategy=strategy)
         except Exception as exc:  # noqa: BLE001
             self.log(f"Schema bundle acquisition failed: {exc}", "warning")
             return None
@@ -151,9 +164,12 @@ Your goal: Provide deep insights about graph structure to guide analytics."""
         """Extract and analyze schema (async version)."""
         self.log("Starting schema analysis...")
 
-        # Extract schema (run in executor as it's sync)
+        # Extract schema (run in executor as it's sync); scoped to the
+        # workspace's named graph when set (PRD v0.7).
         loop = asyncio.get_event_loop()
-        schema = await loop.run_in_executor(None, self.extractor.extract)
+        schema = await loop.run_in_executor(
+            None, lambda: self.extractor.extract(graph_name=self.graph_name)
+        )
         state.schema = schema
 
         self.log(

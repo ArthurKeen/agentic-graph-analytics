@@ -107,6 +107,7 @@ class AgenticWorkflowRunner:
                 llm_provider=self.llm_provider,
                 db_connection=self.db,
                 trace_collector=self.trace_collector,
+                graph_name=self.graph_name,
             ),
             AgentNames.REQUIREMENTS_ANALYST: RequirementsAgent(
                 llm_provider=self.llm_provider,

@@ -5,9 +5,11 @@ Coordinates all specialized agents and manages workflow execution.
 """
 
 import asyncio
+import time
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..llm.base import LLMProvider
+from ..tracing import TraceEventType
 from .base import Agent, AgentType, AgentMessage, AgentState
 from .constants import AgentNames, WorkflowSteps
 
@@ -352,6 +354,37 @@ cost, and providing clear diagnostics on any failures."""
                 return step
         return None
 
+    def _emit_step_event(
+        self,
+        event_type: TraceEventType,
+        step: str,
+        duration_ms: Optional[float] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """Emit a per-step trace event (STEP_START / STEP_END / AGENT_ERROR).
+
+        ``agent_name`` is set to the workflow *phase* (``step``), which is
+        what the product-layer ``StepStatusReporter`` maps to a canonical
+        WorkflowStep row. Without these events the run DAG never leaves
+        ``pending``. Best-effort: failures never break the workflow.
+        """
+
+        collector = getattr(self, "trace_collector", None)
+        if collector is None:
+            return
+        data: Dict[str, Any] = {"step": step}
+        if error is not None:
+            data["error"] = str(error)
+        try:
+            collector.record_event(
+                event_type,
+                agent_name=step,
+                data=data,
+                duration_ms=duration_ms,
+            )
+        except Exception:  # noqa: BLE001 - telemetry must not break the run
+            pass
+
     def _delegate_to_agent(
         self, step: str, original_message: AgentMessage, state: AgentState
     ) -> AgentMessage:
@@ -406,9 +439,30 @@ cost, and providing clear diagnostics on any failures."""
 
         state.add_message(task_message)
 
-        # Execute agent
+        # Execute agent. Bracket the call with STEP_START / STEP_END (or
+        # AGENT_ERROR) so the product-layer reporter can drive live DAG
+        # status updates for this phase.
         agent = self.agents[agent_name]
-        response = agent.process(task_message, state)
+        self._emit_step_event(TraceEventType.STEP_START, step)
+        step_started = time.monotonic()
+        try:
+            response = agent.process(task_message, state)
+        except Exception as exc:
+            self._emit_step_event(
+                TraceEventType.AGENT_ERROR, step, error=str(exc)
+            )
+            raise
+        duration_ms = (time.monotonic() - step_started) * 1000.0
+        if response.message_type == "error":
+            self._emit_step_event(
+                TraceEventType.AGENT_ERROR,
+                step,
+                error=response.content.get("error"),
+            )
+        else:
+            self._emit_step_event(
+                TraceEventType.STEP_END, step, duration_ms=duration_ms
+            )
 
         state.add_message(response)
 
@@ -664,22 +718,31 @@ cost, and providing clear diagnostics on any failures."""
         # Execute agent asynchronously
         agent = self.agents[agent_name]
 
-        # Use async method if available
-        if hasattr(agent, "process_async"):
-            response = await agent.process_async(task_message, state)
-        else:
-            # Fallback to sync method in executor
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, agent.process, task_message, state
-            )
+        self._emit_step_event(TraceEventType.STEP_START, step)
+        step_started = time.monotonic()
+        try:
+            # Use async method if available
+            if hasattr(agent, "process_async"):
+                response = await agent.process_async(task_message, state)
+            else:
+                # Fallback to sync method in executor
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None, agent.process, task_message, state
+                )
+        except Exception as exc:
+            self._emit_step_event(TraceEventType.AGENT_ERROR, step, error=str(exc))
+            raise
+        duration_ms = (time.monotonic() - step_started) * 1000.0
 
         await state.add_message_async(response)
 
         # Check for errors
         if response.message_type == "error":
             error_msg = response.content.get("error", "Unknown error")
+            self._emit_step_event(TraceEventType.AGENT_ERROR, step, error=error_msg)
             self.log(f"Error in {step}: {error_msg}", "error")
             raise RuntimeError(f"Step {step} failed: {error_msg}")
 
+        self._emit_step_event(TraceEventType.STEP_END, step, duration_ms=duration_ms)
         self.log(f"✓ Completed: {step}")
