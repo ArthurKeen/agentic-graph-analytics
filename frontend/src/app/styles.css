@@ -77,6 +77,57 @@ button {
   color: var(--aga-muted);
 }
 
+.setup-actions {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 4px;
+}
+
+.analyze-actions {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 6px;
+}
+
+.actions-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--aga-muted);
+}
+
+.analyze-mode-button {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  width: 100%;
+  border: 1px solid var(--aga-border);
+  border-radius: 12px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.analyze-mode-button:hover:not(:disabled) {
+  border-color: var(--aga-accent, #6c8cff);
+  background: var(--aga-panel);
+}
+
+.analyze-mode-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.analyze-mode-button strong {
+  font-size: 14px;
+}
+
+.analyze-mode-button .muted {
+  font-size: 12px;
+}
+
 .asset-section {
   margin-top: 24px;
 }
@@ -575,6 +626,35 @@ button {
   text-transform: none;
 }
 
+.data-source-banner-graph-select {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: var(--aga-text);
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: normal;
+  padding: 1px 4px;
+  text-transform: none;
+  cursor: pointer;
+  max-width: 24rem;
+}
+
+.data-source-banner-graph-select:focus {
+  outline: 2px solid var(--aga-accent, #4ade80);
+  outline-offset: 1px;
+}
+
+.data-source-banner-graph-select:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.data-source-banner-error-inline {
+  color: #ff8a8a;
+  font-weight: 500;
+}
+
 .data-source-banner-database {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
@@ -922,6 +1002,30 @@ button {
   min-height: 60vh;
   place-items: center;
   text-align: center;
+}
+
+.empty-canvas-guide {
+  max-width: 560px;
+  text-align: left;
+  border: 1px solid var(--aga-border);
+  border-radius: 16px;
+  background: var(--aga-panel-soft);
+  padding: 24px 28px;
+}
+
+.empty-canvas-steps {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+  padding-left: 20px;
+}
+
+.empty-canvas-steps ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--aga-muted);
 }
 
 .floating-panel {

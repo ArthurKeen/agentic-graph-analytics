@@ -14,9 +14,6 @@ import threading
 import uuid
 from typing import Any, Dict, List, Optional
 
-from graph_analytics_ai.ai.agents import (
-    AgenticWorkflowRunner,
-)  # noqa: F401 – imported for patching
 from ..server import mcp
 
 # In-memory job registry  {job_id: {status, result, error}}

@@ -49,6 +49,7 @@ __all__ = [
     "ReportFormat",
     "ReportConfig",
     "WorkflowReportConfig",
+    "ConfigReportSection",
     "ExecutionReportFormatter",
     "ChartGenerator",
     "HTMLReportFormatter",

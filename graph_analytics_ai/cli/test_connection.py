@@ -28,7 +28,7 @@ def test_connection():
         print("   Create .env file with database credentials")
         return False
 
-    print(f"\n✅ .env file found")
+    print("\n✅ .env file found")
 
     # Load environment and check configuration
     try:
@@ -40,7 +40,7 @@ def test_connection():
         endpoint = os.getenv("ARANGO_ENDPOINT")
         user = os.getenv("ARANGO_USER")
 
-        print(f"\n📋 Environment Configuration:")
+        print("\n📋 Environment Configuration:")
         print(f"   Database: {database}")
         print(f"   Endpoint: {endpoint}")
         print(f"   User: {user}")
@@ -62,7 +62,7 @@ def test_connection():
         from graph_analytics_ai.db_connection import get_db_connection
 
         db = get_db_connection()
-        print(f"\n✅ Successfully connected to ArangoDB!")
+        print("\n✅ Successfully connected to ArangoDB!")
         print(f"   Database Name: {db.name}")
 
         # Get collections info
@@ -76,7 +76,7 @@ def test_connection():
 
         # List some user collections
         if user_cols:
-            print(f"\n   Sample User Collections:")
+            print("\n   Sample User Collections:")
             for col in user_cols[:10]:
                 print(f"      - {col['name']}")
             if len(user_cols) > 10:
@@ -86,7 +86,7 @@ def test_connection():
         return True
 
     except ImportError as e:
-        print(f"\n❌ ERROR: Cannot import graph_analytics_ai library")
+        print("\n❌ ERROR: Cannot import graph_analytics_ai library")
         print(f"   {e}")
         print("\n   Install the library:")
         print("   pip install graph-analytics-ai")
@@ -94,7 +94,7 @@ def test_connection():
         print("   pip install -e /path/to/agentic-graph-analytics")
         return False
     except Exception as e:
-        print(f"\n❌ ERROR: Connection failed")
+        print("\n❌ ERROR: Connection failed")
         print(f"   {e}")
         print("\n   Check:")
         print("   1. .env file has correct credentials")

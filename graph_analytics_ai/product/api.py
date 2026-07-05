@@ -83,6 +83,15 @@ PRODUCT_API_ENDPOINTS = [
         response_model="Workspace",
     ),
     ProductAPIEndpoint(
+        method="PATCH",
+        path="/api/workspaces/{workspace_id}/active-graph-profile",
+        service_method="set_active_graph_profile",
+        summary="Set (or clear) the workspace's active graph profile",
+        tags=["workspaces"],
+        request_model="SetActiveGraphProfileRequest",
+        response_model="Workspace",
+    ),
+    ProductAPIEndpoint(
         method="GET",
         path="/api/workspaces/{workspace_id}/health",
         service_method="check_workspace_health",
@@ -107,6 +116,19 @@ PRODUCT_API_ENDPOINTS = [
         tags=["connection-profiles"],
         request_model="ConnectionVerificationRequest",
         response_model="ConnectionVerificationResult",
+    ),
+    # Two-step connect (UX): given cluster-level credentials (endpoint +
+    # username + password secret-env-var), enumerate the databases those
+    # credentials can see so the UI can present a database picker instead
+    # of requiring the user to type a database name up front.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/connections/list-databases",
+        service_method="list_cluster_databases",
+        summary="List databases visible to a set of cluster credentials",
+        tags=["connection-profiles"],
+        request_model="ListClusterDatabasesRequest",
+        response_model="ClusterDatabasesResult",
     ),
     ProductAPIEndpoint(
         method="GET",
@@ -279,6 +301,20 @@ PRODUCT_API_ENDPOINTS = [
         summary="Create a visualizable workflow run",
         tags=["workflow-runs"],
         request_model="CreateWorkflowRunRequest",
+        response_model="WorkflowRun",
+    ),
+    # PRD v0.7 / FR-73. One-shot prompt analysis: a single
+    # natural-language prompt + graph profile runs the agentic pipeline
+    # end to end with ephemeral (origin=quick_prompt) requirement/run
+    # artifacts. Creates the requirement version + agentic run and starts
+    # it in one call; returns the started WorkflowRun.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/quick-analysis",
+        service_method="quick_analysis",
+        summary="Run a one-shot analysis from a single prompt",
+        tags=["workflow-runs"],
+        request_model="QuickAnalysisRequest",
         response_model="WorkflowRun",
     ),
     ProductAPIEndpoint(

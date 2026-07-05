@@ -969,10 +969,14 @@ class TestDiscoverGraphProfilesBulk:
             connection_profile_id="cp-1", schema_strategy="heuristic"
         )
 
-        assert result.discovered_graph_count == 3
-        assert len(result.graph_profiles) == 3
+        # FR-67b: the bulk discover now produces N+1 profiles (one per
+        # named graph + the "default" all-collections profile). The
+        # ``database_only`` slot remains None because there *are* named
+        # graphs; the default profile lives alongside them.
+        assert result.discovered_graph_count == 4
+        assert len(result.graph_profiles) == 4
         names = {p["graph_name"] for p in result.graph_profiles}
-        assert names == {"corpus_g", "knowledge_g", "structured_g"}
+        assert names == {"default", "corpus_g", "knowledge_g", "structured_g"}
         assert result.failures == []
         assert result.database_only is None
         # Each profile got the v0.6 enrichment.
@@ -1004,7 +1008,13 @@ class TestDiscoverGraphProfilesBulk:
             connection_profile_id="cp-1", schema_strategy="heuristic"
         )
 
-        assert result.discovered_graph_count == 1
+        # FR-67b: discovered_graph_count is "good_g" (1) + the always-
+        # present "default" profile (1) = 2.
+        assert result.discovered_graph_count == 2
+        assert {p["graph_name"] for p in result.graph_profiles} == {
+            "default",
+            "good_g",
+        }
         assert len(result.failures) == 1
         failure = result.failures[0]
         assert failure["graph_name"] == "broken_g"
@@ -1012,8 +1022,10 @@ class TestDiscoverGraphProfilesBulk:
         assert "simulated" in failure["message"]
 
     def test_database_only_fallback_when_no_named_graphs(self):
-        """When no named graphs exist, fall back to a database-level
-        single profile in the ``database_only`` slot.
+        """When no named graphs exist, the single ``default`` profile
+        is BOTH the only entry in ``graph_profiles`` AND mirrored into
+        the legacy ``database_only`` slot for backwards compatibility
+        with older frontends (FR-67b).
         """
         repo = _StubServiceRepository()
         db = self._kg_db()
@@ -1022,11 +1034,14 @@ class TestDiscoverGraphProfilesBulk:
         result = service.discover_graph_profiles(
             connection_profile_id="cp-1", schema_strategy="heuristic"
         )
-        assert result.discovered_graph_count == 0
-        assert result.graph_profiles == []
+        assert result.discovered_graph_count == 1
+        assert len(result.graph_profiles) == 1
+        assert result.graph_profiles[0]["graph_name"] == "default"
+        # Legacy slot still populated for old frontends.
         assert result.database_only is not None
         assert "graph_profile" in result.database_only
         assert "schema_summary" in result.database_only
+        assert result.database_only["graph_profile"]["graph_name"] == "default"
 
     def test_system_graphs_filtered(self):
         repo = _StubServiceRepository()
@@ -1042,8 +1057,13 @@ class TestDiscoverGraphProfilesBulk:
         result = service.discover_graph_profiles(
             connection_profile_id="cp-1", schema_strategy="heuristic"
         )
-        assert result.discovered_graph_count == 1
-        assert result.graph_profiles[0]["graph_name"] == "real_graph"
+        # FR-67b: system graph is filtered + "default" is always created,
+        # so we end up with {default, real_graph}.
+        assert result.discovered_graph_count == 2
+        assert {p["graph_name"] for p in result.graph_profiles} == {
+            "default",
+            "real_graph",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1160,7 +1180,13 @@ class TestAutographAutoPair:
         result = service.discover_graph_profiles(
             connection_profile_id="cp-1", schema_strategy="heuristic"
         )
-        assert result.discovered_graph_count == 2
+        # FR-67b: 2 named-graph profiles + 1 "default" profile = 3.
+        # The Autograph detector still only pairs the named-graph
+        # corpus + kg into one GraphSet (the default profile is not
+        # an Autograph artefact and is correctly ignored by the
+        # detector).
+        assert result.discovered_graph_count == 3
+        assert "default" in {p["graph_name"] for p in result.graph_profiles}
 
         # Detector ran and surfaced the project.
         assert result.arango_product is not None

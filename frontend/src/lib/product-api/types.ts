@@ -41,6 +41,11 @@ export interface WorkspaceSummary {
   description: string;
   status: string;
   tags: string[];
+  /** GraphProfile the workbench should treat as the workspace's "current"
+   * graph (FR-67b). When null, the workbench falls back to the most
+   * recently-updated profile. Selectable via PATCH
+   * /api/workspaces/{id}/active-graph-profile. */
+  activeGraphProfileId: string | null;
 }
 
 export interface CreateWorkspaceInput {
@@ -118,6 +123,22 @@ export interface CreateConnectionProfileInput {
   passwordSecretEnvVar?: string;
 }
 
+/** Two-step connect, part 1: cluster-level credentials used to enumerate
+ * the databases visible on the cluster (no database name required up front).
+ * The password is referenced by env-var name; no plaintext secret is sent. */
+export interface ListClusterDatabasesInput {
+  endpoint: string;
+  username: string;
+  passwordSecretEnvVar: string;
+  verifySsl?: boolean;
+  includeSystem?: boolean;
+}
+
+export interface ClusterDatabasesResult {
+  endpoint: string;
+  databases: string[];
+}
+
 export interface ConnectionVerificationResult {
   connectionProfileId: string;
   workspaceId: string;
@@ -133,6 +154,9 @@ export interface DiscoverGraphProfileInput {
   sampleSize: number;
   maxSamplesPerCollection: number;
   verifySystem: boolean;
+  /** FR-67b: when true, ignore graphName and create a database-scope
+   * profile named "default" covering every collection in the database. */
+  forceDatabaseScope?: boolean;
 }
 
 export interface GraphDiscoveryResult {
@@ -253,6 +277,17 @@ export interface CreateWorkflowRunInput {
   stepLabels: string[];
 }
 
+/**
+ * FR-73 Quick Analysis: a single natural-language prompt against a graph
+ * profile runs the agentic pipeline end to end (ephemeral requirement +
+ * run artifacts). `workflowMode` defaults to "agentic" on the backend.
+ */
+export interface QuickAnalysisInput {
+  graphProfileId: string;
+  prompt: string;
+  workflowMode?: string;
+}
+
 export interface CreateWorkflowRunResult {
   workflowRun: WorkflowRunSummary;
   dagView: WorkflowDAGView;
@@ -300,6 +335,7 @@ export interface WorkspaceOverview {
     description?: string;
     status?: string;
     tags?: string[];
+    active_graph_profile_id?: string | null;
   };
   counts: Record<string, number>;
   latestConnectionProfiles: ConnectionProfileSummary[];
@@ -409,6 +445,15 @@ export interface ProductAPIClient {
    * actor argument is recorded on the audit event so administrative actions
    * remain attributable. */
   archiveWorkspace(workspaceId: string, actor?: string): Promise<WorkspaceSummary>;
+  /** Set (or clear) the GraphProfile that drives the "Analyzing X" banner
+   * and the default Requirements Copilot target. Pass null to clear and
+   * fall back to the deterministic positional rule. The id must belong
+   * to a profile in this workspace. */
+  setActiveGraphProfile(
+    workspaceId: string,
+    graphProfileId: string | null,
+    actor?: string
+  ): Promise<WorkspaceSummary>;
   getWorkspaceOverview(workspaceId: string): Promise<WorkspaceOverview>;
   getWorkspaceHealth(workspaceId: string): Promise<WorkspaceHealth>;
   createConnectionProfile(
@@ -416,6 +461,10 @@ export interface ProductAPIClient {
     input: CreateConnectionProfileInput
   ): Promise<ConnectionProfileSummary>;
   verifyConnectionProfile(connectionProfileId: string): Promise<ConnectionVerificationResult>;
+  /** Two-step connect, part 1: list databases visible to cluster credentials. */
+  listClusterDatabases(
+    input: ListClusterDatabasesInput
+  ): Promise<ClusterDatabasesResult>;
   listConnectionProfileGraphs(
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult>;
@@ -458,6 +507,13 @@ export interface ProductAPIClient {
     workspaceId: string,
     input: CreateWorkflowRunInput
   ): Promise<CreateWorkflowRunResult>;
+  /** FR-73: one-shot analysis from a prompt. Creates an ephemeral
+   * requirement version + agentic run and starts it, returning the
+   * started run + its DAG view. */
+  quickAnalysis(
+    workspaceId: string,
+    input: QuickAnalysisInput
+  ): Promise<CreateWorkflowRunResult>;
   startWorkflowRun(runId: string): Promise<WorkflowRunSummary>;
   /** FR-31a: cooperative cancel of a running agentic workflow. */
   cancelWorkflowRun(runId: string, actor?: string): Promise<WorkflowRunSummary>;
@@ -490,6 +546,7 @@ export interface RawWorkspaceSummary {
   description?: string;
   status?: string;
   tags?: string[];
+  active_graph_profile_id?: string | null;
 }
 
 export interface RawConnectionProfileSummary {

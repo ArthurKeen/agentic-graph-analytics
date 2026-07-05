@@ -58,6 +58,43 @@ def test_workspace_round_trip():
     assert restored.status == WorkspaceStatus.ACTIVE
     assert restored.tags == ["demo"]
     assert restored.metadata["vertical"] == "AdTech"
+    # FR-67b: active_graph_profile_id is None by default.
+    assert restored.active_graph_profile_id is None
+    assert doc["active_graph_profile_id"] is None
+
+
+def test_workspace_active_graph_profile_round_trip():
+    """``active_graph_profile_id`` survives to_dict/from_dict (FR-67b)."""
+
+    workspace = create_workspace(
+        customer_name="Example",
+        project_name="Graph",
+        environment="dev",
+        active_graph_profile_id="graph-profile-xyz",
+    )
+
+    restored = Workspace.from_dict(workspace.to_dict())
+    assert restored.active_graph_profile_id == "graph-profile-xyz"
+
+
+def test_workspace_from_dict_tolerates_missing_active_graph_profile_id():
+    """Legacy workspace docs (pre-FR-67b) load with active_graph_profile_id=None.
+
+    Existing rows in ArangoDB were persisted before the field was added
+    so from_dict must not KeyError when the column is absent.
+    """
+
+    workspace = create_workspace(
+        customer_name="Legacy",
+        project_name="Pre-67b",
+        environment="prod",
+    )
+    legacy_doc = workspace.to_dict()
+    # Simulate the persisted shape from before the field existed:
+    legacy_doc.pop("active_graph_profile_id")
+
+    restored = Workspace.from_dict(legacy_doc)
+    assert restored.active_graph_profile_id is None
 
 
 def test_connection_profile_round_trip_allows_secret_references():

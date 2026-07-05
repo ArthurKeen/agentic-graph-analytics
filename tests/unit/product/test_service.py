@@ -399,6 +399,132 @@ def test_archive_workspace_is_idempotent():
     assert repository.audit_events == []
 
 
+def _seed_graph_profile(repository, workspace_id, graph_name="AdtechGraph"):
+    """Helper: minimal in-memory GraphProfile for set_active_graph_profile tests."""
+
+    from graph_analytics_ai.product.models import create_graph_profile
+
+    profile = create_graph_profile(
+        workspace_id=workspace_id,
+        connection_profile_id="connection-test",
+        graph_name=graph_name,
+        vertex_collections=["a", "b"],
+        edge_collections=["edge_ab"],
+        edge_definitions=[],
+        counts={
+            "vertex_collections": 2,
+            "edge_collections": 1,
+            "total_documents": 0,
+            "total_edges": 0,
+            "relationships": 0,
+        },
+    )
+    repository.create_graph_profile(profile)
+    return profile
+
+
+def test_set_active_graph_profile_persists_and_audits():
+    """FR-67b: setting the active graph profile updates the workspace + audits."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme",
+        project_name="AdTech",
+        environment="dev",
+    )
+    profile = _seed_graph_profile(repository, workspace.workspace_id)
+    repository.audit_events.clear()
+    original_updated_at = workspace.updated_at
+
+    updated = service.set_active_graph_profile(
+        workspace.workspace_id,
+        profile.graph_profile_id,
+        actor="ops@example.com",
+    )
+
+    assert updated.active_graph_profile_id == profile.graph_profile_id
+    assert updated.updated_at > original_updated_at
+    assert len(repository.audit_events) == 1
+    event = repository.audit_events[0]
+    assert event.action == "set_active_graph_profile"
+    assert event.actor == "ops@example.com"
+    assert event.details == {"from": None, "to": profile.graph_profile_id}
+
+
+def test_set_active_graph_profile_clears_with_none_or_blank():
+    """Pass None (or empty string) to clear the selection (FR-67b)."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme", project_name="AdTech", environment="dev"
+    )
+    profile = _seed_graph_profile(repository, workspace.workspace_id)
+    service.set_active_graph_profile(workspace.workspace_id, profile.graph_profile_id)
+    repository.audit_events.clear()
+
+    cleared = service.set_active_graph_profile(workspace.workspace_id, "  ")
+    assert cleared.active_graph_profile_id is None
+    assert len(repository.audit_events) == 1
+    assert repository.audit_events[0].details == {
+        "from": profile.graph_profile_id,
+        "to": None,
+    }
+
+    repository.audit_events.clear()
+    cleared_again = service.set_active_graph_profile(workspace.workspace_id, None)
+    # Already cleared: idempotent no-op (no second audit row).
+    assert cleared_again.active_graph_profile_id is None
+    assert repository.audit_events == []
+
+
+def test_set_active_graph_profile_is_idempotent_for_same_value():
+    """Re-pointing at the same profile is a no-op (no audit row, no updated_at bump)."""
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace = service.create_workspace(
+        customer_name="Acme", project_name="AdTech", environment="dev"
+    )
+    profile = _seed_graph_profile(repository, workspace.workspace_id)
+    service.set_active_graph_profile(workspace.workspace_id, profile.graph_profile_id)
+    refreshed = repository.workspaces[workspace.workspace_id]
+    stable_updated_at = refreshed.updated_at
+    repository.audit_events.clear()
+
+    again = service.set_active_graph_profile(
+        workspace.workspace_id, profile.graph_profile_id
+    )
+    assert again.updated_at == stable_updated_at
+    assert repository.audit_events == []
+
+
+def test_set_active_graph_profile_rejects_cross_workspace_id():
+    """A graph profile id that belongs to another workspace must be rejected.
+
+    Without this check a leaked id from a different customer's workspace
+    could be pointed at the current workspace's banner.
+    """
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+    workspace_a = service.create_workspace(
+        customer_name="Acme A", project_name="AdTech", environment="dev"
+    )
+    workspace_b = service.create_workspace(
+        customer_name="Acme B", project_name="AdTech", environment="dev"
+    )
+    foreign_profile = _seed_graph_profile(
+        repository, workspace_b.workspace_id, graph_name="OtherGraph"
+    )
+
+    with pytest.raises(ValidationError, match="must belong to this workspace"):
+        service.set_active_graph_profile(
+            workspace_a.workspace_id, foreign_profile.graph_profile_id
+        )
+
+
 def test_workspace_overview_counts_and_recent_items():
     """Workspace overview aggregates related product metadata."""
 

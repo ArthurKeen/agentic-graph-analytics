@@ -4,6 +4,7 @@ Document parser for extracting text from various file formats.
 Supports: TXT, MD, PDF, DOCX (with optional dependencies).
 """
 
+from pathlib import Path
 from typing import List
 
 # Optional dependencies (exposed for testing/mocking)
@@ -118,6 +119,39 @@ class DocumentParser:
             # Create document with error
             doc = Document(metadata=metadata, content="", extraction_errors=[str(e)])
             return doc
+
+    def parse_content(
+        self, content: str, name: str = "document.md", chunk: bool = False
+    ) -> Document:
+        """Build a :class:`Document` from in-memory text (no file needed).
+
+        Used when the source text is already in memory — e.g. a
+        Requirements Copilot BRD draft or an FR-73 Quick Analysis prompt
+        wrapped as a document — rather than read from disk. The ``name``
+        (with its extension) only drives the recorded ``document_type``;
+        unknown/empty extensions are treated as plain text.
+        """
+        path = Path(name)
+        doc_type_map = {
+            ".txt": DocumentType.TEXT,
+            ".md": DocumentType.MARKDOWN,
+            ".pdf": DocumentType.PDF,
+            ".docx": DocumentType.DOCX,
+            ".html": DocumentType.HTML,
+            ".htm": DocumentType.HTML,
+        }
+        document_type = doc_type_map.get(path.suffix.lower(), DocumentType.TEXT)
+        text = content or ""
+        metadata = DocumentMetadata(
+            file_path=name,
+            file_name=path.name,
+            document_type=document_type,
+            file_size=len(text.encode("utf-8")),
+        )
+        doc = Document(metadata=metadata, content=text)
+        if chunk:
+            doc.chunks = self._create_chunks(text)
+        return doc
 
     def _parse_text(self, file_path: str) -> str:
         """Parse plain text file."""

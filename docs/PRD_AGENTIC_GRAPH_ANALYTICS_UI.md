@@ -1978,13 +1978,26 @@ Exit Criteria:
 Deliverables:
 
 - `POST /api/workspaces/{id}/quick-analysis` wired to the FR-31a
-  `AgenticRunSupervisor`; prompt → in-memory TXT document → existing
-  requirements extraction.
+  `AgenticRunSupervisor`; prompt → in-memory document → existing
+  requirements extraction. **Done** — `ProductService.quick_analysis`
+  creates an ephemeral approved `RequirementVersion`
+  (`metadata.draft_brd = prompt`), a canonical agentic `WorkflowRun`,
+  and starts it. Required a small **requirements-ingestion bridge**:
+  `DocumentParser.parse_content()` (parse in-memory text without a file)
+  plus `RequirementsAgent` normalizing `{name, content}` dict inputs —
+  this also fixes the Requirements Copilot → agentic-run path, which
+  previously passed content dicts to a file-path-only parser.
 - Transient artifact tagging (`origin = "quick_prompt"`,
-  `ephemeral = true`), exclusion from the curated Requirements asset
-  list, retention hooks, and a "promote to curated assets" action.
+  `ephemeral = true`) and **exclusion from the curated Requirements
+  asset list** (`get_workspace_overview` filters ephemeral versions).
+  **Done.** A "promote to curated assets" action and retention hooks
+  remain a follow-up.
 - "Quick Analysis" UI on the workspace canvas (prompt box +
-  graph-profile picker) that opens on the run DAG.
+  graph-profile picker) that opens on the run DAG. **Pending (frontend).**
+
+**Status (v0.7): backend implemented + unit-tested** (service method,
+endpoint, ingestion bridge, ephemeral exclusion). The canvas UI
+affordance is the remaining piece.
 
 Exit Criteria:
 

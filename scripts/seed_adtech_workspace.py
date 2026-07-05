@@ -588,6 +588,35 @@ def main() -> None:
         f"({vertex_count} vertex / {edge_count} edge collections)"
     )
 
+    # ---- 4b. Discover database-scope `default` profile (FR-67b) ---------- #
+    # Surfaces a synthetic GraphProfile named "default" covering every
+    # collection in the database so the workbench graph selector can offer
+    # "all collections" alongside the named AdtechGraph.
+    default_discovery = service.discover_graph_profile(
+        connection_profile_id=profile.connection_profile_id,
+        force_database_scope=True,
+        created_by="seed-script",
+    )
+    default_profile_id = default_discovery.graph_profile["graph_profile_id"]
+    default_vertex_count = len(
+        default_discovery.graph_profile.get("vertex_collections", [])
+    )
+    default_edge_count = len(
+        default_discovery.graph_profile.get("edge_collections", [])
+    )
+    print(
+        f"Default graph profile: {default_profile_id}  "
+        f"({default_vertex_count} vertex / {default_edge_count} edge collections)"
+    )
+
+    # ---- 4c. Pin AdtechGraph as the active graph profile (FR-67b) -------- #
+    service.set_active_graph_profile(
+        workspace_id=workspace.workspace_id,
+        graph_profile_id=graph_profile_id,
+        actor="seed-script",
+    )
+    print(f"Active graph profile pinned: {graph_profile_id} ({ADTECH_GRAPH})")
+
     # ---- 5. Source document (requirements) ------------------------------- #
     requirements_text = REQUIREMENTS_DOC.read_text(encoding="utf-8")
     sha = hashlib.sha256(requirements_text.encode("utf-8")).hexdigest()

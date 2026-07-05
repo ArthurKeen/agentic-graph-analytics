@@ -14,7 +14,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 from ..ai.schema.acquire import (
     SchemaAcquisitionBundle,
-    SchemaCache,
     SchemaChangeReport,
     acquire_schema,
     describe_schema_change,
@@ -705,6 +704,73 @@ class ProductService:
         )
         return workspace
 
+    def set_active_graph_profile(
+        self,
+        workspace_id: str,
+        graph_profile_id: Optional[str],
+        actor: Optional[str] = None,
+    ) -> Workspace:
+        """Set (or clear) the workspace's "current" graph profile (FR-67b).
+
+        The workbench renders one graph profile at a time in its
+        "Analyzing X" banner, and most agentic workflows default to
+        operating on that same profile. Historically the active
+        profile was picked positionally (latest-updated wins), which
+        is fragile — running discovery, patching a tag, or simply the
+        order in which graphs were created shuffles the banner. This
+        method makes the choice explicit and durable.
+
+        Pass ``graph_profile_id=None`` (or empty string) to clear the
+        selection; the workbench then falls back to the deterministic
+        positional rule.
+
+        Validation:
+        - The profile must exist and belong to this workspace. A
+          cross-workspace id is rejected so a leaked id from another
+          customer's workspace cannot be pointed at here.
+
+        Idempotent: setting to the already-active value (or clearing
+        an already-empty selection) returns the workspace unchanged
+        and emits no audit event.
+        """
+
+        workspace = self.repository.get_workspace(workspace_id)
+
+        normalized: Optional[str]
+        if graph_profile_id is None:
+            normalized = None
+        else:
+            stripped = graph_profile_id.strip()
+            normalized = stripped or None
+
+        if normalized is not None:
+            # Re-resolve to enforce workspace ownership. ``get_graph_profile``
+            # raises ENTITY_NOT_FOUND on missing ids; we wrap the cross-
+            # workspace case into a ValidationError so the API surface
+            # distinguishes "you sent us garbage" from "we lost the row".
+            profile = self.repository.get_graph_profile(normalized)
+            if profile.workspace_id != workspace_id:
+                raise ValidationError("graph_profile_id must belong to this workspace")
+
+        if normalized == workspace.active_graph_profile_id:
+            return workspace
+
+        previous = workspace.active_graph_profile_id
+        workspace.active_graph_profile_id = normalized
+        workspace.updated_at = current_timestamp()
+        self.repository.update_workspace(workspace)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace.workspace_id,
+                actor=actor or "system",
+                action="set_active_graph_profile",
+                target_type="workspace",
+                target_id=workspace.workspace_id,
+                details={"from": previous, "to": normalized},
+            )
+        )
+        return workspace
+
     def get_workspace_overview(
         self,
         workspace_id: str,
@@ -717,6 +783,15 @@ class ProductService:
         graph_profiles = self.repository.list_graph_profiles(workspace_id)
         source_documents = self.repository.list_source_documents(workspace_id)
         requirement_versions = self.repository.list_requirement_versions(workspace_id)
+        # FR-73: ephemeral quick-analysis requirement versions are run inputs,
+        # not curated requirements — keep them out of the consolidated
+        # Requirements asset list / version dropdown (they remain queryable
+        # by id for lineage and for the run that created them).
+        requirement_versions = [
+            version
+            for version in requirement_versions
+            if not (version.metadata or {}).get("ephemeral")
+        ]
         workflow_runs = self.repository.list_workflow_runs(workspace_id)
         reports = self.repository.list_report_manifests(workspace_id)
         audit_events = self.repository.list_audit_events(
@@ -909,6 +984,112 @@ class ProductService:
         )
         self.repository.create_workflow_run(run)
         return run
+
+    def quick_analysis(
+        self,
+        workspace_id: str,
+        graph_profile_id: str,
+        prompt: str,
+        workflow_mode: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> WorkflowRun:
+        """FR-73 one-shot prompt analysis.
+
+        Runs the agentic pipeline once from a single natural-language
+        prompt against a graph profile — with no manual requirement,
+        use-case, or template approval steps. The prompt is persisted as
+        an *ephemeral*, auto-approved ``RequirementVersion`` (carried in
+        ``metadata.draft_brd``), which the ``AgenticRunSupervisor`` feeds
+        to the runner as an in-memory document. The run is created in the
+        canonical agentic layout and immediately started; the returned
+        ``WorkflowRun`` is ``RUNNING`` once dispatched. Status is then
+        observed via ``get_workflow_run_status`` / the run DAG.
+
+        Artifacts created here are tagged ``origin="quick_prompt"`` and
+        ``ephemeral=True`` so the UI can keep them out of the curated
+        Requirements asset list (FR-17).
+        """
+
+        text = (prompt or "").strip()
+        if not text:
+            raise ValidationError("quick_analysis requires a non-empty prompt")
+
+        # Scope validation: workspace exists and the graph profile is its own.
+        self.repository.get_workspace(workspace_id)
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        if graph_profile.workspace_id != workspace_id:
+            raise ValidationError(
+                "graph_profile_id does not belong to the given workspace"
+            )
+
+        requested_mode = workflow_mode or "agentic"
+        if isinstance(requested_mode, WorkflowMode):
+            requested_mode = requested_mode.value
+        if str(requested_mode) not in ("agentic", "parallel_agentic"):
+            raise ValidationError(
+                "quick_analysis workflow_mode must be 'agentic' or "
+                "'parallel_agentic'"
+            )
+
+        # Ephemeral, auto-approved requirement version carrying the prompt
+        # as the BRD draft. We do NOT supersede prior approved versions
+        # (unlike the copilot approve path) — quick-analysis runs are
+        # one-offs and must not disturb the curated requirement history.
+        existing = self.repository.list_requirement_versions(workspace_id)
+        next_version = max((v.version for v in existing), default=0) + 1
+        requirement_version = create_requirement_version(
+            workspace_id=workspace_id,
+            version=next_version,
+            status=RequirementVersionStatus.APPROVED,
+            summary=text[:280],
+            approved_at=current_timestamp(),
+            metadata={
+                "source": "quick_prompt",
+                "origin": "quick_prompt",
+                "ephemeral": True,
+                "draft_brd": text,
+            },
+        )
+        self.repository.create_requirement_version(requirement_version)
+
+        # parallel_agentic folds to agentic for now: start_workflow_run only
+        # dispatches AGENTIC to the supervisor (FR-31a); parallelism inside
+        # the runner is a later concern.
+        run = self.create_workflow_run_from_steps(
+            workspace_id=workspace_id,
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[],
+            dag_edges=[],
+            requirement_version_id=requirement_version.requirement_version_id,
+            graph_profile_id=graph_profile_id,
+            metadata={
+                "origin": "quick_prompt",
+                "ephemeral": True,
+                "prompt": text[:1000],
+                "requested_mode": str(requested_mode),
+                "options": dict(options or {}),
+            },
+        )
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "workspace-ui",
+                action="quick_analysis",
+                target_type="workflow_run",
+                target_id=run.run_id,
+                metadata={
+                    "graph_profile_id": graph_profile_id,
+                    "requirement_version_id": (
+                        requirement_version.requirement_version_id
+                    ),
+                    "requested_mode": str(requested_mode),
+                },
+            )
+        )
+
+        return self.start_workflow_run(run.run_id, actor=actor)
 
     def _build_canonical_agentic_dag(self):
         """Seed the canonical agentic six-step layout.
@@ -1452,6 +1633,62 @@ class ProductService:
             "</head><body>" + "".join(body_parts) + "</body></html>"
         )
 
+    def list_cluster_databases(
+        self,
+        endpoint: str,
+        username: str,
+        password_secret_env_var: str,
+        verify_ssl: bool = True,
+        include_system: bool = False,
+    ) -> Dict[str, Any]:
+        """List the databases visible to a set of cluster credentials.
+
+        Part 1 of the two-step connect flow (FR-73 UX): rather than
+        forcing the user to know a database name up front, connect to the
+        cluster's ``_system`` database with the supplied credentials and
+        enumerate the databases those credentials can see, so the UI can
+        present a picker. The password is referenced by env-var name
+        (``password_secret_env_var``) and resolved at runtime — no secret
+        value is accepted or stored here.
+
+        Returns ``{"endpoint": ..., "databases": [...]}``. Raises
+        ``ValidationError`` (mapped to 400) when the credentials are
+        missing/invalid or lack permission to list databases.
+        """
+
+        if not endpoint.strip():
+            raise ValidationError("Cluster endpoint is required")
+        if not username.strip():
+            raise ValidationError("Cluster username is required")
+        if not password_secret_env_var.strip():
+            raise ValidationError("Password secret env var is required")
+
+        password = self.secret_resolver.resolve(
+            {"kind": "env", "ref": password_secret_env_var.strip()}
+        )
+
+        try:
+            db = self.db_connector(
+                endpoint=endpoint.strip(),
+                username=username.strip(),
+                password=password,
+                database="_system",
+                verify_ssl=verify_ssl,
+                verify_system=False,
+            )
+            names = list(db.databases() or [])
+        except Exception as exc:  # pragma: no cover - depends on driver/cluster
+            raise ValidationError(
+                self._mask_secret(
+                    f"Failed to list databases on '{endpoint.strip()}': {exc}",
+                    password,
+                )
+            ) from exc
+
+        if not include_system:
+            names = [name for name in names if not name.startswith("_")]
+        return {"endpoint": endpoint.strip(), "databases": sorted(names)}
+
     def verify_connection_profile(
         self,
         connection_profile_id: str,
@@ -1581,6 +1818,13 @@ class ProductService:
             graphs=summaries,
         )
 
+    # Sentinel passed as ``graph_name`` to mean "ignore named graphs in
+    # this database; create a database-scope profile covering every
+    # collection". Surfaces in the UI / API as the literal string
+    # ``default``. Kept as a constant so frontend, scripts, and tests
+    # all reference the same well-known name.
+    DEFAULT_GRAPH_NAME: str = "default"
+
     def discover_graph_profile(
         self,
         connection_profile_id: str,
@@ -1591,6 +1835,7 @@ class ProductService:
         max_samples_per_collection: int = 3,
         verify_system: bool = True,
         schema_strategy: str = "auto",
+        force_database_scope: bool = False,
     ) -> GraphDiscoveryResult:
         """Discover graph schema from a connection profile and persist it.
 
@@ -1604,6 +1849,12 @@ class ProductService:
         ``schema_strategy`` ("auto" | "analyzer" | "heuristic") is the
         FR-57 escalation knob — see :func:`acquire_schema` for the
         precedence rules.
+
+        ``force_database_scope`` (FR-67b): create a database-scope
+        profile covering every collection regardless of which named
+        graphs exist. The persisted profile is named ``"default"`` and
+        carries ``metadata.scope == "database"``. Caller-provided
+        ``graph_name`` is ignored when this flag is set.
         """
 
         profile = self.repository.get_connection_profile(connection_profile_id)
@@ -1629,9 +1880,18 @@ class ProductService:
         )
         schema = extractor.extract()
 
-        selected_graph_name = self._select_graph_name(
-            schema, graph_name, profile.database
-        )
+        if force_database_scope:
+            # FR-67b: explicit "default / all-collections" path.
+            # Skip _select_graph_name (which would otherwise resolve
+            # to schema.graph_names[0] and quietly produce a
+            # named-graph profile) and label the profile with the
+            # well-known DEFAULT_GRAPH_NAME so the UI / picker can
+            # recognise it.
+            selected_graph_name = self.DEFAULT_GRAPH_NAME
+        else:
+            selected_graph_name = self._select_graph_name(
+                schema, graph_name, profile.database
+            )
 
         graph_scope = self._scope_to_named_graph(db, schema, selected_graph_name)
         scoped_vertex_collections = sorted(graph_scope["vertex_collections"])
@@ -1775,16 +2035,40 @@ class ProductService:
 
         eligible_names = [g.name for g in inventory.graphs if not g.is_system]
 
-        if not eligible_names:
-            # Fallback: treat the whole database as a single
-            # database-level graph (graph_name="__db__"). This mirrors
-            # the existing single-graph behavior so the UI doesn't
-            # have to special-case workspaces that haven't created a
-            # named graph yet.
+        # FR-67b: always create a "default" (database-scope) profile so
+        # workspaces with multiple named graphs still expose an
+        # all-collections view in the picker. When there are no named
+        # graphs at all we *also* surface the same profile in the
+        # legacy ``database_only`` slot for older frontends.
+        try:
+            result = self.discover_graph_profile(
+                connection_profile_id=connection_profile_id,
+                graph_name=None,
+                created_by=created_by,
+                password_secret_key=password_secret_key,
+                sample_size=sample_size,
+                max_samples_per_collection=max_samples_per_collection,
+                verify_system=verify_system,
+                schema_strategy=schema_strategy,
+                force_database_scope=True,
+            )
+            graph_profiles.append(result.graph_profile)
+            if not eligible_names:
+                database_only = result.to_dict()
+        except Exception as exc:  # noqa: BLE001
+            failures.append(
+                {
+                    "graph_name": self.DEFAULT_GRAPH_NAME,
+                    "error_type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+            )
+
+        for graph_name in eligible_names:
             try:
                 result = self.discover_graph_profile(
                     connection_profile_id=connection_profile_id,
-                    graph_name=None,
+                    graph_name=graph_name,
                     created_by=created_by,
                     password_secret_key=password_secret_key,
                     sample_size=sample_size,
@@ -1792,41 +2076,19 @@ class ProductService:
                     verify_system=verify_system,
                     schema_strategy=schema_strategy,
                 )
-                database_only = result.to_dict()
+                graph_profiles.append(result.graph_profile)
             except Exception as exc:  # noqa: BLE001
+                # Per-graph failure should NOT take down the sweep.
+                # The UI surfaces the error next to the failing
+                # graph card and the user can retry that one
+                # individually with discover_graph_profile.
                 failures.append(
                     {
-                        "graph_name": None,
+                        "graph_name": graph_name,
                         "error_type": exc.__class__.__name__,
                         "message": str(exc),
                     }
                 )
-        else:
-            for graph_name in eligible_names:
-                try:
-                    result = self.discover_graph_profile(
-                        connection_profile_id=connection_profile_id,
-                        graph_name=graph_name,
-                        created_by=created_by,
-                        password_secret_key=password_secret_key,
-                        sample_size=sample_size,
-                        max_samples_per_collection=max_samples_per_collection,
-                        verify_system=verify_system,
-                        schema_strategy=schema_strategy,
-                    )
-                    graph_profiles.append(result.graph_profile)
-                except Exception as exc:  # noqa: BLE001
-                    # Per-graph failure should NOT take down the sweep.
-                    # The UI surfaces the error next to the failing
-                    # graph card and the user can retry that one
-                    # individually with discover_graph_profile.
-                    failures.append(
-                        {
-                            "graph_name": graph_name,
-                            "error_type": exc.__class__.__name__,
-                            "message": str(exc),
-                        }
-                    )
 
         # PRD v0.6 follow-up: detect first-party Arango product
         # artefacts (Autograph corpora + KGs) from the inventory and
@@ -3416,7 +3678,7 @@ class ProductService:
             [
                 "# Business Requirements Draft",
                 "",
-                f"## Domain",
+                "## Domain",
                 domain,
                 "",
                 "## Observed Graph Schema",
