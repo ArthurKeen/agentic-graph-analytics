@@ -1,13 +1,34 @@
 # Product Requirements Document: Agentic Graph Analytics UI
 
-**Version:** 0.6  
-**Date:** 2026-05-12  
+**Version:** 0.7  
+**Date:** 2026-06-17  
 **Status:** Draft  
 **Target Release:** Product UI MVP  
 **Related Document:** [Agentic Graph Analytics UI Vision](UI_PRODUCT_VISION.md)
 
 **Changelog:**
 
+- **0.7 (2026-06-17)** — Two additions and a status reconciliation.
+  (1) **FR-73 (Ad-hoc Prompt Analysis)** — a "one-shot" path where a
+  user gives a single natural-language prompt against a graph profile
+  and the agentic pipeline runs end-to-end once, with transient
+  requirements/use-case/template artifacts, producing a report without
+  the curated multi-step approval flow. Reuses the FR-31a
+  `AgenticRunSupervisor`. (2) **FR-74 (GAE inline AQL load filtering)** —
+  the GAE now exposes `POST /v1/loaddataaql`, which loads a graph into
+  the engine from custom AQL queries (filter / project / traverse at
+  load time). This becomes the preferred typed-projection strategy for
+  FR-71, replacing app-side temp-collection materialization in most
+  cases and largely retiring the "Typed Projections Multiply GAE
+  Storage and Cost" risk. See "Implementation Phases — Phase 7" and the
+  augmented FR-71. (3) Status note: code has progressed past v0.6 — a
+  `Phase 6e` (Autograph product detection + auto-pair, sensitivity
+  classifier) landed that was never written into this PRD, the FR-71
+  typed-projection executor + `POST /api/graph-profiles/{id}/projections`
+  endpoint are still **not implemented**, and some v0.6 module paths in
+  the Phase 6 plan are stale (the classifier shipped as
+  `ai/schema/graph_purpose.py`, not `classify.py`; cross-graph link
+  discovery shipped in `product/service.py`, not `ai/schema/cross_graph.py`).
 - **0.6 (2026-05-12)** — Added FR-56..FR-72 (§ "Schema Kind Detection and
   Multi-Graph Support") and the corresponding data-model, agent, and UI
   requirements. Motivated by the HR-documents engagement where the source
@@ -850,12 +871,17 @@ older requirement, this section wins.
   relationship because GAE projects from collections. Before running
   any GAE algorithm against an LPG conceptual entity/relationship pair,
   the executor MUST materialize a *typed projection*:
-  - Default strategy: server-side AQL view collection or named-graph
+  - **Preferred strategy (v0.7, FR-74): `inline_aql`** — load the typed
+    subgraph straight into the engine via `POST /v1/loaddataaql`, with
+    the `typeField == typeValue` filter expressed in the load AQL. No
+    temp collection, no cleanup. Used whenever the engine supports
+    `loaddataaql`.
+  - Fallback strategy: server-side AQL `view` collection or named-graph
     materialization that selects only the matching `typeField ==
     typeValue` rows; the projection's lifetime is the run.
-  - Alternative strategy (when permitted by deployment + dataset
+  - Fallback strategy (when permitted by deployment + dataset
     size): a lightweight GAE filter via per-projection vertex/edge
-    collection clones; the cost surfaces in the run cost estimate.
+    collection `clone`s; the cost surfaces in the run cost estimate.
 
   Typed projections are recorded as `analysis_executions[].metadata.
   projection` and cleaned up via the run finalizer or retained on
@@ -885,6 +911,75 @@ older requirement, this section wins.
   `observed_from_schema`, `inferred_from_schema`,
   `analyzer_assumption`, `user_provided`, or `assumption_requires_
   confirmation`.
+
+#### Ad-hoc Prompt Analysis (v0.7)
+
+- **FR-73 (One-shot prompt analysis):** A user MUST be able to run a
+  complete analysis from a *single natural-language prompt* against a
+  selected graph profile, without manually creating, reviewing, and
+  approving a requirement version, use cases, and templates. The
+  system treats the prompt as the requirements input, runs the agentic
+  pipeline once, and produces a report.
+  - **Entry point:** `POST /api/workspaces/{workspace_id}/quick-analysis`
+    with body `{graph_profile_id, prompt, workflow_mode?:
+    "agentic" | "parallel_agentic" (default agentic), connection_profile_id?,
+    options?: {engine_size?, max_executions?, publish?: bool}}`. Returns
+    `{run_id, status: "running"}` immediately (same contract as
+    `POST /api/runs/{id}/start`).
+  - **Reuse:** Dispatch goes through the existing FR-31a
+    `AgenticRunSupervisor` / `StepStatusReporter` with the canonical
+    six-step layout. The free-text `prompt` is wrapped as an in-memory
+    TXT "document" and fed to the existing document/requirements
+    extraction so the RequirementsAnalyst derives objectives from it —
+    no new agent is required.
+  - **Transient artifacts:** The run creates a requirement version, use
+    cases, and templates tagged `origin = "quick_prompt"` and
+    `ephemeral = true`. Ephemeral requirement versions are auto-marked
+    `approved` for the duration of the run, are excluded from the
+    consolidated Requirements asset list and version dropdown (FR-17*),
+    and are subject to retention cleanup (FR-54). A user may "promote"
+    an ephemeral run's artifacts into curated assets in one action.
+  - **Status + report:** Progress is observed via the existing
+    `GET /api/runs/{id}/status` poll and run DAG (FR-32..FR-39). The
+    report renders through the standard pipeline (FR-40..FR-42) and is
+    *not* auto-published unless `options.publish` is set.
+  - **Guardrails:** `max_executions` is capped (default 3, hard max 5,
+    matching the FR-31a `ThreadPoolExecutor` blast-radius bound). LLM
+    provider resolution reuses `LLMProviderFactory.for_workspace`.
+  - **UI:** A "Quick Analysis" affordance on the workspace canvas — a
+    prompt box + graph-profile picker + "Run" — that opens directly on
+    the run DAG. This is the fastest path from "I have a connected
+    graph" to "I have a report," and is the primary demo flow.
+
+- **FR-74 (GAE inline AQL load filtering):** Where the deployment's GAE
+  exposes the `POST /v1/loaddataaql` endpoint (load-from-AQL), the
+  executor MUST be able to load a *filtered / projected* graph directly
+  into the engine instead of loading whole collections and/or
+  materializing temporary projection collections. `loaddataaql` accepts
+  a `phases` array of AQL query groups (executed sequentially; queries
+  within a phase run in parallel), each query returning
+  `{vertices: [...], edges: [...]}`, plus `vertex_attributes` /
+  `edge_attributes` (typed), `parallelism`, and `batch_size`; it returns
+  `{job_id, graph_id}` like `loaddata`.
+  - This becomes the **preferred** strategy for FR-71 typed projections
+    (`inline_aql`), ahead of `view` and `clone`, because it pushes the
+    `typeField == typeValue` (and arbitrary use-case) filter into the
+    load step with no temp-collection lifecycle, no TTL cleanup, and no
+    extra at-rest storage.
+  - The `TemplateGenerator` already produces the conceptual
+    `aql_entity_match` / `aql_relationship_traversal` FILTER fragments
+    (FR-70); FR-74 routes those into the `loaddataaql` `phases` payload
+    rather than into an UPSERT-materialization AQL.
+  - Capability detection: probe `GET /v1/version` / engine features (or
+    config flag) and fall back to `view`/`clone` materialization when
+    `loaddataaql` is unavailable, preserving FR-71 behavior on older
+    engines.
+  - Reference: ArangoDB Graph Analytics Engine HTTP API,
+    `POST /v1/loaddataaql` (AMP: `/gral/:serviceId/v1/loaddataaql`;
+    self-managed: `/graph-analytics/engines/:engineId/v1/loaddataaql`).
+    The `phenolrs` `AqlLoader` (`create_vertex_query` /
+    `create_edge_query` / `create_traversal_query`) is a usable
+    reference for safe query construction with bind variables.
 
 ---
 
@@ -1804,6 +1899,100 @@ Exit Criteria:
   faithfully reflects the analyzer-detected purposes/kinds.
 - Acceptance tests cover the full corpus + KG end-to-end pipeline.
 
+#### Phase 6e — Autograph product detection + auto-pair (shipped, retro-documented)
+
+This sub-phase shipped in code (commits `04d9643`, `b8af69f`,
+`8d9c0ad`) but predates this PRD section. It adds:
+
+- `graph_analytics_ai/ai/schema/arango_products.py` (+ a vendored
+  `_arango_products_local.py`) that recognizes ArangoDB-product
+  output graphs (e.g. Autograph / GraphRAG layouts) and auto-pairs the
+  corpus and knowledge-graph profiles into a GraphSet on discovery.
+- A sensitivity classifier (`ai/schema/sensitivity.py`) feeding the
+  Requirements Copilot redaction path (MVP acceptance criterion 23).
+
+> **Doc-consistency note:** The Phase 6 module paths above are the v0.6
+> plan, not the shipped layout. As built: the graph-purpose classifier
+> is `ai/schema/graph_purpose.py` (not `classify.py`); cross-graph link
+> discovery lives in `product/service.py` (not `ai/schema/cross_graph.py`).
+> The FR-71 typed-projection executor and the
+> `POST /api/graph-profiles/{id}/projections` endpoint are **not yet
+> implemented** — projection AQL exists only as `LpgProjection`
+> metadata on `TemplateConfig` and is not consumed on the execution
+> path. Phase 7 closes this with the `loaddataaql` strategy.
+
+### Phase 7: Inline-AQL Projections and Ad-hoc Prompt Analysis (v0.7)
+
+Implements FR-73 and FR-74. Two independent slices.
+
+#### Phase 7a — GAE inline AQL load filtering (FR-74, also completes FR-71)
+
+Deliverables:
+
+- Add `load_graph_aql(...)` to `gae_connection.py` (`GAEManager` /
+  `GenAIGAEConnection`) that POSTs `v1/loaddataaql` with a `phases`
+  payload, `vertex_attributes` / `edge_attributes`, `parallelism`,
+  `batch_size`; returns `{job_id, graph_id}`.
+- Add an `inline_aql` projection strategy and engine-capability probe;
+  `AnalysisConfig` / `TemplateConfig` gain optional
+  `vertex_query` / `edge_query` (or reuse `LpgProjection`) carrying the
+  FR-70 FILTER fragments + bind vars.
+- Route `TemplateGenerator`'s `aql_entity_match` /
+  `aql_relationship_traversal` output into the load `phases` instead of
+  UPSERT materialization; fall back to `view`/`clone` when the engine
+  lacks `loaddataaql`.
+- Record the projection (strategy + logical types) on
+  `analysis_executions[].metadata.projection` for lineage. **Done** —
+  the orchestrator sets `AnalysisResult.projection` and the executor
+  threads it into the catalog execution metadata.
+- The `POST/GET /api/graph-profiles/{id}/projections` +
+  `DELETE /api/projections/{id}` CRUD registry is now **optional /
+  deferred**: `inline_aql` projections are *ephemeral* (no collection
+  is materialized, so there is nothing to register, TTL, or delete).
+  The registry is only needed for the `view`/`clone` fallbacks, so it
+  moves to a follow-up scoped to those strategies.
+- Cost estimator: `inline_aql` reports load-scan cost only (no
+  materialization / at-rest storage line item).
+
+**Status (v0.7): implemented and validated end-to-end.** On the
+FinReflectKG GraphRAG LPG graph (3.1M `Node`, 17.5M `relations`), a
+PageRank run with projections for `ORG` + `COMP` nodes and the
+`competes_with` edge type loaded **only the 138,573-vertex slice** into
+GAE via `loaddataaql` (confirmed `strategy: inline_aql`), ran PageRank,
+and returned sensible top-ranked companies — no temp collection
+created. A real bug was fixed in the process: `loaddataaql` requires
+`vertex_attributes`/`edge_attributes` in the body even when empty.
+
+Exit Criteria:
+
+- PageRank on a `LABEL` entity (via a `GENERIC_WITH_TYPE`
+  relationship) on a GraphRAG KG loads via `loaddataaql` and returns
+  correct typed results with no temp collection created. **Met.**
+- On an engine without `loaddataaql`, the same run transparently falls
+  back to whole-collection load. **Met** (verified during the run when
+  the first malformed payload errored and the fallback engaged).
+- MVP acceptance criterion 20 passes end-to-end (via `inline_aql`).
+
+#### Phase 7b — Ad-hoc Prompt Analysis (FR-73)
+
+Deliverables:
+
+- `POST /api/workspaces/{id}/quick-analysis` wired to the FR-31a
+  `AgenticRunSupervisor`; prompt → in-memory TXT document → existing
+  requirements extraction.
+- Transient artifact tagging (`origin = "quick_prompt"`,
+  `ephemeral = true`), exclusion from the curated Requirements asset
+  list, retention hooks, and a "promote to curated assets" action.
+- "Quick Analysis" UI on the workspace canvas (prompt box +
+  graph-profile picker) that opens on the run DAG.
+
+Exit Criteria:
+
+- A user runs a report from a single prompt against a connected graph
+  profile with zero manual approval steps; the run shows in the DAG,
+  produces a report, and leaves no curated requirement/use-case/template
+  rows unless promoted.
+
 ---
 
 ## Success Metrics
@@ -1910,14 +2099,21 @@ types a naive "project everything" pass could produce ~96 collections.
 
 Mitigation:
 
+- **(v0.7) Largely retired by FR-74.** The preferred `inline_aql`
+  strategy loads the filtered subgraph directly into the engine via
+  `POST /v1/loaddataaql`, so no projection collection (and no at-rest
+  storage) is created at all. The storage-multiplication risk now only
+  applies to the `view`/`clone` fallbacks used on engines that lack
+  `loaddataaql`.
 - Projections are created on demand per use case, not eagerly.
-- Default strategy is `view` (no extra storage); `clone` is opt-in and
-  surfaces an explicit storage estimate before approval.
-- Projection registry (`aga_projections`) carries a TTL; a finalizer
-  cleans up unused projections after `ttl_seconds` (default 24h, max
-  30d).
+- Default strategy is `inline_aql` (no storage); `view` (no extra
+  storage) and `clone` (opt-in, with an explicit storage estimate
+  before approval) are fallbacks.
+- For the `view`/`clone` fallbacks, a projection registry
+  (`aga_projections`) carries a TTL; a finalizer cleans up unused
+  projections after `ttl_seconds` (default 24h, max 30d).
 - The cost estimator includes projection storage in the run cost
-  before approval.
+  before approval (zero for `inline_aql`).
 
 ### Risk: Cross-Graph Link Confidence Misleads Workflow (v0.6)
 
