@@ -309,7 +309,7 @@ class HTMLReportFormatter:
         html.append("            <details>")
         html.append("                <summary>Show raw JSON data</summary>")
         html.append('                <pre class="raw-data">')
-        html.append(json.dumps(report.to_dict(), indent=2))
+        html.append(json.dumps(report.to_dict(), indent=2, default=str))
         html.append("                </pre>")
         html.append("            </details>")
         html.append("        </section>")
