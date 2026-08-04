@@ -87,3 +87,5 @@ scratch/
 .prd-drift-queue/
 .claude/
 CLAUDE.md
+.no-drift-gate
+.pattern-capture-queue/
