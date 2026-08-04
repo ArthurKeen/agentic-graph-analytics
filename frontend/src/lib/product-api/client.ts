@@ -1,6 +1,7 @@
 import type {
   ChartSpec,
   ClusterDatabasesResult,
+  ConnectionDefaults,
   ConnectionGraphSummary,
   ConnectionGraphsResult,
   ConnectionProfileSummary,
@@ -44,6 +45,7 @@ import type {
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
+  UploadSourceDocumentInput,
   WorkflowDAGEdge,
   WorkflowDAGNode,
   WorkflowDAGView,
@@ -167,6 +169,21 @@ export function createProductAPIClient(
         )
       );
     },
+    async uploadSourceDocument(
+      workspaceId: string,
+      input: UploadSourceDocumentInput
+    ): Promise<SourceDocumentSummary> {
+      return mapSourceDocumentSummary(
+        await postJSON<RawSourceDocumentSummary>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/documents`,
+          {
+            filename: input.filename,
+            mime_type: input.mimeType,
+            content_base64: input.contentBase64
+          }
+        )
+      );
+    },
     async listClusterDatabases(
       input: ListClusterDatabasesInput
     ): Promise<ClusterDatabasesResult> {
@@ -181,6 +198,24 @@ export function createProductAPIClient(
         }
       );
       return { endpoint: raw.endpoint, databases: raw.databases ?? [] };
+    },
+    async getConnectionDefaults(): Promise<ConnectionDefaults> {
+      const raw = await getJSON<{
+        endpoint?: string;
+        username?: string;
+        database?: string;
+        verify_ssl?: boolean;
+        deployment_mode?: string;
+        password_secret_env_var?: string;
+      }>(`${normalizedBaseUrl}/api/connections/defaults`);
+      return {
+        endpoint: raw.endpoint ?? "",
+        username: raw.username ?? "",
+        database: raw.database ?? "",
+        verifySsl: raw.verify_ssl ?? true,
+        deploymentMode: raw.deployment_mode ?? "",
+        passwordSecretEnvVar: raw.password_secret_env_var ?? "ARANGO_PASSWORD"
+      };
     },
     async listConnectionProfileGraphs(
       connectionProfileId: string
@@ -589,7 +624,8 @@ export function mapConnectionVerificationResult(
     verifiedAt: raw.verified_at,
     endpoint: raw.endpoint,
     database: raw.database,
-    errorMessage: raw.error_message
+    errorMessage: raw.error_message,
+    gaeStatus: raw.gae_status
   };
 }
 
@@ -680,7 +716,18 @@ export function mapWorkflowRunToDAGView(raw: RawWorkflowRunSummary): WorkflowDAG
       agentName: step.agent_name,
       artifactCount: step.artifact_refs?.length ?? 0,
       warningCount: step.warnings?.length ?? 0,
-      errorCount: step.errors?.length ?? 0
+      errorCount: step.errors?.length ?? 0,
+      startedAt: step.started_at,
+      completedAt: step.completed_at,
+      durationMs: step.duration_ms,
+      retryCount: step.retry_count,
+      checkpointId: step.checkpoint_id,
+      inputs: step.inputs,
+      outputs: step.outputs,
+      artifactRefs: step.artifact_refs,
+      warningMessages: step.warnings,
+      errorMessages: step.errors,
+      cost: step.cost
     })),
     edges: (raw.dag_edges ?? []).map((edge) => ({
       id: `${edge.from_step_id}-${edge.to_step_id}`,
@@ -960,9 +1007,20 @@ function mapWorkflowNode(raw: RawWorkflowDAGView["nodes"][number]): WorkflowDAGN
     label: raw.label,
     status: raw.status,
     agentName: raw.agent_name,
-    artifactCount: raw.artifact_count,
-    warningCount: raw.warning_count,
-    errorCount: raw.error_count
+    artifactCount: raw.artifact_refs?.length ?? 0,
+    warningCount: raw.warnings?.length ?? 0,
+    errorCount: raw.errors?.length ?? 0,
+    startedAt: raw.started_at,
+    completedAt: raw.completed_at,
+    durationMs: raw.duration_ms,
+    retryCount: raw.retry_count,
+    checkpointId: raw.checkpoint_id,
+    inputs: raw.inputs,
+    outputs: raw.outputs,
+    artifactRefs: raw.artifact_refs,
+    warningMessages: raw.warnings,
+    errorMessages: raw.errors,
+    cost: raw.cost
   };
 }
 

@@ -209,4 +209,36 @@ describe("workspace context menu builders", () => {
       "view-run-results"
     ]);
   });
+
+  it("labels the action Resume Run for a paused step (FR-30)", () => {
+    // A paused step is resumed, not retried — same backend transition
+    // (PAUSED -> RUNNING, no retry_count bump), but the wording matters.
+    const items = buildPipelineStepContextMenu({
+      onViewStepDetails: noop,
+      onCopyError: noop,
+      onViewRunResults: noop,
+      onRetryRun: noop,
+      stepStatus: "paused"
+    });
+
+    const action = items.find((item) => item.id === "resume-run");
+    expect(action).toBeDefined();
+    expect(action?.label).toBe("Resume Run");
+    expect(items.map((item) => item.id)).not.toContain("retry-run");
+  });
+
+  it("keeps Retry Run wording for a failed step (FR-30)", () => {
+    const items = buildPipelineStepContextMenu({
+      onViewStepDetails: noop,
+      onCopyError: noop,
+      onViewRunResults: noop,
+      onRetryRun: noop,
+      stepStatus: "failed"
+    });
+
+    const action = items.find((item) => item.id === "retry-run");
+    expect(action).toBeDefined();
+    expect(action?.label).toBe("Retry Run");
+    expect(items.map((item) => item.id)).not.toContain("resume-run");
+  });
 });

@@ -3,6 +3,7 @@
 import logging
 from typing import List, Optional
 
+from .exceptions import ConflictError
 from .models import (
     AuditEvent,
     ChartSpec,
@@ -14,6 +15,7 @@ from .models import (
     ReportSection,
     RequirementInterview,
     RequirementVersion,
+    RequirementVersionStatus,
     SchemaSnapshot,
     SourceDocument,
     Workspace,
@@ -209,7 +211,27 @@ class ProductRepository:
         return self.storage.get_requirement_version(requirement_version_id)
 
     def update_requirement_version(self, version: RequirementVersion) -> str:
-        """Update a requirement version."""
+        """Update a requirement version.
+
+        PRD FR-17: once a version's *stored* status is APPROVED, its
+        content (summary/objectives/requirements/constraints) is
+        immutable. The one sanctioned mutation of an approved version is
+        the system-driven supersede transition to SUPERSEDED performed by
+        ``ProductService.approve_requirements_copilot_draft`` when a newer
+        version is approved — content is untouched there, only
+        status/metadata change, so it passes this guard.
+        """
+
+        existing = self.storage.get_requirement_version(version.requirement_version_id)
+        content_fields = ("summary", "objectives", "requirements", "constraints")
+        if existing.status == RequirementVersionStatus.APPROVED and any(
+            getattr(existing, field) != getattr(version, field)
+            for field in content_fields
+        ):
+            raise ConflictError(
+                f"RequirementVersion {version.requirement_version_id} is "
+                "approved and its content is immutable"
+            )
 
         return self.storage.update_requirement_version(version)
 

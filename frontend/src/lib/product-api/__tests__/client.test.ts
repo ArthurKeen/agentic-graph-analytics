@@ -261,6 +261,11 @@ describe("product API client mappers", () => {
   });
 
   it("maps workflow DAG payloads into canvas-friendly shape", () => {
+    // Regression test: the backend (ProductService._workflow_step_node)
+    // sends full artifact_refs/warnings/errors arrays plus timing/retry/
+    // checkpoint/cost detail — never artifact_count/warning_count/
+    // error_count. The mapper must derive counts from the arrays and
+    // pass the full detail through for the FloatingDetailPanel (FR-36/37).
     const dag = mapWorkflowDAGView({
       run_id: "run-1",
       workspace_id: "workspace-1",
@@ -272,9 +277,20 @@ describe("product API client mappers", () => {
           label: "Extract",
           status: "completed",
           agent_name: "extractor",
-          artifact_count: 2,
-          warning_count: 1,
-          error_count: 0
+          started_at: "2026-01-01T00:00:00Z",
+          completed_at: "2026-01-01T00:01:00Z",
+          duration_ms: 60000,
+          retry_count: 1,
+          checkpoint_id: "checkpoint-1",
+          inputs: { source: "graph-profile-1" },
+          outputs: { rows: 42 },
+          artifact_refs: [
+            { type: "requirement_version", id: "rv-1" },
+            { type: "report", id: "report-1" }
+          ],
+          warnings: ["Sample warning"],
+          errors: [],
+          cost: { tokens: 100 }
         }
       ],
       edges: [{ id: "edge-1", from: "step-1", to: "step-2" }],
@@ -286,9 +302,43 @@ describe("product API client mappers", () => {
     expect(dag.nodes[0]).toMatchObject({
       id: "step-1",
       agentName: "extractor",
-      artifactCount: 2
+      artifactCount: 2,
+      warningCount: 1,
+      errorCount: 0,
+      startedAt: "2026-01-01T00:00:00Z",
+      completedAt: "2026-01-01T00:01:00Z",
+      durationMs: 60000,
+      retryCount: 1,
+      checkpointId: "checkpoint-1",
+      inputs: { source: "graph-profile-1" },
+      outputs: { rows: 42 },
+      artifactRefs: [
+        { type: "requirement_version", id: "rv-1" },
+        { type: "report", id: "report-1" }
+      ],
+      warningMessages: ["Sample warning"],
+      cost: { tokens: 100 }
     });
     expect(dag.edges[0]).toEqual({ id: "edge-1", from: "step-1", to: "step-2" });
+  });
+
+  it("defaults workflow DAG node counts to zero when detail arrays are omitted", () => {
+    const dag = mapWorkflowDAGView({
+      run_id: "run-1",
+      workspace_id: "workspace-1",
+      status: "queued",
+      workflow_mode: "traditional",
+      nodes: [{ id: "step-1", label: "Extract", status: "pending" }],
+      edges: [],
+      warnings: [],
+      errors: []
+    });
+
+    expect(dag.nodes[0]).toMatchObject({
+      artifactCount: 0,
+      warningCount: 0,
+      errorCount: 0
+    });
   });
 
   it("maps workspace health payloads into explorer-ready shape", () => {
@@ -1139,9 +1189,9 @@ describe("product API client mappers", () => {
               id: "step-1",
               label: "Retry",
               status: "running",
-              artifact_count: 0,
-              warning_count: 0,
-              error_count: 0
+              artifact_refs: [],
+              warnings: [],
+              errors: []
             }
           ],
           edges: [],
@@ -1355,6 +1405,57 @@ describe("product API client mappers", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://api.example/api/runs/run-1/status",
       expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("uploads source documents through the product API (FR-13)", async () => {
+    // Fixture mirrors the exact dict ProductService.upload_source_document
+    // returns (verified against the Python service, not assumed from the
+    // TypeScript types) so this cannot pass while the wire format drifts.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _key: "document-1",
+        document_id: "document-1",
+        workspace_id: "workspace-1",
+        filename: "requirements.md",
+        mime_type: "text/markdown",
+        sha256: "19812277b04a5a988e4dc361617bcb927d4297c47353da93aa992ac007f1f3cf",
+        storage_mode: "extract_only",
+        storage_uri: null,
+        extracted_text: "# Hi\n",
+        uploaded_at: "2026-08-02T04:40:49.228704+00:00",
+        metadata: { byte_size: 5, uploaded_by: "analyst@example.com" }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const document = await createProductAPIClient(
+      "http://api.example"
+    ).uploadSourceDocument("workspace-1", {
+      filename: "requirements.md",
+      mimeType: "text/markdown",
+      contentBase64: "IyBIaQo="
+    });
+
+    expect(document).toMatchObject({
+      documentId: "document-1",
+      filename: "requirements.md",
+      storageMode: "extract_only",
+      extractedText: "# Hi\n"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/documents",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          filename: "requirements.md",
+          mime_type: "text/markdown",
+          content_base64: "IyBIaQo="
+        })
+      })
     );
 
     vi.unstubAllGlobals();

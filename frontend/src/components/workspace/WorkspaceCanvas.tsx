@@ -87,6 +87,9 @@ interface WorkspaceCanvasProps {
   onRequestCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
   onRequestImportWorkspace: () => void;
+  /** FR-13: omitted when no workspace is loaded (demo mode included), so
+   * the canvas hides the action rather than rendering a dead entry. */
+  onRequestUploadDocument?: () => void;
   onFitCanvas: () => void;
   onCenterCanvas: () => void;
   onViewOperationalDAG: () => void;
@@ -159,6 +162,7 @@ export function WorkspaceCanvas({
   onRequestCreateWorkflowRun,
   onExportWorkspace,
   onRequestImportWorkspace,
+  onRequestUploadDocument,
   onFitCanvas,
   onCenterCanvas,
   onViewOperationalDAG,
@@ -197,6 +201,7 @@ export function WorkspaceCanvas({
       onCreateWorkflowRun: onRequestCreateWorkflowRun,
       onExportWorkspace,
       onImportWorkspace: onRequestImportWorkspace,
+      onUploadDocument: onRequestUploadDocument,
       onFitAll: onFitCanvas,
       onCenterView: onCenterCanvas,
       onViewAsOperational: onViewOperationalDAG,
@@ -359,7 +364,8 @@ export function WorkspaceCanvas({
                         // is no checkpoint to resume from in Phase 1.
                         isAgenticRun:
                           dagView.workflowMode === "agentic" ||
-                          dagView.workflowMode === "parallel_agentic"
+                          dagView.workflowMode === "parallel_agentic",
+                        stepStatus: node.status
                       })
                     });
                   }}
@@ -392,9 +398,53 @@ export function WorkspaceCanvas({
       {selectedStep ? (
         <FloatingDetailPanel title={selectedStep.label} onClose={onClearSelection}>
           <p>Status: {selectedStep.status}</p>
+          {selectedStep.agentName ? <p>Agent: {selectedStep.agentName}</p> : null}
+          {selectedStep.startedAt || selectedStep.completedAt ? (
+            <p className="muted">
+              {selectedStep.startedAt ? `Started ${selectedStep.startedAt}` : "Not started"}
+              {selectedStep.completedAt ? ` · completed ${selectedStep.completedAt}` : ""}
+              {selectedStep.durationMs != null ? ` · ${selectedStep.durationMs}ms` : ""}
+            </p>
+          ) : null}
+          <p>Retry count: {selectedStep.retryCount ?? 0}</p>
+          {selectedStep.checkpointId ? (
+            <p>Checkpoint: {selectedStep.checkpointId}</p>
+          ) : null}
+          {selectedStep.inputs && Object.keys(selectedStep.inputs).length > 0 ? (
+            <p className="muted">Inputs: {JSON.stringify(selectedStep.inputs)}</p>
+          ) : null}
+          {selectedStep.outputs && Object.keys(selectedStep.outputs).length > 0 ? (
+            <p className="muted">Outputs: {JSON.stringify(selectedStep.outputs)}</p>
+          ) : null}
+          {selectedStep.cost && Object.keys(selectedStep.cost).length > 0 ? (
+            <p className="muted">Cost: {JSON.stringify(selectedStep.cost)}</p>
+          ) : null}
           <p>Artifacts: {selectedStep.artifactCount}</p>
+          {selectedStep.artifactRefs && selectedStep.artifactRefs.length > 0 ? (
+            <ul className="copilot-question-list">
+              {selectedStep.artifactRefs.map((ref, index) => (
+                <li key={`${ref.type}-${ref.id}-${index}`}>
+                  {ref.label ?? `${ref.type}: ${ref.id}`}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <p>Warnings: {selectedStep.warningCount}</p>
+          {selectedStep.warningMessages && selectedStep.warningMessages.length > 0 ? (
+            <ul className="copilot-question-list">
+              {selectedStep.warningMessages.map((warning, index) => (
+                <li key={index}>{warning}</li>
+              ))}
+            </ul>
+          ) : null}
           <p>Errors: {selectedStep.errorCount}</p>
+          {selectedStep.errorMessages && selectedStep.errorMessages.length > 0 ? (
+            <ul className="copilot-question-list">
+              {selectedStep.errorMessages.map((error, index) => (
+                <li key={index}>{error}</li>
+              ))}
+            </ul>
+          ) : null}
           <p>
             Recovery actions:{" "}
             {selectedStepRecoveryActions.length > 0

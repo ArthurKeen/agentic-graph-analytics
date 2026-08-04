@@ -111,6 +111,17 @@ export function ConnectionProfileCanvas({
                 "No verification message."}
             </dd>
           </div>
+          {verificationResult?.gaeStatus ? (
+            <div>
+              <dt>GAE Access</dt>
+              <dd>
+                {verificationResult.gaeStatus.status}
+                {verificationResult.gaeStatus.message
+                  ? ` — ${verificationResult.gaeStatus.message}`
+                  : ""}
+              </dd>
+            </div>
+          ) : null}
         </dl>
       </section>
     </section>

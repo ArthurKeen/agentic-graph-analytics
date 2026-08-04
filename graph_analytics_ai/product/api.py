@@ -108,6 +108,26 @@ PRODUCT_API_ENDPOINTS = [
         request_model="CreateConnectionProfileRequest",
         response_model="ConnectionProfile",
     ),
+    # FR-13..FR-15. Document content arrives base64-encoded in a JSON
+    # body (not multipart) to match this API's JSON-only dispatcher.
+    # Only extracted text is persisted; the raw upload is never stored.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/documents",
+        service_method="upload_source_document",
+        summary="Upload a source document and extract its text",
+        tags=["documents"],
+        request_model="UploadSourceDocumentRequest",
+        response_model="SourceDocument",
+    ),
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/workspaces/{workspace_id}/documents",
+        service_method="list_source_documents",
+        summary="List uploaded source documents for a workspace",
+        tags=["documents"],
+        response_model="List[SourceDocument]",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/connection-profiles/{connection_profile_id}/verify",
@@ -129,6 +149,16 @@ PRODUCT_API_ENDPOINTS = [
         tags=["connection-profiles"],
         request_model="ListClusterDatabasesRequest",
         response_model="ClusterDatabasesResult",
+    ),
+    # Non-secret connection defaults from the deployment environment, used to
+    # prefill the connection-profile form (never returns the password value).
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/connections/defaults",
+        service_method="get_connection_defaults",
+        summary="Non-secret connection defaults from environment for prefill",
+        tags=["connection-profiles"],
+        response_model="ConnectionDefaultsResult",
     ),
     ProductAPIEndpoint(
         method="GET",
@@ -200,6 +230,18 @@ PRODUCT_API_ENDPOINTS = [
         summary="Patch the analytical purpose tag for a graph profile",
         tags=["graph-profiles"],
         request_model="UpdateGraphPurposeRequest",
+        response_model="GraphProfile",
+    ),
+    # FR-10. Assign analytical roles (open vocabulary, e.g. "entity" /
+    # "fact" / "dimension") to collections already on the profile.
+    # Preserved across re-discovery (FR-11).
+    ProductAPIEndpoint(
+        method="PATCH",
+        path="/api/graph-profiles/{graph_profile_id}/collection-roles",
+        service_method="assign_graph_profile_collection_roles",
+        summary="Assign analytical roles to a graph profile's collections",
+        tags=["graph-profiles"],
+        request_model="AssignCollectionRolesRequest",
         response_model="GraphProfile",
     ),
     # PRD v0.6 / FR-68..FR-70. GraphSet workbench — curated grouping

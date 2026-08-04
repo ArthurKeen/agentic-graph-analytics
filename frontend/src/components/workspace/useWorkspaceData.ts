@@ -12,6 +12,7 @@ import {
 } from "@/lib/product-api/demoData";
 import type {
   ClusterDatabasesResult,
+  ConnectionDefaults,
   ConnectionGraphsResult,
   ConnectionProfileSummary,
   ConnectionVerificationResult,
@@ -34,6 +35,7 @@ import type {
   SourceDocumentSummary,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
+  UploadSourceDocumentInput,
   WorkflowDAGView,
   WorkflowRecoveryActions,
   WorkflowRunStatusView,
@@ -109,6 +111,12 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   listClusterDatabases: (
     input: ListClusterDatabasesInput
   ) => Promise<ClusterDatabasesResult>;
+  /** Non-secret connection defaults from the environment, for form prefill. */
+  getConnectionDefaults: () => Promise<ConnectionDefaults>;
+  /** FR-13: upload a source document into the active workspace. */
+  uploadSourceDocument: (
+    input: UploadSourceDocumentInput
+  ) => Promise<SourceDocumentSummary>;
   listConnectionProfileGraphs: (
     connectionProfileId: string
   ) => Promise<ConnectionGraphsResult>;
@@ -632,6 +640,36 @@ export function useWorkspaceData({
     };
   };
 
+  const getConnectionDefaults = async (): Promise<ConnectionDefaults> => {
+    if (isLive) {
+      return apiClient.getConnectionDefaults();
+    }
+    // Demo mode: no server env to read, so return empty defaults and let the
+    // form fall back to its own placeholders.
+    return {
+      endpoint: "",
+      username: "",
+      database: "",
+      verifySsl: true,
+      deploymentMode: "",
+      passwordSecretEnvVar: "ARANGO_PASSWORD"
+    };
+  };
+
+  const uploadSourceDocument = async (
+    input: UploadSourceDocumentInput
+  ): Promise<SourceDocumentSummary> => {
+    if (isLive && effectiveWorkspaceId) {
+      const document = await apiClient.uploadSourceDocument(
+        effectiveWorkspaceId,
+        input
+      );
+      await refreshOverview();
+      return document;
+    }
+    return statefulDemoUploadSourceDocument(input);
+  };
+
   const listConnectionProfileGraphs = async (
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult> => {
@@ -976,6 +1014,8 @@ export function useWorkspaceData({
     createConnectionProfile,
     verifyConnectionProfile,
     listClusterDatabases,
+    getConnectionDefaults,
+    uploadSourceDocument,
     listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -1065,6 +1105,33 @@ function statefulDemoVerifyConnectionProfile(
     endpoint: demoConnectionProfile.endpoint,
     database: demoConnectionProfile.database,
     errorMessage: null
+  };
+}
+
+function statefulDemoUploadSourceDocument(
+  input: UploadSourceDocumentInput
+): SourceDocumentSummary {
+  // Demo mode has no server to parse the file, so the extracted text is
+  // just the decoded payload for text-ish uploads (binary formats need a
+  // real parser and are reported as not-extracted-in-demo).
+  let extractedText: string | null = null;
+  try {
+    extractedText = atob(input.contentBase64);
+  } catch {
+    extractedText = null;
+  }
+
+  return {
+    documentId: `document-demo-${Date.now()}`,
+    workspaceId: "workspace-demo",
+    filename: input.filename,
+    mimeType: input.mimeType,
+    sha256: "demo-not-computed",
+    storageMode: "extract_only",
+    storageUri: null,
+    extractedText,
+    uploadedAt: new Date().toISOString(),
+    metadata: { source: "demo" }
   };
 }
 

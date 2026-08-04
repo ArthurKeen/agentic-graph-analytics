@@ -98,6 +98,14 @@ export interface SourceDocumentSummary {
   metadata: Record<string, unknown>;
 }
 
+/** FR-13: document content is sent base64-encoded in a JSON body — this
+ * product API is JSON-only and has no multipart handling. */
+export interface UploadSourceDocumentInput {
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+}
+
 export interface ConnectionProfileSummary {
   connectionProfileId: string;
   workspaceId: string;
@@ -139,6 +147,18 @@ export interface ClusterDatabasesResult {
   databases: string[];
 }
 
+/** Non-secret connection defaults from the deployment environment, used to
+ * prefill the connection-profile form. `passwordSecretEnvVar` is the env-var
+ * *name* the password is referenced by — never the password value. */
+export interface ConnectionDefaults {
+  endpoint: string;
+  username: string;
+  database: string;
+  verifySsl: boolean;
+  deploymentMode: string;
+  passwordSecretEnvVar: string;
+}
+
 export interface ConnectionVerificationResult {
   connectionProfileId: string;
   workspaceId: string;
@@ -147,6 +167,9 @@ export interface ConnectionVerificationResult {
   endpoint: string;
   database: string;
   errorMessage?: string | null;
+  /** FR-7: best-effort deployment-wide GAE reachability, independent of
+   * this profile's DB verification result above. */
+  gaeStatus?: { status: string; message?: string } | null;
 }
 
 export interface DiscoverGraphProfileInput {
@@ -228,6 +251,12 @@ export interface RequirementVersion {
   metadata: Record<string, unknown>;
 }
 
+export interface WorkflowArtifactRef {
+  type: string;
+  id: string;
+  label?: string;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -236,6 +265,20 @@ export interface WorkflowDAGNode {
   artifactCount: number;
   warningCount: number;
   errorCount: number;
+  /** FR-36: full step detail for the FloatingDetailPanel, beyond the
+   * summary counts above. Optional so demo-mode nodes (which only
+   * synthesize the summary fields) still satisfy the type. */
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+  retryCount?: number;
+  checkpointId?: string | null;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  artifactRefs?: WorkflowArtifactRef[];
+  warningMessages?: string[];
+  errorMessages?: string[];
+  cost?: Record<string, unknown>;
 }
 
 export interface WorkflowDAGEdge {
@@ -465,6 +508,13 @@ export interface ProductAPIClient {
   listClusterDatabases(
     input: ListClusterDatabasesInput
   ): Promise<ClusterDatabasesResult>;
+  /** Non-secret connection defaults from the environment, for form prefill. */
+  getConnectionDefaults(): Promise<ConnectionDefaults>;
+  /** FR-13: upload a source document; only extracted text is persisted. */
+  uploadSourceDocument(
+    workspaceId: string,
+    input: UploadSourceDocumentInput
+  ): Promise<SourceDocumentSummary>;
   listConnectionProfileGraphs(
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult>;
@@ -572,6 +622,7 @@ export interface RawConnectionVerificationResult {
   endpoint: string;
   database: string;
   error_message?: string | null;
+  gae_status?: { status: string; message?: string } | null;
 }
 
 export interface RawGraphDiscoveryResult {
@@ -642,20 +693,30 @@ export interface RawGraphProfileSummary {
   counts?: Record<string, number>;
 }
 
+export interface RawWorkflowDAGNode {
+  id: string;
+  label: string;
+  status: WorkflowStepStatus;
+  agent_name?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  retry_count?: number;
+  checkpoint_id?: string | null;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  artifact_refs?: Array<{ type: string; id: string; label?: string }>;
+  warnings?: string[];
+  errors?: string[];
+  cost?: Record<string, unknown>;
+}
+
 export interface RawWorkflowDAGView {
   run_id: string;
   workspace_id: string;
   status: string;
   workflow_mode: string;
-  nodes: Array<{
-    id: string;
-    label: string;
-    status: WorkflowStepStatus;
-    agent_name?: string;
-    artifact_count: number;
-    warning_count: number;
-    error_count: number;
-  }>;
+  nodes: RawWorkflowDAGNode[];
   edges: Array<{
     id: string;
     from: string;
@@ -678,9 +739,17 @@ export interface RawWorkflowRunSummary {
     label: string;
     status: WorkflowStepStatus;
     agent_name?: string;
-    artifact_refs?: Array<Record<string, string>>;
+    started_at?: string | null;
+    completed_at?: string | null;
+    duration_ms?: number | null;
+    retry_count?: number;
+    checkpoint_id?: string | null;
+    inputs?: Record<string, unknown>;
+    outputs?: Record<string, unknown>;
+    artifact_refs?: Array<{ type: string; id: string; label?: string }>;
     warnings?: string[];
     errors?: string[];
+    cost?: Record<string, unknown>;
   }>;
   dag_edges?: Array<{
     from_step_id: string;

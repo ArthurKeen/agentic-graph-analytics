@@ -4,12 +4,17 @@ The service layer exposes UI-ready read models and workflow operations without
 coupling the core package to a web framework.
 """
 
+import base64
+import binascii
 import hashlib
 import html
 import json
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ..ai.schema.acquire import (
@@ -26,6 +31,7 @@ from ..ai.schema.sensitivity import (
 from ..ai.schema.arango_products import detect_arango_products
 from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
+from ..config import parse_ssl_verify
 from ..db_connection import connect_arango_database
 from .constants import PRODUCT_SCHEMA_VERSION
 from .exceptions import ConflictError, ValidationError
@@ -36,6 +42,7 @@ from .models import (
     ConnectionVerificationStatus,
     CrossGraphLink,
     DeploymentMode,
+    DocumentStorageMode,
     GraphProfile,
     GraphSet,
     PublishedSnapshot,
@@ -62,6 +69,7 @@ from .models import (
     create_published_snapshot,
     create_requirement_interview,
     create_requirement_version,
+    create_source_document,
     create_workspace,
     create_workflow_run,
     current_timestamp,
@@ -238,6 +246,12 @@ class ConnectionVerificationResult:
     endpoint: str
     database: str
     error_message: Optional[str] = None
+    # FR-7: best-effort GAE deployment reachability, e.g.
+    # {"status": "success"} or {"status": "failed", "message": "..."}.
+    # GAE credentials are deployment-wide env vars, not per-profile fields,
+    # so this reports the deployment's GAE reachability rather than
+    # anything specific to this connection profile.
+    gae_status: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert verification result to an API-friendly dictionary."""
@@ -250,6 +264,7 @@ class ConnectionVerificationResult:
             "endpoint": self.endpoint,
             "database": self.database,
             "error_message": self.error_message,
+            "gae_status": self.gae_status,
         }
 
 
@@ -1689,6 +1704,47 @@ class ProductService:
             names = [name for name in names if not name.startswith("_")]
         return {"endpoint": endpoint.strip(), "databases": sorted(names)}
 
+    def get_connection_defaults(self) -> Dict[str, Any]:
+        """Non-secret connection defaults derived from the environment.
+
+        Prefills the connection-profile form so an operator doesn't have
+        to retype what the deployment already has configured (endpoint,
+        user, database, SSL, deployment mode). This intentionally NEVER
+        returns the password value — only the env-var *name* the password
+        is referenced by (``ARANGO_PASSWORD``). All fields are best-effort:
+        unset variables come back as empty strings so the form simply
+        falls back to its own placeholders.
+        """
+
+        endpoint = (os.getenv("ARANGO_ENDPOINT") or "").strip()
+        username = (os.getenv("ARANGO_USER") or "root").strip()
+        database = (os.getenv("ARANGO_DATABASE") or "").strip()
+
+        verify_ssl = True
+        verify_raw = os.getenv("ARANGO_VERIFY_SSL")
+        if verify_raw is not None:
+            parsed = parse_ssl_verify(verify_raw)
+            # A CA-path string still means "verify"; only an explicit
+            # false disables it.
+            verify_ssl = parsed if isinstance(parsed, bool) else True
+
+        mode_str = (os.getenv("GAE_DEPLOYMENT_MODE") or "").strip().lower()
+        if mode_str in ("amp", "managed", "arangograph"):
+            deployment_mode = "amp"
+        elif mode_str in ("self_managed", "self-managed", "genai", "gen-ai"):
+            deployment_mode = "self_managed"
+        else:
+            deployment_mode = ""
+
+        return {
+            "endpoint": endpoint,
+            "username": username,
+            "database": database,
+            "verify_ssl": verify_ssl,
+            "deployment_mode": deployment_mode,
+            "password_secret_env_var": "ARANGO_PASSWORD",
+        }
+
     def verify_connection_profile(
         self,
         connection_profile_id: str,
@@ -1728,6 +1784,7 @@ class ProductService:
                 endpoint=profile.endpoint,
                 database=profile.database,
                 error_message=self._mask_secret(str(exc), password),
+                gae_status=self._check_gae_access(),
             )
 
         profile.last_verified_at = verified_at
@@ -1740,7 +1797,34 @@ class ProductService:
             verified_at=verified_at.isoformat(),
             endpoint=profile.endpoint,
             database=profile.database,
+            gae_status=self._check_gae_access(),
         )
+
+    @staticmethod
+    def _check_gae_access() -> Dict[str, Any]:
+        """Best-effort GAE deployment reachability check (FR-7).
+
+        GAE credentials come from deployment-wide environment variables
+        (see ``config.GAEConfig``), not from the connection profile, so
+        this reports the deployment's GAE reachability rather than
+        anything scoped to the profile being verified. Never raises —
+        an unreachable or unconfigured GAE deployment degrades to
+        ``{"status": "failed", ...}`` rather than blocking the DB
+        verification result above.
+        """
+
+        try:
+            from ..gae_connection import get_gae_connection
+
+            connection = get_gae_connection()
+            if hasattr(connection, "test_connection"):
+                reachable = bool(connection.test_connection())
+            else:
+                connection.list_engines()
+                reachable = True
+            return {"status": "success" if reachable else "failed"}
+        except Exception as exc:  # noqa: BLE001 — never block DB verification
+            return {"status": "failed", "message": str(exc)}
 
     def list_connection_profile_graphs(
         self,
@@ -1836,6 +1920,7 @@ class ProductService:
         verify_system: bool = True,
         schema_strategy: str = "auto",
         force_database_scope: bool = False,
+        force_llm: bool = False,
     ) -> GraphDiscoveryResult:
         """Discover graph schema from a connection profile and persist it.
 
@@ -1849,6 +1934,10 @@ class ProductService:
         ``schema_strategy`` ("auto" | "analyzer" | "heuristic") is the
         FR-57 escalation knob — see :func:`acquire_schema` for the
         precedence rules.
+
+        ``force_llm`` (FR-58): forces the LLM-assisted analyzer path even
+        when the algorithmic/heuristic path would otherwise be judged
+        sufficient — passed straight through to :func:`acquire_schema`.
 
         ``force_database_scope`` (FR-67b): create a database-scope
         profile covering every collection regardless of which named
@@ -1919,6 +2008,7 @@ class ProductService:
             workspace_id=profile.workspace_id,
             graph_name=selected_graph_name,
             strategy=schema_strategy,
+            force_llm=force_llm,
         )
 
         v6_kwargs: Dict[str, Any] = {}
@@ -1961,6 +2051,24 @@ class ProductService:
                 merged_meta["sensitivity"] = sensitivity_report.to_dict()
                 v6_kwargs["analyzer_metadata"] = merged_meta
 
+        # FR-11: re-discovering a graph_name already profiled on this
+        # connection bumps the version in place instead of piling up
+        # disconnected duplicate rows. Picking the most recently updated
+        # match is defensive against pre-existing duplicates; the common
+        # case is exactly one match.
+        existing_matches = sorted(
+            (
+                candidate
+                for candidate in self.repository.list_graph_profiles(
+                    profile.workspace_id
+                )
+                if candidate.connection_profile_id == connection_profile_id
+                and candidate.graph_name == selected_graph_name
+            ),
+            key=lambda candidate: candidate.updated_at,
+        )
+        existing_profile = existing_matches[-1] if existing_matches else None
+
         graph_profile = create_graph_profile(
             workspace_id=profile.workspace_id,
             connection_profile_id=profile.connection_profile_id,
@@ -1980,7 +2088,21 @@ class ProductService:
             },
             **v6_kwargs,
         )
-        self.repository.create_graph_profile(graph_profile)
+
+        if existing_profile is not None:
+            # Keep the same graph_profile_id so every existing reference
+            # (workspace.active_graph_profile_id, GraphSet membership,
+            # WorkflowRun.graph_profile_id) still resolves after
+            # re-discovery — only the version and discovered content move.
+            graph_profile.graph_profile_id = existing_profile.graph_profile_id
+            graph_profile.version = existing_profile.version + 1
+            graph_profile.status = existing_profile.status
+            graph_profile.created_at = existing_profile.created_at
+            graph_profile.created_by = existing_profile.created_by or created_by
+            graph_profile.collection_roles = existing_profile.collection_roles
+            self.repository.update_graph_profile(graph_profile)
+        else:
+            self.repository.create_graph_profile(graph_profile)
 
         return GraphDiscoveryResult(
             graph_profile=graph_profile.to_dict(),
@@ -1997,6 +2119,7 @@ class ProductService:
         verify_system: bool = True,
         schema_strategy: str = "auto",
         include_system: bool = False,
+        force_llm: bool = False,
     ) -> WorkspaceGraphInventoryResult:
         """Bulk-discover every named graph on a connection (FR-67).
 
@@ -2051,6 +2174,7 @@ class ProductService:
                 verify_system=verify_system,
                 schema_strategy=schema_strategy,
                 force_database_scope=True,
+                force_llm=force_llm,
             )
             graph_profiles.append(result.graph_profile)
             if not eligible_names:
@@ -2075,6 +2199,7 @@ class ProductService:
                     max_samples_per_collection=max_samples_per_collection,
                     verify_system=verify_system,
                     schema_strategy=schema_strategy,
+                    force_llm=force_llm,
                 )
                 graph_profiles.append(result.graph_profile)
             except Exception as exc:  # noqa: BLE001
@@ -2279,6 +2404,7 @@ class ProductService:
         workspace_id: str,
         graph_name: str,
         strategy: str,
+        force_llm: bool = False,
     ) -> tuple[Optional[SchemaAcquisitionBundle], Optional[str]]:
         """Run :func:`acquire_schema` and write through to ``aga_schema_snapshots``.
 
@@ -2288,6 +2414,10 @@ class ProductService:
         warning) covers the most common failure mode (analyzer not
         installed); only a hard storage outage on the cache write or a
         DB-side AQL failure during sampling will surface here.
+
+        ``force_llm`` (FR-58) is passed straight through to
+        :func:`acquire_schema`, which is the actual owner of the
+        algorithmic-first / LLM-escalation decision (FR-58).
 
         Returns ``(bundle, snapshot_id)``. ``snapshot_id`` is set when
         the cache write succeeded so the caller can stamp it onto the
@@ -2301,6 +2431,7 @@ class ProductService:
                 strategy=strategy,  # type: ignore[arg-type]
                 graph_name=graph_name,
                 cache=cache,
+                force_llm=force_llm,
             )
         except Exception:  # noqa: BLE001 — degrade gracefully on any failure
             return None, None
@@ -2507,6 +2638,66 @@ class ProductService:
                 target_type="graph_profile",
                 target_id=graph_profile.graph_profile_id,
                 metadata={"before": before, "after": graph_purpose},
+            )
+        )
+        return graph_profile
+
+    def assign_graph_profile_collection_roles(
+        self,
+        graph_profile_id: str,
+        collection_roles: Dict[str, List[str]],
+        actor: Optional[str] = None,
+    ) -> GraphProfile:
+        """Assign analytical roles to collections on a graph profile (FR-10).
+
+        ``collection_roles`` maps a role name (e.g. ``"entity"``,
+        ``"fact"``, ``"dimension"`` — an open vocabulary, not a closed
+        enum) to the collection names that play that role. Every
+        referenced collection must already be part of the profile's
+        discovered ``vertex_collections`` or ``edge_collections`` — this
+        assigns a role to existing inventory, it does not add collections.
+
+        Re-discovery (:meth:`discover_graph_profile`) preserves whatever
+        roles are assigned here across schema refreshes.
+        """
+
+        if not isinstance(collection_roles, dict):
+            raise ValidationError("collection_roles must be a JSON object")
+
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        known_collections = set(graph_profile.vertex_collections) | set(
+            graph_profile.edge_collections
+        )
+
+        normalized: Dict[str, List[str]] = {}
+        for role, collections in collection_roles.items():
+            if not isinstance(role, str) or not role.strip():
+                raise ValidationError("collection_roles keys must be non-empty strings")
+            if not isinstance(collections, list) or not all(
+                isinstance(name, str) for name in collections
+            ):
+                raise ValidationError(
+                    f"collection_roles[{role!r}] must be a list of collection names"
+                )
+            unknown = sorted(set(collections) - known_collections)
+            if unknown:
+                raise ValidationError(
+                    f"collection_roles[{role!r}] references collections not on "
+                    f"this profile: {unknown}"
+                )
+            normalized[role] = list(collections)
+
+        before = dict(graph_profile.collection_roles)
+        graph_profile.collection_roles = normalized
+        self.repository.update_graph_profile(graph_profile)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=graph_profile.workspace_id,
+                actor=actor or "system",
+                action="assign_graph_profile_collection_roles",
+                target_type="graph_profile",
+                target_id=graph_profile.graph_profile_id,
+                metadata={"before": before, "after": normalized},
             )
         )
         return graph_profile
@@ -2824,6 +3015,171 @@ class ProductService:
                         out.add(name.lower())
         return out
 
+    # ------------------------------------------------------------------
+    # Source documents (FR-13..FR-15)
+    # ------------------------------------------------------------------
+
+    SUPPORTED_DOCUMENT_SUFFIXES = (".md", ".markdown", ".pdf", ".docx", ".txt")
+
+    def upload_source_document(
+        self,
+        workspace_id: str,
+        filename: str,
+        content_base64: str,
+        mime_type: str = "application/octet-stream",
+        actor: Optional[str] = None,
+        extract_requirements: bool = True,
+    ) -> SourceDocument:
+        """Upload a document, extract its text, and persist it (FR-13..FR-15).
+
+        Content arrives base64-encoded in a JSON body rather than as
+        multipart: every other route in this product API is JSON-only
+        (see ``fastapi_app._request_json``), and introducing multipart
+        for one endpoint would fork the dispatcher.
+
+        Only the *extracted text* is persisted (``EXTRACT_ONLY``) — the
+        raw upload is written to a temp file for parsing and deleted
+        immediately. ArangoDB is product metadata storage, not a blob
+        store, and PDFs/DOCX would bloat it for no downstream benefit.
+
+        FR-15: structured requirements extraction runs best-effort and
+        is stored under ``metadata["extracted_requirements"]``. It needs
+        an LLM provider, so it is expected to be unavailable in many
+        environments — failure never blocks the upload. Promoting an
+        extraction into an approvable ``RequirementVersion`` is a
+        separate flow (the Requirements Copilot owns that today).
+        """
+
+        if not filename or not filename.strip():
+            raise ValidationError("filename is required")
+
+        filename = filename.strip()
+        suffix = Path(filename).suffix.lower()
+        if suffix not in self.SUPPORTED_DOCUMENT_SUFFIXES:
+            raise ValidationError(
+                f"Unsupported document type '{suffix or filename}'. "
+                f"Supported: {', '.join(self.SUPPORTED_DOCUMENT_SUFFIXES)}"
+            )
+
+        # Validates the workspace exists before doing any parsing work.
+        self.repository.get_workspace(workspace_id)
+
+        try:
+            raw_bytes = base64.b64decode(content_base64 or "", validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValidationError(f"content_base64 is not valid base64: {exc}") from exc
+
+        if not raw_bytes:
+            raise ValidationError("Uploaded document is empty")
+
+        sha256 = hashlib.sha256(raw_bytes).hexdigest()
+
+        parsed_document, extraction_errors = self._parse_uploaded_document(
+            raw_bytes, filename, suffix
+        )
+        extracted_text = parsed_document.content if parsed_document else ""
+
+        metadata: Dict[str, Any] = {
+            "byte_size": len(raw_bytes),
+            "uploaded_by": actor or "system",
+        }
+        if extraction_errors:
+            metadata["extraction_errors"] = extraction_errors
+
+        if extract_requirements and parsed_document and extracted_text.strip():
+            summary = self._extract_requirements_summary(parsed_document)
+            if summary is not None:
+                metadata["extracted_requirements"] = summary
+
+        document = create_source_document(
+            workspace_id=workspace_id,
+            filename=filename,
+            mime_type=mime_type or "application/octet-stream",
+            sha256=sha256,
+            storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+            extracted_text=extracted_text or None,
+            metadata=metadata,
+        )
+        self.repository.create_source_document(document)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="upload_source_document",
+                target_type="source_document",
+                target_id=document.document_id,
+                details={"filename": filename, "sha256": sha256},
+            )
+        )
+        return document
+
+    @staticmethod
+    def _parse_uploaded_document(
+        raw_bytes: bytes,
+        filename: str,
+        suffix: str,
+    ) -> tuple[Any, List[str]]:
+        """Extract text from uploaded bytes via the existing DocumentParser.
+
+        ``DocumentParser`` is path-based for binary formats, so bytes are
+        staged in a NamedTemporaryFile that is always removed. Returns
+        ``(document_or_None, extraction_errors)`` — never raises, so a
+        malformed PDF still yields a persisted metadata row the user can
+        see and re-upload against.
+        """
+
+        try:
+            from ..ai.documents.parser import DocumentParser
+        except Exception as exc:  # noqa: BLE001 — optional parser deps
+            return None, [f"Document parser unavailable: {exc}"]
+
+        temp_path: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False
+            ) as temp_file:
+                temp_file.write(raw_bytes)
+                temp_path = temp_file.name
+            document = DocumentParser().parse(temp_path)
+            # DocumentParser swallows per-format failures and reports them
+            # on the returned document rather than raising.
+            return document, list(getattr(document, "extraction_errors", []) or [])
+        except Exception as exc:  # noqa: BLE001 — upload must still succeed
+            return None, [str(exc)]
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _extract_requirements_summary(parsed_document: Any) -> Optional[Dict[str, Any]]:
+        """Run LLM requirements extraction (FR-15), or return None.
+
+        Requires a configured LLM provider; returns ``None`` whenever
+        that is unavailable or extraction fails, so document upload
+        works in environments with no LLM credentials.
+        """
+
+        try:
+            from ..ai.documents.extractor import RequirementsExtractor
+
+            extracted = RequirementsExtractor().extract([parsed_document])
+            return extracted.to_summary_dict()
+        except Exception:  # noqa: BLE001 — extraction is best-effort
+            logger.info(
+                "Requirements extraction unavailable for uploaded document; "
+                "persisting extracted text only",
+                exc_info=True,
+            )
+            return None
+
+    def list_source_documents(self, workspace_id: str) -> List[SourceDocument]:
+        """List uploaded source documents for a workspace (FR-13/FR-14)."""
+
+        return self.repository.list_source_documents(workspace_id)
+
     def start_requirements_copilot(
         self,
         graph_profile_id: str,
@@ -3086,6 +3442,16 @@ class ProductService:
 
         interview.status = RequirementInterviewStatus.APPROVED
         self.repository.update_requirement_interview(interview)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=interview.workspace_id,
+                actor=approved_by or "system",
+                action="approve_requirement_version",
+                target_type="requirement_version",
+                target_id=requirement_version.requirement_version_id,
+                details={"version": next_version},
+            )
+        )
         return requirement_version
 
     def export_workspace_bundle(
@@ -3093,6 +3459,7 @@ class ProductService:
         workspace_id: str,
         include_audit_events: bool = True,
         audit_limit: int = 1000,
+        actor: Optional[str] = None,
     ) -> WorkspaceBundle:
         """Export workspace metadata without resolved secrets or secret refs."""
 
@@ -3123,7 +3490,7 @@ class ProductService:
             else []
         )
 
-        return WorkspaceBundle(
+        bundle = WorkspaceBundle(
             schema_version=PRODUCT_SCHEMA_VERSION,
             workspace=workspace.to_dict(),
             connection_profiles=[
@@ -3142,11 +3509,22 @@ class ProductService:
             reports=reports,
             audit_events=audit_events,
         )
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="export_workspace_bundle",
+                target_type="workspace",
+                target_id=workspace_id,
+            )
+        )
+        return bundle
 
     def import_workspace_bundle(
         self,
         bundle: WorkspaceBundle | Dict[str, Any],
         include_audit_events: bool = False,
+        actor: Optional[str] = None,
     ) -> WorkspaceImportResult:
         """Import a workspace bundle after validating shape and secret handling."""
 
@@ -3221,6 +3599,16 @@ class ProductService:
             for event_doc in bundle_doc.get("audit_events", []):
                 self.repository.create_audit_event(AuditEvent.from_dict(event_doc))
                 audit_count += 1
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace.workspace_id,
+                actor=actor or "system",
+                action="import_workspace_bundle",
+                target_type="workspace",
+                target_id=workspace.workspace_id,
+            )
+        )
 
         return WorkspaceImportResult(
             workspace_id=workspace.workspace_id,
@@ -3622,7 +4010,23 @@ class ProductService:
         self,
         graph_profile: GraphProfile,
     ) -> Dict[str, Any]:
-        return {
+        """Build the schema context the Requirements Copilot reasons over.
+
+        FR-72: when the profile carries a v0.6 conceptual schema
+        (FR-62) the copilot should reason about *logical* entity and
+        relationship types rather than raw collection names — on an LPG
+        graph the collection list is often just ``Entities`` /
+        ``Relationships``, which tells a business user nothing. The
+        graph purpose (FR-67) and any cross-graph links declared on a
+        GraphSet containing this profile (FR-68/69) are included for the
+        same reason.
+
+        Raw collection lists are always kept: they remain the only
+        signal for profiles discovered before v0.6, and the draft
+        builder falls back to them when no conceptual schema exists.
+        """
+
+        observations: Dict[str, Any] = {
             "graph_name": graph_profile.graph_name,
             "vertex_collections": graph_profile.vertex_collections,
             "edge_collections": graph_profile.edge_collections,
@@ -3631,6 +4035,75 @@ class ProductService:
             "counts": graph_profile.counts,
             "schema_summary": graph_profile.metadata.get("schema_summary", {}),
         }
+
+        if graph_profile.graph_purpose:
+            observations["graph_purpose"] = graph_profile.graph_purpose
+
+        conceptual = graph_profile.conceptual_schema or {}
+        entities = conceptual.get("entities") or []
+        relationships = conceptual.get("relationships") or []
+        if entities or relationships:
+            observations["entity_types"] = [
+                name
+                for name in (
+                    entity.get("name")
+                    for entity in entities
+                    if isinstance(entity, dict)
+                )
+                if name
+            ]
+            observations["relationship_types"] = [
+                {
+                    "type": rel.get("type"),
+                    "from": rel.get("fromEntity", "Any"),
+                    "to": rel.get("toEntity", "Any"),
+                }
+                for rel in relationships
+                if isinstance(rel, dict) and rel.get("type")
+            ]
+            observations["entity_type_count"] = len(observations["entity_types"])
+            observations["relationship_type_count"] = len(
+                observations["relationship_types"]
+            )
+
+        cross_graph_links = self._cross_graph_links_for_profile(graph_profile)
+        if cross_graph_links:
+            observations["cross_graph_links"] = cross_graph_links
+
+        return observations
+
+    def _cross_graph_links_for_profile(
+        self,
+        graph_profile: GraphProfile,
+    ) -> List[Dict[str, Any]]:
+        """Cross-graph links (FR-68/69) touching this profile, best-effort.
+
+        Returns an empty list when the workspace has no GraphSets, when
+        none of them contain this profile, or when the repository does
+        not expose GraphSets at all — the copilot must still start for
+        workspaces that never built one.
+        """
+
+        try:
+            graph_sets = self.repository.list_graph_sets(graph_profile.workspace_id)
+        except Exception:  # noqa: BLE001 — copilot must not fail on this
+            return []
+
+        links: List[Dict[str, Any]] = []
+        for graph_set in graph_sets or []:
+            if graph_profile.graph_profile_id not in (graph_set.graph_profile_ids or []):
+                continue
+            for link in graph_set.cross_graph_links or []:
+                links.append(
+                    {
+                        "graph_set": graph_set.name,
+                        "from_graph_profile_id": link.from_graph_profile_id,
+                        "to_graph_profile_id": link.to_graph_profile_id,
+                        "from_field": link.from_field,
+                        "to_field": link.to_field,
+                    }
+                )
+        return links
 
     def _requirements_copilot_questions(
         self,
@@ -3674,6 +4147,51 @@ class ProductService:
         )
         domain = interview.domain or "Unspecified domain"
 
+        # FR-72: lead with logical entity/relationship types when the
+        # profile carries a conceptual schema — on an LPG graph the raw
+        # collection names ("Entities"/"Relationships") are meaningless
+        # to a business reviewer. Raw collections stay below either way.
+        schema_lines: List[str] = [
+            f"- Graph: {observations.get('graph_name', interview.graph_profile_id)}"
+        ]
+        if observations.get("graph_purpose"):
+            schema_lines.append(f"- Graph purpose: {observations['graph_purpose']}")
+
+        entity_types = observations.get("entity_types") or []
+        relationship_types = observations.get("relationship_types") or []
+        if entity_types:
+            schema_lines.append(
+                f"- Entity types ({len(entity_types)}): {', '.join(entity_types)}"
+            )
+        if relationship_types:
+            rendered_relationships = ", ".join(
+                f"{rel['type']} ({rel['from']}→{rel['to']})"
+                for rel in relationship_types
+            )
+            schema_lines.append(
+                f"- Relationship types ({len(relationship_types)}): "
+                f"{rendered_relationships}"
+            )
+
+        schema_lines.extend(
+            [
+                f"- Vertex collections: {vertex_collections}",
+                f"- Edge collections: {edge_collections}",
+                f"- Counts: {json.dumps(observations.get('counts', {}), sort_keys=True)}",
+            ]
+        )
+
+        cross_graph_links = observations.get("cross_graph_links") or []
+        if cross_graph_links:
+            schema_lines.append(
+                f"- Cross-graph links ({len(cross_graph_links)}): "
+                + ", ".join(
+                    f"{link['from_field']}→{link['to_field']} "
+                    f"(via {link['graph_set']})"
+                    for link in cross_graph_links
+                )
+            )
+
         return "\n".join(
             [
                 "# Business Requirements Draft",
@@ -3682,10 +4200,7 @@ class ProductService:
                 domain,
                 "",
                 "## Observed Graph Schema",
-                f"- Graph: {observations.get('graph_name', interview.graph_profile_id)}",
-                f"- Vertex collections: {vertex_collections}",
-                f"- Edge collections: {edge_collections}",
-                f"- Counts: {json.dumps(observations.get('counts', {}), sort_keys=True)}",
+                *schema_lines,
                 "",
                 "## Business Goal",
                 answer_map.get("business_goal", "[Needs user input]"),

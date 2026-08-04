@@ -12,6 +12,7 @@ import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { EditWorkspaceOverlay } from "./EditWorkspaceOverlay";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { ImportWorkspaceBundleOverlay } from "./ImportWorkspaceBundleOverlay";
+import { UploadSourceDocumentOverlay } from "./UploadSourceDocumentOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { QuickAnalysisOverlay } from "./QuickAnalysisOverlay";
 import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
@@ -62,6 +63,8 @@ export function WorkspaceShell({
     setActiveGraphProfile,
     createConnectionProfile,
     listClusterDatabases,
+    getConnectionDefaults,
+    uploadSourceDocument,
     listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -181,6 +184,12 @@ export function WorkspaceShell({
     null
   );
   const [importWorkspaceMessage, setImportWorkspaceMessage] = useState<string | null>(null);
+  const [showUploadDocument, setShowUploadDocument] = useState(false);
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false);
+  const [uploadDocumentErrorMessage, setUploadDocumentErrorMessage] = useState<
+    string | null
+  >(null);
+  const [uploadDocumentMessage, setUploadDocumentMessage] = useState<string | null>(null);
   const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
   const [publishedReportIds, setPublishedReportIds] = useState<Set<string>>(() => new Set());
   const visibleAssets = useMemo(
@@ -733,6 +742,9 @@ export function WorkspaceShell({
           if (selectedAsset?.kind !== "run") {
             return;
           }
+          // FR-30: same PAUSED/FAILED -> RUNNING transition either way; only
+          // the user-facing wording differs (resume vs retry).
+          const isResume = step.status === "paused";
           setRunActionMessage(null);
           setRunActionErrorMessage(null);
           setUpdatingStepId(step.id);
@@ -745,11 +757,15 @@ export function WorkspaceShell({
                 ...selectedAsset,
                 description: `${result.workflowRun.workflowMode} workflow (${result.workflowRun.status})`
               });
-              setRunActionMessage(`Retried step ${step.label}.`);
+              setRunActionMessage(
+                `${isResume ? "Resumed" : "Retried"} step ${step.label}.`
+              );
             })
             .catch((error) =>
               setRunActionErrorMessage(
-                error instanceof Error ? error.message : "Failed to retry workflow step"
+                error instanceof Error
+                  ? error.message
+                  : `Failed to ${isResume ? "resume" : "retry"} workflow step`
               )
             )
             .finally(() => setUpdatingStepId(null));
@@ -839,6 +855,17 @@ export function WorkspaceShell({
           setImportWorkspaceMessage(null);
           setShowImportWorkspaceBundle(true);
         }}
+        onRequestUploadDocument={
+          // FR-13: a document has to land in some workspace, so hide the
+          // action entirely when none is loaded.
+          currentWorkspaceSummary
+            ? () => {
+                setUploadDocumentErrorMessage(null);
+                setUploadDocumentMessage(null);
+                setShowUploadDocument(true);
+              }
+            : undefined
+        }
         onFitCanvas={() => {
           setCanvasActionMessage("Fit All requested. The current workspace layout is already fit to visible assets.");
         }}
@@ -1167,6 +1194,15 @@ export function WorkspaceShell({
           <p className="success-text">{importWorkspaceMessage}</p>
         </FloatingDetailPanel>
       ) : null}
+      {uploadDocumentMessage ? (
+        <FloatingDetailPanel
+          title="Document Upload"
+          stackIndex={2}
+          onClose={() => setUploadDocumentMessage(null)}
+        >
+          <p className="success-text">{uploadDocumentMessage}</p>
+        </FloatingDetailPanel>
+      ) : null}
       {showImportWorkspaceBundle ? (
         <ImportWorkspaceBundleOverlay
           isImporting={isImportingWorkspaceBundle}
@@ -1195,12 +1231,35 @@ export function WorkspaceShell({
           }}
         />
       ) : null}
+      {showUploadDocument ? (
+        <UploadSourceDocumentOverlay
+          isUploading={isUploadingDocument}
+          errorMessage={uploadDocumentErrorMessage}
+          onCancel={() => setShowUploadDocument(false)}
+          onSubmit={async (input) => {
+            setUploadDocumentErrorMessage(null);
+            setIsUploadingDocument(true);
+            try {
+              const document = await uploadSourceDocument(input);
+              setUploadDocumentMessage(`Uploaded ${document.filename}.`);
+              setShowUploadDocument(false);
+            } catch (error) {
+              setUploadDocumentErrorMessage(
+                error instanceof Error ? error.message : "Failed to upload document"
+              );
+            } finally {
+              setIsUploadingDocument(false);
+            }
+          }}
+        />
+      ) : null}
       {showCreateConnectionProfile ? (
         <CreateConnectionProfileOverlay
           isCreating={isCreatingConnectionProfile}
           errorMessage={createConnectionErrorMessage}
           onCancel={() => setShowCreateConnectionProfile(false)}
           onListDatabases={listClusterDatabases}
+          onLoadDefaults={getConnectionDefaults}
           onSubmit={async (input) => {
             setCreateConnectionErrorMessage(null);
             setIsCreatingConnectionProfile(true);

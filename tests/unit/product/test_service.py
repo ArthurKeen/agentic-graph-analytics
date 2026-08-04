@@ -1,5 +1,7 @@
 """Unit tests for product UI application services."""
 
+import hashlib
+
 import pytest
 
 from graph_analytics_ai.product import (
@@ -28,7 +30,7 @@ from graph_analytics_ai.product import (
     create_workflow_run,
     create_workspace,
 )
-from graph_analytics_ai.product.exceptions import ValidationError
+from graph_analytics_ai.product.exceptions import ConflictError, ValidationError
 from graph_analytics_ai.product.models import DeploymentMode, DocumentStorageMode
 from graph_analytics_ai.ai.schema.models import (
     CollectionSchema,
@@ -109,6 +111,13 @@ class FakeProductRepository:
                 return profile
         raise KeyError(graph_profile_id)
 
+    def update_graph_profile(self, profile):
+        for index, existing in enumerate(self.graph_profiles):
+            if existing.graph_profile_id == profile.graph_profile_id:
+                self.graph_profiles[index] = profile
+                return profile.graph_profile_id
+        raise KeyError(profile.graph_profile_id)
+
     def list_source_documents(self, workspace_id):
         return [
             document
@@ -138,8 +147,17 @@ class FakeProductRepository:
         raise KeyError(requirement_version_id)
 
     def update_requirement_version(self, version):
+        content_fields = ("summary", "objectives", "requirements", "constraints")
         for index, existing in enumerate(self.requirement_versions):
             if existing.requirement_version_id == version.requirement_version_id:
+                if existing.status == RequirementVersionStatus.APPROVED and any(
+                    getattr(existing, field) != getattr(version, field)
+                    for field in content_fields
+                ):
+                    raise ConflictError(
+                        f"RequirementVersion {version.requirement_version_id} is "
+                        "approved and its content is immutable"
+                    )
                 self.requirement_versions[index] = version
                 return version.requirement_version_id
         raise KeyError(version.requirement_version_id)
@@ -1065,6 +1083,12 @@ def test_export_workspace_bundle_omits_connection_secret_refs():
     assert "secret_refs" not in doc["connection_profiles"][0]
     assert doc["connection_profiles"][0]["secret_ref_keys"] == ["password"]
     assert doc["audit_events"][0]["action"] == "export_workspace"
+    # The export action itself is audited but not included in its own bundle.
+    export_events = [
+        event for event in repository.audit_events if event.action == "export_workspace_bundle"
+    ]
+    assert len(export_events) == 1
+    assert export_events[0].target_id == workspace.workspace_id
 
 
 def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_default():
@@ -1144,7 +1168,10 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     )
     assert target_repository.connection_profiles[0].secret_refs == {}
     assert target_repository.reports[report.report_id].title == "Graph Report"
-    assert target_repository.audit_events == []
+    # The bundle's own historical audit events are not replayed (governed by
+    # include_audit_events), but the import action itself is always logged.
+    assert len(target_repository.audit_events) == 1
+    assert target_repository.audit_events[0].action == "import_workspace_bundle"
 
 
 def test_import_workspace_bundle_rejects_secret_refs():
@@ -1261,6 +1288,77 @@ def test_verify_connection_profile_resolves_secret_and_updates_success_status():
     assert updated_profile.secret_refs["password"]["ref"] == "ARANGO_PASSWORD"
 
 
+def _connection_profile_for_gae_test():
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+    return repository, profile
+
+
+def test_verify_connection_profile_reports_gae_status_success(monkeypatch):
+    """PRD FR-7: a reachable GAE deployment reports gae_status success.
+
+    Patches the module-level factory (never touches the network / real
+    .env credentials — graph_analytics_ai.config.get_arango_config()
+    reloads a real .env file on every call, so relying on absent env
+    vars here would be unreliable and could reach a live deployment).
+    """
+
+    class _FakeGaeConnection:
+        def test_connection(self) -> bool:
+            return True
+
+    monkeypatch.setattr(
+        "graph_analytics_ai.gae_connection.get_gae_connection",
+        lambda: _FakeGaeConnection(),
+    )
+
+    repository, profile = _connection_profile_for_gae_test()
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=lambda **_: object(),
+    ).verify_connection_profile(profile.connection_profile_id)
+
+    assert result.status == "success"
+    assert result.gae_status == {"status": "success"}
+
+
+def test_verify_connection_profile_reports_gae_status_failure_without_blocking(
+    monkeypatch,
+):
+    """An unreachable GAE deployment never blocks DB verification."""
+
+    def _raise():
+        raise RuntimeError("GAE deployment unreachable")
+
+    monkeypatch.setattr(
+        "graph_analytics_ai.gae_connection.get_gae_connection", _raise
+    )
+
+    repository, profile = _connection_profile_for_gae_test()
+    result = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=lambda **_: object(),
+    ).verify_connection_profile(profile.connection_profile_id)
+
+    # DB verification succeeds regardless of GAE reachability.
+    assert result.status == "success"
+    assert result.gae_status == {
+        "status": "failed",
+        "message": "GAE deployment unreachable",
+    }
+
+
 def test_verify_connection_profile_masks_secret_on_failure():
     """Connection verification failure messages do not leak resolved secrets."""
 
@@ -1318,6 +1416,62 @@ def test_verify_connection_profile_requires_password_secret_ref():
         assert "password" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for missing password secret ref")
+
+
+def test_discover_graph_profile_threads_force_llm_to_acquire_schema(monkeypatch):
+    """PRD FR-58: force_llm reaches acquire_schema, the actual escalation owner."""
+
+    repository = FakeProductRepository()
+    profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(profile)
+
+    class FakeExtractor:
+        def __init__(self, db, sample_size=100, max_samples_per_collection=3):
+            pass
+
+        def extract(self):
+            schema = GraphSchema(database_name="customer_graph")
+            schema.graph_names = ["CustomerGraph"]
+            schema.vertex_collections = {
+                "Device": CollectionSchema(
+                    name="Device", type=CollectionType.VERTEX, document_count=10
+                ),
+            }
+            schema.edge_collections = {}
+            schema.relationships = []
+            return schema
+
+    acquire_schema_calls = []
+
+    def fake_acquire_schema(db, **kwargs):
+        acquire_schema_calls.append(kwargs)
+        raise RuntimeError("stop before real acquisition — force_llm capture is enough")
+
+    import graph_analytics_ai.product.service as service_module
+
+    monkeypatch.setattr(service_module, "acquire_schema", fake_acquire_schema)
+
+    ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=lambda **_: object(),
+        schema_extractor_factory=FakeExtractor,
+    ).discover_graph_profile(
+        connection_profile_id=profile.connection_profile_id,
+        graph_name="CustomerGraph",
+        force_llm=True,
+    )
+
+    assert len(acquire_schema_calls) == 1
+    assert acquire_schema_calls[0]["force_llm"] is True
 
 
 def test_discover_graph_profile_persists_schema_summary():
@@ -1400,6 +1554,65 @@ def test_discover_graph_profile_persists_schema_summary():
     assert persisted_profile.counts["total_edges"] == 20
     assert persisted_profile.created_by == "analyst@example.com"
     assert connector_calls[0]["password"] == "resolved-secret"
+
+
+def test_discover_graph_profile_bumps_version_on_rediscovery():
+    """PRD FR-11: re-discovering the same graph updates in place, versioned.
+
+    A second discovery of the same (connection_profile, graph_name) must
+    NOT create a disconnected duplicate row — it should reuse the same
+    graph_profile_id (so existing references stay valid) and bump
+    ``version``.
+    """
+
+    repository = FakeProductRepository()
+    connection_profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(connection_profile)
+
+    class FakeExtractor:
+        def __init__(self, db, sample_size=100, max_samples_per_collection=3):
+            pass
+
+        def extract(self):
+            schema = GraphSchema(database_name="customer_graph")
+            schema.graph_names = ["CustomerGraph"]
+            schema.vertex_collections = {
+                "Device": CollectionSchema(
+                    name="Device", type=CollectionType.VERTEX, document_count=10
+                ),
+            }
+            schema.edge_collections = {}
+            schema.relationships = []
+            return schema
+
+    service = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=lambda **_: object(),
+        schema_extractor_factory=FakeExtractor,
+    )
+
+    first = service.discover_graph_profile(
+        connection_profile_id=connection_profile.connection_profile_id,
+        graph_name="CustomerGraph",
+    )
+    second = service.discover_graph_profile(
+        connection_profile_id=connection_profile.connection_profile_id,
+        graph_name="CustomerGraph",
+    )
+
+    assert len(repository.graph_profiles) == 1
+    assert first.graph_profile["graph_profile_id"] == second.graph_profile["graph_profile_id"]
+    assert first.graph_profile["version"] == 1
+    assert second.graph_profile["version"] == 2
 
 
 def test_discover_graph_profile_scopes_to_named_graph():
@@ -1708,6 +1921,14 @@ def test_requirements_copilot_generates_and_approves_draft():
     assert version.requirements[0]["text"] == "Rank identity clusters"
     assert version.constraints[0]["text"] == "Finish in 15 minutes"
     assert version.metadata["approved_by"] == "approver@example.com"
+    approval_events = [
+        event
+        for event in repository.audit_events
+        if event.action == "approve_requirement_version"
+    ]
+    assert len(approval_events) == 1
+    assert approval_events[0].actor == "approver@example.com"
+    assert approval_events[0].target_id == version.requirement_version_id
 
 
 def test_requirements_copilot_auto_increments_and_supersedes_prior():
@@ -1803,6 +2024,30 @@ def test_requirements_copilot_auto_increments_and_supersedes_prior():
     ]
     assert versions[0].metadata["superseded_by"] == v2.requirement_version_id
     assert "superseded_at" in versions[0].metadata
+
+
+def test_approved_requirement_version_content_is_immutable():
+    """PRD FR-17: editing the content of an APPROVED version is rejected.
+
+    The supersede transition (status -> SUPERSEDED, metadata patch) is the
+    one sanctioned mutation and must continue to work; see
+    test_requirements_copilot_auto_increments_and_supersedes_prior.
+    """
+
+    import dataclasses
+
+    repository = FakeProductRepository()
+    version = create_requirement_version(
+        workspace_id="workspace-1",
+        version=1,
+        status=RequirementVersionStatus.APPROVED,
+        summary="Original summary",
+    )
+    repository.requirement_versions.append(version)
+
+    edited = dataclasses.replace(version, summary="Rewritten after approval")
+    with pytest.raises(ConflictError):
+        repository.update_requirement_version(edited)
 
 
 def test_requirements_copilot_rejects_collision_on_explicit_version():
@@ -1960,3 +2205,334 @@ def test_workflow_helper_rejects_invalid_dag_edges():
         assert "missing" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for invalid DAG edge")
+
+
+def test_assign_graph_profile_collection_roles_happy_path():
+    """PRD FR-10: users can assign analytical roles to a profile's collections."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="CustomerGraph",
+        vertex_collections=["Person", "Company"],
+        edge_collections=["works_at"],
+    )
+    repository.graph_profiles.append(graph_profile)
+
+    updated = ProductService(repository).assign_graph_profile_collection_roles(
+        graph_profile.graph_profile_id,
+        collection_roles={"entity": ["Person", "Company"], "relationship": ["works_at"]},
+        actor="analyst@example.com",
+    )
+
+    assert updated.collection_roles == {
+        "entity": ["Person", "Company"],
+        "relationship": ["works_at"],
+    }
+    persisted = repository.get_graph_profile(graph_profile.graph_profile_id)
+    assert persisted.collection_roles == updated.collection_roles
+    role_events = [
+        event
+        for event in repository.audit_events
+        if event.action == "assign_graph_profile_collection_roles"
+    ]
+    assert len(role_events) == 1
+    assert role_events[0].actor == "analyst@example.com"
+
+
+def test_assign_graph_profile_collection_roles_rejects_unknown_collection():
+    """Roles can only reference collections already discovered on the profile."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="CustomerGraph",
+        vertex_collections=["Person"],
+        edge_collections=[],
+    )
+    repository.graph_profiles.append(graph_profile)
+
+    with pytest.raises(ValidationError):
+        ProductService(repository).assign_graph_profile_collection_roles(
+            graph_profile.graph_profile_id,
+            collection_roles={"entity": ["Person", "NotOnThisProfile"]},
+        )
+
+
+def test_graph_profile_collection_roles_survive_rediscovery():
+    """PRD FR-11 + FR-10: re-discovery preserves manually assigned roles."""
+
+    repository = FakeProductRepository()
+    connection_profile = create_connection_profile(
+        workspace_id="workspace-1",
+        name="Development",
+        deployment_mode=DeploymentMode.LOCAL,
+        endpoint="http://localhost:8529",
+        database="customer_graph",
+        username="root",
+        secret_refs={"password": {"kind": "env", "ref": "ARANGO_PASSWORD"}},
+    )
+    repository.connection_profiles.append(connection_profile)
+
+    class FakeExtractor:
+        def __init__(self, db, sample_size=100, max_samples_per_collection=3):
+            pass
+
+        def extract(self):
+            schema = GraphSchema(database_name="customer_graph")
+            schema.graph_names = ["CustomerGraph"]
+            schema.vertex_collections = {
+                "Device": CollectionSchema(
+                    name="Device", type=CollectionType.VERTEX, document_count=10
+                ),
+            }
+            schema.edge_collections = {}
+            schema.relationships = []
+            return schema
+
+    service = ProductService(
+        repository,
+        secret_resolver=MappingSecretResolver({"ARANGO_PASSWORD": "resolved-secret"}),
+        db_connector=lambda **_: object(),
+        schema_extractor_factory=FakeExtractor,
+    )
+
+    first = service.discover_graph_profile(
+        connection_profile_id=connection_profile.connection_profile_id,
+        graph_name="CustomerGraph",
+    )
+    service.assign_graph_profile_collection_roles(
+        first.graph_profile["graph_profile_id"],
+        collection_roles={"entity": ["Device"]},
+    )
+
+    second = service.discover_graph_profile(
+        connection_profile_id=connection_profile.connection_profile_id,
+        graph_name="CustomerGraph",
+    )
+
+    assert second.graph_profile["collection_roles"] == {"entity": ["Device"]}
+
+
+def test_schema_observations_use_conceptual_schema_when_present():
+    """PRD FR-72: the copilot reasons over logical types, not raw collections.
+
+    On an LPG graph the collection names are meaningless to a business
+    reviewer ("Entities"/"Relationships"), so the conceptual schema's
+    entity/relationship types and the graph purpose must be surfaced.
+    """
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="KnowledgeGraph",
+        vertex_collections=["Entities"],
+        edge_collections=["Relationships"],
+        graph_purpose="knowledge_graph",
+        conceptual_schema={
+            "entities": [
+                {"name": "Person", "labels": ["Person"], "properties": []},
+                {"name": "Org", "labels": ["Org"], "properties": []},
+            ],
+            "relationships": [
+                {
+                    "type": "WORKS_AT",
+                    "fromEntity": "Person",
+                    "toEntity": "Org",
+                    "properties": [],
+                }
+            ],
+            "properties": [],
+        },
+    )
+    repository.graph_profiles.append(graph_profile)
+    service = ProductService(repository)
+
+    observations = service._schema_observations_from_graph_profile(graph_profile)
+
+    assert observations["graph_purpose"] == "knowledge_graph"
+    assert observations["entity_types"] == ["Person", "Org"]
+    assert observations["entity_type_count"] == 2
+    assert observations["relationship_types"] == [
+        {"type": "WORKS_AT", "from": "Person", "to": "Org"}
+    ]
+    assert observations["relationship_type_count"] == 1
+    # Raw collections are still retained for pre-v0.6 consumers.
+    assert observations["vertex_collections"] == ["Entities"]
+
+    interview = service.start_requirements_copilot(
+        graph_profile_id=graph_profile.graph_profile_id,
+        domain="HR",
+    )
+    draft = service.generate_requirements_copilot_draft(
+        interview.requirement_interview_id
+    )
+    assert "Entity types (2): Person, Org" in draft.draft_brd
+    assert "WORKS_AT (Person→Org)" in draft.draft_brd
+    assert "Graph purpose: knowledge_graph" in draft.draft_brd
+
+
+def test_schema_observations_fall_back_to_collections_for_legacy_profiles():
+    """Profiles discovered before v0.6 have no conceptual schema — still work."""
+
+    repository = FakeProductRepository()
+    graph_profile = create_graph_profile(
+        workspace_id="workspace-1",
+        connection_profile_id="connection-1",
+        graph_name="LegacyGraph",
+        vertex_collections=["Device", "IP"],
+        edge_collections=["connects_to"],
+    )
+    repository.graph_profiles.append(graph_profile)
+    service = ProductService(repository)
+
+    observations = service._schema_observations_from_graph_profile(graph_profile)
+
+    assert "entity_types" not in observations
+    assert "graph_purpose" not in observations
+    assert observations["vertex_collections"] == ["Device", "IP"]
+
+    interview = service.start_requirements_copilot(
+        graph_profile_id=graph_profile.graph_profile_id
+    )
+    draft = service.generate_requirements_copilot_draft(
+        interview.requirement_interview_id
+    )
+    assert "Vertex collections: Device, IP" in draft.draft_brd
+    assert "Entity types" not in draft.draft_brd
+
+
+def _workspace_for_upload(repository):
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    return workspace
+
+
+def test_upload_source_document_extracts_text_and_audits(monkeypatch):
+    """PRD FR-13/FR-14: uploaded documents are parsed and persisted."""
+
+    import base64
+
+    # FR-15 extraction needs an LLM provider; force the unavailable path
+    # so this test covers upload + text extraction deterministically.
+    monkeypatch.setattr(
+        ProductService, "_extract_requirements_summary", staticmethod(lambda _doc: None)
+    )
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    body = "# Requirements\n\nRank identity clusters by risk.\n"
+
+    document = ProductService(repository).upload_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="requirements.md",
+        content_base64=base64.b64encode(body.encode("utf-8")).decode("ascii"),
+        mime_type="text/markdown",
+        actor="analyst@example.com",
+    )
+
+    assert document.filename == "requirements.md"
+    assert document.storage_mode is DocumentStorageMode.EXTRACT_ONLY
+    assert "Rank identity clusters" in document.extracted_text
+    # sha256 is of the raw bytes, so it round-trips independently of parsing.
+    assert document.sha256 == hashlib.sha256(body.encode("utf-8")).hexdigest()
+    assert document.metadata["byte_size"] == len(body.encode("utf-8"))
+    assert repository.source_documents[0].document_id == document.document_id
+
+    upload_events = [
+        event
+        for event in repository.audit_events
+        if event.action == "upload_source_document"
+    ]
+    assert len(upload_events) == 1
+    assert upload_events[0].actor == "analyst@example.com"
+
+
+def test_upload_source_document_survives_extraction_failure(monkeypatch):
+    """FR-15 extraction is best-effort — an LLM outage must not fail the upload.
+
+    Fails at the real boundary (the extractor itself), not by stubbing out
+    the very try/except that provides the resilience.
+    """
+
+    import base64
+
+    import graph_analytics_ai.ai.documents.extractor as extractor_module
+
+    class _UnavailableExtractor:
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("no LLM provider configured")
+
+    monkeypatch.setattr(
+        extractor_module, "RequirementsExtractor", _UnavailableExtractor
+    )
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    body = "# Notes\n\nSome requirement text.\n"
+
+    document = ProductService(repository).upload_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="requirements.md",
+        content_base64=base64.b64encode(body.encode("utf-8")).decode("ascii"),
+    )
+
+    # Upload succeeds and text is still extracted; only the LLM-derived
+    # structured summary is absent.
+    assert "Some requirement text." in document.extracted_text
+    assert "extracted_requirements" not in document.metadata
+    assert repository.source_documents[0].document_id == document.document_id
+
+
+def test_upload_source_document_rejects_unsupported_type():
+    """Only the PRD's listed document types are accepted (FR-13)."""
+
+    import base64
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ProductService(repository).upload_source_document(
+            workspace_id=workspace.workspace_id,
+            filename="malware.exe",
+            content_base64=base64.b64encode(b"MZ").decode("ascii"),
+        )
+    assert "Unsupported document type" in str(exc_info.value)
+
+
+def test_upload_source_document_rejects_invalid_base64():
+    """A malformed payload is a client error, not a 500."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ProductService(repository).upload_source_document(
+            workspace_id=workspace.workspace_id,
+            filename="requirements.md",
+            content_base64="not-valid-base64!!!",
+        )
+    assert "base64" in str(exc_info.value)
+
+
+def test_upload_source_document_rejects_empty_content():
+    """An empty upload is rejected rather than persisted as a stub row."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+
+    with pytest.raises(ValidationError) as exc_info:
+        ProductService(repository).upload_source_document(
+            workspace_id=workspace.workspace_id,
+            filename="requirements.md",
+            content_base64="",
+        )
+    assert "empty" in str(exc_info.value)
