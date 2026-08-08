@@ -5,6 +5,8 @@ from typing import List, Optional
 
 from .exceptions import ConflictError
 from .models import (
+    AnalysisEpoch,
+    AnalysisExecution,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -259,6 +261,50 @@ class ProductRepository:
         """List workflow runs for a workspace."""
 
         return self.storage.list_workflow_runs(workspace_id)
+
+    # --- Product Analysis Catalog operations (FR-31 / FR-45..FR-48) ---
+
+    def create_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Create a workspace-scoped analysis execution."""
+
+        return self.storage.insert_analysis_execution(execution)
+
+    def get_analysis_execution(
+        self, analysis_execution_id: str
+    ) -> AnalysisExecution:
+        """Get an analysis execution."""
+
+        return self.storage.get_analysis_execution(analysis_execution_id)
+
+    def update_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Update an analysis execution."""
+
+        return self.storage.update_analysis_execution(execution)
+
+    def list_analysis_executions(self, workspace_id: str) -> List[AnalysisExecution]:
+        """List analysis executions for a workspace."""
+
+        return self.storage.list_analysis_executions(workspace_id)
+
+    def create_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Create a workspace-scoped analysis epoch."""
+
+        return self.storage.insert_analysis_epoch(epoch)
+
+    def get_analysis_epoch(self, analysis_epoch_id: str) -> AnalysisEpoch:
+        """Get an analysis epoch."""
+
+        return self.storage.get_analysis_epoch(analysis_epoch_id)
+
+    def update_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Update an analysis epoch."""
+
+        return self.storage.update_analysis_epoch(epoch)
+
+    def list_analysis_epochs(self, workspace_id: str) -> List[AnalysisEpoch]:
+        """List analysis epochs for a workspace."""
+
+        return self.storage.list_analysis_epochs(workspace_id)
 
     def create_report_manifest(self, manifest: ReportManifest) -> str:
         """Create a report manifest."""

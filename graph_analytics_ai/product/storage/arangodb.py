@@ -9,6 +9,8 @@ from arango.database import StandardDatabase
 from arango.exceptions import DocumentGetError, DocumentInsertError, DocumentUpdateError
 
 from ..constants import (
+    ANALYSIS_EPOCHS_COLLECTION,
+    ANALYSIS_EXECUTIONS_COLLECTION,
     AUDIT_EVENTS_COLLECTION,
     CHART_SPECS_COLLECTION,
     COLLECTION_ROLES_COLLECTION,
@@ -30,6 +32,8 @@ from ..constants import (
 )
 from ..exceptions import DuplicateError, NotFoundError, StorageError
 from ..models import (
+    AnalysisEpoch,
+    AnalysisExecution,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -71,6 +75,8 @@ class ProductArangoStorage:
     AUDIT_EVENTS_COLLECTION = AUDIT_EVENTS_COLLECTION
     SCHEMA_SNAPSHOTS_COLLECTION = SCHEMA_SNAPSHOTS_COLLECTION
     GRAPH_SETS_COLLECTION = GRAPH_SETS_COLLECTION
+    ANALYSIS_EXECUTIONS_COLLECTION = ANALYSIS_EXECUTIONS_COLLECTION
+    ANALYSIS_EPOCHS_COLLECTION = ANALYSIS_EPOCHS_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -142,6 +148,8 @@ class ProductArangoStorage:
                 CHART_SPECS_COLLECTION,
                 PUBLISHED_SNAPSHOTS_COLLECTION,
                 AUDIT_EVENTS_COLLECTION,
+                ANALYSIS_EXECUTIONS_COLLECTION,
+                ANALYSIS_EPOCHS_COLLECTION,
             ]:
                 collection = self.db.collection(collection_name)
                 collection.add_hash_index(fields=["workspace_id"], unique=False)
@@ -196,6 +204,23 @@ class ProductArangoStorage:
             graph_sets = self.db.collection(GRAPH_SETS_COLLECTION)
             graph_sets.add_hash_index(fields=["workspace_id"], unique=False)
             graph_sets.add_hash_index(fields=["workspace_id", "name"], unique=False)
+
+            executions = self.db.collection(ANALYSIS_EXECUTIONS_COLLECTION)
+            executions.add_hash_index(fields=["run_id"], unique=False)
+            executions.add_hash_index(fields=["epoch_id"], unique=False)
+            executions.add_hash_index(
+                fields=["workspace_id", "algorithm"], unique=False
+            )
+            executions.add_hash_index(
+                fields=["workspace_id", "status"], unique=False
+            )
+            executions.add_hash_index(fields=["graph_profile_id"], unique=False)
+            executions.add_skiplist_index(fields=["started_at"], unique=False)
+
+            epochs = self.db.collection(ANALYSIS_EPOCHS_COLLECTION)
+            epochs.add_hash_index(fields=["workspace_id", "name"], unique=False)
+            epochs.add_hash_index(fields=["workspace_id", "status"], unique=False)
+            epochs.add_skiplist_index(fields=["timestamp"], unique=False)
         except Exception as exc:
             logger.warning("Failed to create some product indexes: %s", exc)
 
@@ -685,6 +710,68 @@ class ProductArangoStorage:
 
         docs = self._list_workspace_documents(WORKFLOW_RUNS_COLLECTION, workspace_id)
         return [WorkflowRun.from_dict(doc) for doc in docs]
+
+    # --- Product Analysis Catalog operations (FR-31 / FR-45..FR-48) ---
+
+    def insert_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Insert a workspace-scoped analysis execution."""
+
+        return self._insert_document(
+            ANALYSIS_EXECUTIONS_COLLECTION, execution.to_dict()
+        )
+
+    def get_analysis_execution(self, analysis_execution_id: str) -> AnalysisExecution:
+        """Get an analysis execution by ID."""
+
+        return AnalysisExecution.from_dict(
+            self._get_document(ANALYSIS_EXECUTIONS_COLLECTION, analysis_execution_id)
+        )
+
+    def update_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Update an analysis execution."""
+
+        execution.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            ANALYSIS_EXECUTIONS_COLLECTION, execution.to_dict()
+        )
+
+    def list_analysis_executions(self, workspace_id: str) -> List[AnalysisExecution]:
+        """List a workspace's executions, newest first."""
+
+        docs = self._list_workspace_documents(
+            ANALYSIS_EXECUTIONS_COLLECTION,
+            workspace_id,
+            sort_field="started_at",
+        )
+        return [AnalysisExecution.from_dict(doc) for doc in docs]
+
+    def insert_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Insert a workspace-scoped analysis epoch."""
+
+        return self._insert_document(ANALYSIS_EPOCHS_COLLECTION, epoch.to_dict())
+
+    def get_analysis_epoch(self, analysis_epoch_id: str) -> AnalysisEpoch:
+        """Get an analysis epoch by ID."""
+
+        return AnalysisEpoch.from_dict(
+            self._get_document(ANALYSIS_EPOCHS_COLLECTION, analysis_epoch_id)
+        )
+
+    def update_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Update an analysis epoch."""
+
+        epoch.updated_at = datetime.now(timezone.utc)
+        return self._update_document(ANALYSIS_EPOCHS_COLLECTION, epoch.to_dict())
+
+    def list_analysis_epochs(self, workspace_id: str) -> List[AnalysisEpoch]:
+        """List a workspace's epochs, newest first."""
+
+        docs = self._list_workspace_documents(
+            ANALYSIS_EPOCHS_COLLECTION,
+            workspace_id,
+            sort_field="timestamp",
+        )
+        return [AnalysisEpoch.from_dict(doc) for doc in docs]
 
     # --- Report operations ---
 

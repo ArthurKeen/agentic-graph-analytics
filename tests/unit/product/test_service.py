@@ -5,6 +5,7 @@ import hashlib
 import pytest
 
 from graph_analytics_ai.product import (
+    AnalysisExecutionStatus,
     ChartType,
     ConnectionVerificationStatus,
     MappingSecretResolver,
@@ -19,6 +20,8 @@ from graph_analytics_ai.product import (
     WorkflowStep,
     WorkflowStepStatus,
     create_audit_event,
+    create_analysis_epoch,
+    create_analysis_execution,
     create_chart_spec,
     create_connection_profile,
     create_graph_profile,
@@ -51,6 +54,8 @@ class FakeProductRepository:
         self.requirement_interviews = []
         self.requirement_versions = []
         self.workflow_runs = {}
+        self.analysis_executions = {}
+        self.analysis_epochs = {}
         self.reports = {}
         self.sections = []
         self.charts = []
@@ -203,6 +208,42 @@ class FakeProductRepository:
     def update_workflow_run(self, run):
         self.workflow_runs[run.run_id] = run
         return run.run_id
+
+    def create_analysis_execution(self, execution):
+        self.analysis_executions[execution.analysis_execution_id] = execution
+        return execution.analysis_execution_id
+
+    def get_analysis_execution(self, analysis_execution_id):
+        return self.analysis_executions[analysis_execution_id]
+
+    def update_analysis_execution(self, execution):
+        self.analysis_executions[execution.analysis_execution_id] = execution
+        return execution.analysis_execution_id
+
+    def list_analysis_executions(self, workspace_id):
+        return [
+            execution
+            for execution in self.analysis_executions.values()
+            if execution.workspace_id == workspace_id
+        ]
+
+    def create_analysis_epoch(self, epoch):
+        self.analysis_epochs[epoch.analysis_epoch_id] = epoch
+        return epoch.analysis_epoch_id
+
+    def get_analysis_epoch(self, analysis_epoch_id):
+        return self.analysis_epochs[analysis_epoch_id]
+
+    def update_analysis_epoch(self, epoch):
+        self.analysis_epochs[epoch.analysis_epoch_id] = epoch
+        return epoch.analysis_epoch_id
+
+    def list_analysis_epochs(self, workspace_id):
+        return [
+            epoch
+            for epoch in self.analysis_epochs.values()
+            if epoch.workspace_id == workspace_id
+        ]
 
     def get_report_manifest(self, report_id):
         return self.reports[report_id]
@@ -1080,6 +1121,8 @@ def test_export_workspace_bundle_omits_connection_secret_refs():
     assert len(doc["graph_profiles"]) == 1
     assert len(doc["requirement_interviews"]) == 1
     assert len(doc["reports"]) == 1
+    assert doc["analysis_epochs"] == []
+    assert doc["analysis_executions"] == []
     assert "secret_refs" not in doc["connection_profiles"][0]
     assert doc["connection_profiles"][0]["secret_ref_keys"] == ["password"]
     assert doc["audit_events"][0]["action"] == "export_workspace"
@@ -1117,6 +1160,22 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
         workflow_mode=WorkflowMode.AGENTIC,
     )
     source_repository.workflow_runs[run.run_id] = run
+    epoch = create_analysis_epoch(
+        workspace_id=workspace.workspace_id,
+        name="Baseline",
+    )
+    source_repository.analysis_epochs[epoch.analysis_epoch_id] = epoch
+    execution = create_analysis_execution(
+        workspace_id=workspace.workspace_id,
+        run_id=run.run_id,
+        algorithm="pagerank",
+        status=AnalysisExecutionStatus.COMPLETED,
+        epoch_id=epoch.analysis_epoch_id,
+        result_count=3,
+    )
+    source_repository.analysis_executions[
+        execution.analysis_execution_id
+    ] = execution
     report = create_report_manifest(
         workspace_id=workspace.workspace_id,
         run_id=run.run_id,
@@ -1159,6 +1218,8 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     assert result.workspace_id == workspace.workspace_id
     assert result.counts["connection_profiles"] == 1
     assert result.counts["workflow_runs"] == 1
+    assert result.counts["analysis_epochs"] == 1
+    assert result.counts["analysis_executions"] == 1
     assert result.counts["reports"] == 1
     assert result.counts["report_sections"] == 1
     assert result.counts["chart_specs"] == 1
@@ -1168,6 +1229,13 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     )
     assert target_repository.connection_profiles[0].secret_refs == {}
     assert target_repository.reports[report.report_id].title == "Graph Report"
+    assert target_repository.analysis_epochs[epoch.analysis_epoch_id].name == "Baseline"
+    assert (
+        target_repository.analysis_executions[
+            execution.analysis_execution_id
+        ].algorithm
+        == "pagerank"
+    )
     # The bundle's own historical audit events are not replayed (governed by
     # include_audit_events), but the import action itself is always logged.
     assert len(target_repository.audit_events) == 1
@@ -2536,3 +2604,157 @@ def test_upload_source_document_rejects_empty_content():
             content_base64="",
         )
     assert "empty" in str(exc_info.value)
+
+
+def _catalog_service_fixture():
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example",
+        project_name="Catalog",
+        environment="test",
+    )
+    repository.create_workspace(workspace)
+    run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+        requirement_version_id="requirement-1",
+        graph_profile_id="graph-1",
+        template_ids=["template-1", "template-2"],
+    )
+    repository.create_workflow_run(run)
+    return repository, ProductService(repository), workspace, run
+
+
+def test_record_analysis_execution_updates_run_epoch_and_search():
+    """FR-31/46: catalog writes populate run lineage and searchable epoch rows."""
+
+    repository, service, workspace, run = _catalog_service_fixture()
+    epoch = service.create_analysis_epoch(
+        workspace_id=workspace.workspace_id,
+        name="Baseline",
+        tags=["monthly"],
+    )
+
+    execution = service.record_analysis_execution(
+        run_id=run.run_id,
+        algorithm="pagerank",
+        status=AnalysisExecutionStatus.COMPLETED,
+        template_id="template-1",
+        use_case_id="use-case-1",
+        epoch_id=epoch.analysis_epoch_id,
+        result_count=12,
+        performance_metrics={"execution_time_seconds": 2.0},
+    )
+
+    persisted_run = repository.get_workflow_run(run.run_id)
+    persisted_epoch = repository.get_analysis_epoch(epoch.analysis_epoch_id)
+    matches = service.list_analysis_executions(
+        workspace_id=workspace.workspace_id,
+        algorithm="pagerank",
+        status="completed",
+        epoch_id=epoch.analysis_epoch_id,
+    )
+    stats = service.get_analysis_catalog_stats(workspace.workspace_id)
+
+    assert persisted_run.analysis_execution_ids == [
+        execution.analysis_execution_id
+    ]
+    assert persisted_epoch.analysis_execution_ids == [
+        execution.analysis_execution_id
+    ]
+    assert persisted_epoch.analysis_count == 1
+    assert matches == [execution]
+    assert stats["execution_count"] == 1
+    assert stats["epoch_count"] == 1
+    assert stats["executions_by_status"] == {"completed": 1}
+    assert stats["executions_by_algorithm"] == {"pagerank": 1}
+
+
+def test_compare_and_lineage_cover_report_to_requirement_chain():
+    """FR-47/48: comparisons retain full report-to-requirement lineage."""
+
+    repository, service, workspace, run = _catalog_service_fixture()
+    first = service.record_analysis_execution(
+        run_id=run.run_id,
+        algorithm="pagerank",
+        template_id="template-1",
+        use_case_id="use-case-1",
+        result_count=10,
+        performance_metrics={"execution_time_seconds": 5.0},
+    )
+    second = service.record_analysis_execution(
+        run_id=run.run_id,
+        algorithm="pagerank",
+        template_id="template-2",
+        use_case_id="use-case-1",
+        result_count=16,
+        performance_metrics={"execution_time_seconds": 3.0},
+    )
+    report = create_report_manifest(
+        workspace_id=workspace.workspace_id,
+        run_id=run.run_id,
+        title="Results",
+        analysis_execution_ids=[second.analysis_execution_id],
+    )
+    repository.create_report_manifest(report)
+
+    comparison = service.compare_analysis_executions(
+        workspace.workspace_id,
+        [first.analysis_execution_id, second.analysis_execution_id],
+    )
+    lineage = service.get_analysis_lineage(second.analysis_execution_id)
+
+    assert comparison["deltas"][1]["result_count"] == 6
+    assert (
+        comparison["deltas"][1]["performance_metrics"]["execution_time_seconds"]
+        == -2.0
+    )
+    assert lineage["reports"][0]["report_id"] == report.report_id
+    assert lineage["template_id"] == "template-2"
+    assert lineage["use_case_id"] == "use-case-1"
+    assert lineage["requirement_version_id"] == "requirement-1"
+
+
+def test_record_workflow_analysis_executions_is_idempotent_by_job_id():
+    """A supervisor retry does not duplicate catalog rows for one GAE job."""
+
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    repository, service, _workspace, run = _catalog_service_fixture()
+    job = SimpleNamespace(
+        job_id="gae-job-1",
+        template_name="PageRank",
+        algorithm="pagerank",
+        result_collection="pagerank_results",
+        result_count=2,
+        execution_time_seconds=1.25,
+        submitted_at=datetime.now(timezone.utc),
+        started_at=None,
+        completed_at=datetime.now(timezone.utc),
+        error_message=None,
+        metadata={},
+    )
+    result = SimpleNamespace(
+        job=job,
+        success=True,
+        results=[{"vertex": "a"}, {"vertex": "b"}],
+        error=None,
+        warnings=[],
+        metrics={},
+    )
+    template = SimpleNamespace(
+        name="PageRank",
+        use_case_id="use-case-1",
+        algorithm=SimpleNamespace(parameters={"damping": 0.85}),
+        config=SimpleNamespace(to_dict=lambda: {"graph_name": "graph"}),
+    )
+    state = SimpleNamespace(execution_results=[result], templates=[template])
+
+    first = service.record_workflow_analysis_executions(run.run_id, state)
+    second = service.record_workflow_analysis_executions(run.run_id, state)
+
+    assert len(first) == 1
+    assert second == []
+    assert len(repository.analysis_executions) == 1
+    assert first[0].metadata["gae_job_id"] == "gae-job-1"

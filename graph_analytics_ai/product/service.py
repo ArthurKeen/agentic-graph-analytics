@@ -14,6 +14,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -36,6 +37,9 @@ from ..db_connection import connect_arango_database
 from .constants import PRODUCT_SCHEMA_VERSION
 from .exceptions import ConflictError, ValidationError
 from .models import (
+    AnalysisEpoch,
+    AnalysisExecution,
+    AnalysisExecutionStatus,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -63,6 +67,8 @@ from .models import (
     WorkflowStep,
     WorkflowStepStatus,
     create_audit_event,
+    create_analysis_epoch,
+    create_analysis_execution,
     create_connection_profile,
     create_graph_profile,
     create_graph_set,
@@ -79,14 +85,11 @@ from .secrets import EnvironmentSecretResolver, SecretResolver
 
 logger = logging.getLogger(__name__)
 
-# PRD v0.6: bundles produced under PRODUCT_SCHEMA_VERSION 1.0.0 / 1.1.0
-# must still import cleanly under the current (1.2.0) version. The
-# only deltas are the additive aga_schema_snapshots (1.1.0) and
-# aga_graph_sets (1.2.0) collections — pre-existing collections are
-# unchanged. Keep this set explicit — adding a future version is a
-# one-line append, not a regex change.
+# Product schema additions are backward-compatible collections. Keep the
+# accepted bundle set explicit so an older workspace export remains importable
+# after additive catalog/schema features land.
 _SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset(
-    {"1.0.0", "1.1.0", PRODUCT_SCHEMA_VERSION}
+    {"1.0.0", "1.1.0", "1.2.0", PRODUCT_SCHEMA_VERSION}
 )
 
 
@@ -201,6 +204,8 @@ class WorkspaceBundle:
     workflow_runs: List[Dict[str, Any]]
     reports: List[Dict[str, Any]]
     audit_events: List[Dict[str, Any]] = field(default_factory=list)
+    analysis_epochs: List[Dict[str, Any]] = field(default_factory=list)
+    analysis_executions: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert bundle to an API-friendly dictionary."""
@@ -216,6 +221,8 @@ class WorkspaceBundle:
             "workflow_runs": self.workflow_runs,
             "reports": self.reports,
             "audit_events": self.audit_events,
+            "analysis_epochs": self.analysis_epochs,
+            "analysis_executions": self.analysis_executions,
         }
 
 
@@ -1273,6 +1280,427 @@ class ProductService:
             "last_outcome": execution_meta.get("last_outcome"),
             "errors": list(run.errors or []),
             "supervisor": supervisor_status,
+        }
+
+    # --- Product Analysis Catalog (FR-31 / FR-45..FR-48) ---
+
+    def create_analysis_epoch(
+        self,
+        workspace_id: str,
+        name: str,
+        description: str = "",
+        timestamp: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        parent_epoch_id: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisEpoch:
+        """Create a workspace-scoped analysis epoch."""
+
+        self.repository.get_workspace(workspace_id)
+        if parent_epoch_id:
+            parent = self.repository.get_analysis_epoch(parent_epoch_id)
+            if parent.workspace_id != workspace_id:
+                raise ValidationError(
+                    "parent_epoch_id does not belong to the given workspace"
+                )
+
+        epoch_timestamp = (
+            datetime.fromisoformat(timestamp) if timestamp else current_timestamp()
+        )
+        epoch = create_analysis_epoch(
+            workspace_id=workspace_id,
+            name=(name or "").strip(),
+            description=(description or "").strip(),
+            timestamp=epoch_timestamp,
+            tags=[tag.strip() for tag in (tags or []) if tag.strip()],
+            parent_epoch_id=parent_epoch_id,
+        )
+        self.repository.create_analysis_epoch(epoch)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "workspace-ui",
+                action="create_analysis_epoch",
+                target_type="analysis_epoch",
+                target_id=epoch.analysis_epoch_id,
+            )
+        )
+        return epoch
+
+    def get_analysis_epoch(self, analysis_epoch_id: str) -> AnalysisEpoch:
+        """Get an analysis epoch."""
+
+        return self.repository.get_analysis_epoch(analysis_epoch_id)
+
+    def list_analysis_epochs(self, workspace_id: str) -> List[AnalysisEpoch]:
+        """Browse the epochs in a workspace."""
+
+        self.repository.get_workspace(workspace_id)
+        return self.repository.list_analysis_epochs(workspace_id)
+
+    def record_analysis_execution(
+        self,
+        run_id: str,
+        algorithm: str,
+        status: AnalysisExecutionStatus = AnalysisExecutionStatus.COMPLETED,
+        *,
+        template_id: Optional[str] = None,
+        template_name: str = "",
+        use_case_id: Optional[str] = None,
+        epoch_id: Optional[str] = None,
+        algorithm_version: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        graph_config: Optional[Dict[str, Any]] = None,
+        results_location: Optional[str] = None,
+        result_count: int = 0,
+        performance_metrics: Optional[Dict[str, Any]] = None,
+        result_sample: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+        catalog_execution_id: Optional[str] = None,
+        started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisExecution:
+        """Record one completed/failed algorithm execution for a workflow run."""
+
+        run = self.repository.get_workflow_run(run_id)
+        if not isinstance(status, AnalysisExecutionStatus):
+            status = AnalysisExecutionStatus(status)
+
+        epoch = None
+        if epoch_id:
+            epoch = self.repository.get_analysis_epoch(epoch_id)
+            if epoch.workspace_id != run.workspace_id:
+                raise ValidationError("epoch_id does not belong to the run's workspace")
+
+        execution = create_analysis_execution(
+            workspace_id=run.workspace_id,
+            run_id=run.run_id,
+            algorithm=(algorithm or "unknown").strip() or "unknown",
+            status=status,
+            graph_profile_id=run.graph_profile_id,
+            requirement_version_id=run.requirement_version_id,
+            use_case_id=use_case_id,
+            template_id=template_id,
+            template_name=template_name,
+            epoch_id=epoch_id,
+            algorithm_version=algorithm_version,
+            parameters=dict(parameters or {}),
+            graph_config=dict(graph_config or {}),
+            results_location=results_location,
+            result_count=max(0, int(result_count or 0)),
+            performance_metrics=dict(performance_metrics or {}),
+            result_sample=result_sample,
+            error_message=error_message,
+            workflow_mode=run.workflow_mode.value,
+            catalog_execution_id=catalog_execution_id,
+            started_at=started_at or run.started_at or current_timestamp(),
+            completed_at=completed_at,
+            metadata=dict(metadata or {}),
+        )
+        self.repository.create_analysis_execution(execution)
+
+        if execution.analysis_execution_id not in run.analysis_execution_ids:
+            run.analysis_execution_ids.append(execution.analysis_execution_id)
+            self.repository.update_workflow_run(run)
+
+        if epoch is not None:
+            if execution.analysis_execution_id not in epoch.analysis_execution_ids:
+                epoch.analysis_execution_ids.append(execution.analysis_execution_id)
+            epoch.analysis_count = len(epoch.analysis_execution_ids)
+            self.repository.update_analysis_epoch(epoch)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=run.workspace_id,
+                actor=actor or "workflow-runner",
+                action="record_analysis_execution",
+                target_type="analysis_execution",
+                target_id=execution.analysis_execution_id,
+                metadata={
+                    "run_id": run.run_id,
+                    "algorithm": execution.algorithm,
+                    "status": execution.status.value,
+                },
+            )
+        )
+        return execution
+
+    def record_workflow_analysis_executions(
+        self, run_id: str, state: Any
+    ) -> List[AnalysisExecution]:
+        """Mirror an agent runner's execution results into the product catalog.
+
+        The method is idempotent by GAE job ID so a supervisor retry cannot
+        duplicate catalog rows.
+        """
+
+        run = self.repository.get_workflow_run(run_id)
+        existing = self.repository.list_analysis_executions(run.workspace_id)
+        known_job_ids = {
+            str(item.metadata.get("gae_job_id"))
+            for item in existing
+            if item.run_id == run_id and item.metadata.get("gae_job_id")
+        }
+        templates = list(getattr(state, "templates", []) or [])
+        recorded: List[AnalysisExecution] = []
+
+        for index, result in enumerate(
+            list(getattr(state, "execution_results", []) or [])
+        ):
+            job = getattr(result, "job", None)
+            if job is None:
+                continue
+            job_id = str(getattr(job, "job_id", "") or "")
+            if job_id and job_id in known_job_ids:
+                continue
+
+            template = next(
+                (
+                    candidate
+                    for candidate in templates
+                    if getattr(candidate, "name", None)
+                    == getattr(job, "template_name", None)
+                ),
+                templates[index] if index < len(templates) else None,
+            )
+            template_config = getattr(template, "config", None)
+            graph_config = (
+                template_config.to_dict()
+                if template_config is not None
+                and hasattr(template_config, "to_dict")
+                else {}
+            )
+            algorithm_params = getattr(
+                getattr(template, "algorithm", None), "parameters", {}
+            )
+            success = bool(getattr(result, "success", False))
+            result_rows = list(getattr(result, "results", []) or [])
+            job_metrics = dict(getattr(result, "metrics", {}) or {})
+            execution_seconds = getattr(job, "execution_time_seconds", None)
+            if execution_seconds is not None:
+                job_metrics.setdefault("execution_time_seconds", execution_seconds)
+
+            execution = self.record_analysis_execution(
+                run_id=run_id,
+                algorithm=str(getattr(job, "algorithm", "unknown") or "unknown"),
+                status=(
+                    AnalysisExecutionStatus.COMPLETED
+                    if success
+                    else AnalysisExecutionStatus.FAILED
+                ),
+                template_id=(
+                    run.template_ids[index] if index < len(run.template_ids) else None
+                ),
+                template_name=str(getattr(job, "template_name", "") or ""),
+                use_case_id=getattr(template, "use_case_id", None),
+                parameters=dict(algorithm_params or {}),
+                graph_config=graph_config,
+                results_location=getattr(job, "result_collection", None),
+                result_count=int(
+                    getattr(job, "result_count", None) or len(result_rows)
+                ),
+                performance_metrics=job_metrics,
+                result_sample=(
+                    {
+                        "top_results": result_rows[:100],
+                        "summary_stats": {},
+                        "sample_size": min(len(result_rows), 100),
+                    }
+                    if result_rows
+                    else None
+                ),
+                error_message=(
+                    getattr(result, "error", None)
+                    or getattr(job, "error_message", None)
+                ),
+                catalog_execution_id=(
+                    (getattr(job, "metadata", {}) or {}).get(
+                        "catalog_execution_id"
+                    )
+                ),
+                started_at=(
+                    getattr(job, "started_at", None)
+                    or getattr(job, "submitted_at", None)
+                ),
+                completed_at=getattr(job, "completed_at", None),
+                metadata={
+                    "gae_job_id": job_id or None,
+                    "warnings": list(getattr(result, "warnings", []) or []),
+                },
+            )
+            recorded.append(execution)
+            if job_id:
+                known_job_ids.add(job_id)
+
+        return recorded
+
+    def get_analysis_execution(
+        self, analysis_execution_id: str
+    ) -> AnalysisExecution:
+        """Get one product-catalog execution."""
+
+        return self.repository.get_analysis_execution(analysis_execution_id)
+
+    def list_analysis_executions(
+        self,
+        workspace_id: str,
+        algorithm: Optional[str] = None,
+        status: Optional[str] = None,
+        epoch_id: Optional[str] = None,
+        graph_profile_id: Optional[str] = None,
+        started_after: Optional[str] = None,
+        started_before: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[AnalysisExecution]:
+        """Search executions by the filters required by FR-46."""
+
+        self.repository.get_workspace(workspace_id)
+        executions = self.repository.list_analysis_executions(workspace_id)
+        after = datetime.fromisoformat(started_after) if started_after else None
+        before = datetime.fromisoformat(started_before) if started_before else None
+        normalized_status = AnalysisExecutionStatus(status) if status else None
+
+        def matches(execution: AnalysisExecution) -> bool:
+            return not (
+                (algorithm and execution.algorithm != algorithm)
+                or (normalized_status and execution.status != normalized_status)
+                or (epoch_id and execution.epoch_id != epoch_id)
+                or (
+                    graph_profile_id
+                    and execution.graph_profile_id != graph_profile_id
+                )
+                or (after and execution.started_at < after)
+                or (before and execution.started_at > before)
+            )
+
+        return [item for item in executions if matches(item)][: max(0, limit)]
+
+    def browse_analysis_catalog(self, workspace_id: str) -> Dict[str, Any]:
+        """Browse workspace-scoped epochs, executions, and lineage references."""
+
+        executions = self.list_analysis_executions(workspace_id, limit=500)
+        epochs = self.list_analysis_epochs(workspace_id)
+        requirements = self.repository.list_requirement_versions(workspace_id)
+        return {
+            "workspace_id": workspace_id,
+            "epochs": [epoch.to_dict() for epoch in epochs],
+            "executions": [execution.to_dict() for execution in executions],
+            "templates": sorted(
+                {
+                    execution.template_id
+                    for execution in executions
+                    if execution.template_id
+                }
+            ),
+            "use_cases": sorted(
+                {
+                    execution.use_case_id
+                    for execution in executions
+                    if execution.use_case_id
+                }
+            ),
+            "requirements": [
+                {
+                    "requirement_version_id": item.requirement_version_id,
+                    "version": item.version,
+                    "status": item.status.value,
+                    "summary": item.summary,
+                }
+                for item in requirements
+            ],
+        }
+
+    def get_analysis_catalog_stats(self, workspace_id: str) -> Dict[str, Any]:
+        """Return workspace-scoped execution and epoch aggregates."""
+
+        executions = self.list_analysis_executions(workspace_id, limit=100_000)
+        epochs = self.list_analysis_epochs(workspace_id)
+        by_status: Dict[str, int] = {}
+        by_algorithm: Dict[str, int] = {}
+        for execution in executions:
+            by_status[execution.status.value] = (
+                by_status.get(execution.status.value, 0) + 1
+            )
+            by_algorithm[execution.algorithm] = (
+                by_algorithm.get(execution.algorithm, 0) + 1
+            )
+        timestamps = [execution.started_at for execution in executions]
+        return {
+            "workspace_id": workspace_id,
+            "execution_count": len(executions),
+            "epoch_count": len(epochs),
+            "executions_by_status": by_status,
+            "executions_by_algorithm": by_algorithm,
+            "date_range": {
+                "start": min(timestamps).isoformat() if timestamps else None,
+                "end": max(timestamps).isoformat() if timestamps else None,
+            },
+        }
+
+    def compare_analysis_executions(
+        self, workspace_id: str, analysis_execution_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Compare result counts and numeric metrics across executions/epochs."""
+
+        if len(analysis_execution_ids) < 2:
+            raise ValidationError("At least two analysis_execution_ids are required")
+        executions = [
+            self.repository.get_analysis_execution(execution_id)
+            for execution_id in analysis_execution_ids
+        ]
+        if any(item.workspace_id != workspace_id for item in executions):
+            raise ValidationError(
+                "All analysis executions must belong to the given workspace"
+            )
+
+        baseline = executions[0]
+        numeric_metric_keys = sorted(
+            {
+                key
+                for item in executions
+                for key, value in item.performance_metrics.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+        )
+        return {
+            "workspace_id": workspace_id,
+            "baseline_execution_id": baseline.analysis_execution_id,
+            "executions": [item.to_dict() for item in executions],
+            "deltas": [
+                {
+                    "analysis_execution_id": item.analysis_execution_id,
+                    "result_count": item.result_count - baseline.result_count,
+                    "performance_metrics": {
+                        key: item.performance_metrics.get(key, 0)
+                        - baseline.performance_metrics.get(key, 0)
+                        for key in numeric_metric_keys
+                    },
+                }
+                for item in executions
+            ],
+        }
+
+    def get_analysis_lineage(self, analysis_execution_id: str) -> Dict[str, Any]:
+        """Trace report → execution → template → use case → requirement."""
+
+        execution = self.repository.get_analysis_execution(analysis_execution_id)
+        reports = [
+            report
+            for report in self.repository.list_report_manifests(
+                execution.workspace_id
+            )
+            if analysis_execution_id in report.analysis_execution_ids
+            or report.run_id == execution.run_id
+        ]
+        return {
+            "workspace_id": execution.workspace_id,
+            "reports": [report.to_dict() for report in reports],
+            "execution": execution.to_dict(),
+            "template_id": execution.template_id,
+            "use_case_id": execution.use_case_id,
+            "requirement_version_id": execution.requirement_version_id,
         }
 
     def update_workflow_step(
@@ -3473,6 +3901,8 @@ class ProductService:
         requirement_versions = self.repository.list_requirement_versions(workspace_id)
         workflow_runs = self.repository.list_workflow_runs(workspace_id)
         report_manifests = self.repository.list_report_manifests(workspace_id)
+        analysis_epochs = self.repository.list_analysis_epochs(workspace_id)
+        analysis_executions = self.repository.list_analysis_executions(workspace_id)
 
         reports = [
             self.get_report_bundle(report.report_id).to_dict()
@@ -3508,6 +3938,10 @@ class ProductService:
             workflow_runs=[run.to_dict() for run in workflow_runs],
             reports=reports,
             audit_events=audit_events,
+            analysis_epochs=[epoch.to_dict() for epoch in analysis_epochs],
+            analysis_executions=[
+                execution.to_dict() for execution in analysis_executions
+            ],
         )
         self.repository.create_audit_event(
             create_audit_event(
@@ -3554,6 +3988,14 @@ class ProductService:
             RequirementVersion.from_dict(version)
             for version in bundle_doc.get("requirement_versions", [])
         ]
+        analysis_epochs = [
+            AnalysisEpoch.from_dict(epoch)
+            for epoch in bundle_doc.get("analysis_epochs", [])
+        ]
+        analysis_executions = [
+            AnalysisExecution.from_dict(execution)
+            for execution in bundle_doc.get("analysis_executions", [])
+        ]
         workflow_runs = [
             WorkflowRun.from_dict(run) for run in bundle_doc.get("workflow_runs", [])
         ]
@@ -3568,6 +4010,10 @@ class ProductService:
             self.repository.create_requirement_interview(interview)
         for version in requirement_versions:
             self.repository.create_requirement_version(version)
+        for epoch in analysis_epochs:
+            self.repository.create_analysis_epoch(epoch)
+        for execution in analysis_executions:
+            self.repository.create_analysis_execution(execution)
         for run in workflow_runs:
             self.repository.create_workflow_run(run)
 
@@ -3618,6 +4064,8 @@ class ProductService:
                 "source_documents": len(source_documents),
                 "requirement_interviews": len(requirement_interviews),
                 "requirement_versions": len(requirement_versions),
+                "analysis_epochs": len(analysis_epochs),
+                "analysis_executions": len(analysis_executions),
                 "workflow_runs": len(workflow_runs),
                 "reports": report_count,
                 "report_sections": section_count,
@@ -3794,6 +4242,8 @@ class ProductService:
             "source_documents",
             "requirement_interviews",
             "requirement_versions",
+            "analysis_epochs",
+            "analysis_executions",
             "workflow_runs",
         ]:
             for item in bundle_doc.get(collection_name, []):

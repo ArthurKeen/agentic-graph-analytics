@@ -182,7 +182,6 @@ def test_create_product_fastapi_app_wires_supervisor_when_explicitly_enabled(
     assert app.lifespan is not None
     sweep_calls: list = []
     shutdown_calls: list = []
-    monkey_supervisor_orig_sweep = supervisor.sweep_orphan_runs
     monkey_supervisor_orig_shutdown = supervisor.shutdown
 
     def record_sweep(*args, **kwargs):

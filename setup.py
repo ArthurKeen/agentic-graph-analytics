@@ -36,7 +36,8 @@ setup(
             "mypy>=0.991",
         ],
         "mcp": [
-            "mcp[cli]>=1.0.0",
+            # mcp 2.x removed mcp.server.fastmcp, which this package imports.
+            "mcp[cli]>=1.0.0,<2",
         ],
         "api": [
             "fastapi>=0.110.0",

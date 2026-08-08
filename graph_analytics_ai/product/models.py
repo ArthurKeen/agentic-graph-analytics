@@ -116,6 +116,28 @@ class WorkflowStepStatus(Enum):
     CANCELLED = "cancelled"
 
 
+class AnalysisExecutionStatus(Enum):
+    """Status for a recorded analysis execution (FR-31).
+
+    Mirrors ``graph_analytics_ai.catalog.models.ExecutionStatus`` so rows
+    imported from (or mirrored to) the AI-layer catalog round-trip
+    without translation.
+    """
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PARTIAL = "partial"
+
+
+class AnalysisEpochStatus(Enum):
+    """Lifecycle status for an analysis epoch (FR-45/FR-48)."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
 class ReportStatus(Enum):
     """Lifecycle status for dynamic reports."""
 
@@ -1098,6 +1120,184 @@ class WorkflowRun:
 
 
 @dataclass
+class AnalysisExecution:
+    """Workspace-scoped mirror of an Analysis Catalog execution.
+
+    The AI-layer catalog is intentionally independent of product workspaces.
+    Product rows therefore own a stable ``analysis_execution_id`` and keep an
+    optional ``catalog_execution_id`` back-pointer when a corresponding
+    AI-layer row exists.
+    """
+
+    analysis_execution_id: str
+    workspace_id: str
+    run_id: str
+    algorithm: str
+    status: AnalysisExecutionStatus = AnalysisExecutionStatus.RUNNING
+    graph_profile_id: Optional[str] = None
+    requirement_version_id: Optional[str] = None
+    use_case_id: Optional[str] = None
+    template_id: Optional[str] = None
+    template_name: str = ""
+    epoch_id: Optional[str] = None
+    algorithm_version: str = ""
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    graph_config: Dict[str, Any] = field(default_factory=dict)
+    results_location: Optional[str] = None
+    result_count: int = 0
+    performance_metrics: Dict[str, Any] = field(default_factory=dict)
+    result_sample: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    workflow_mode: Optional[str] = None
+    catalog_execution_id: Optional[str] = None
+    started_at: datetime = field(default_factory=current_timestamp)
+    completed_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.analysis_execution_id,
+            "analysis_execution_id": self.analysis_execution_id,
+            "workspace_id": self.workspace_id,
+            "run_id": self.run_id,
+            "algorithm": self.algorithm,
+            "status": _enum_value(self.status),
+            "graph_profile_id": self.graph_profile_id,
+            "requirement_version_id": self.requirement_version_id,
+            "use_case_id": self.use_case_id,
+            "template_id": self.template_id,
+            "template_name": self.template_name,
+            "epoch_id": self.epoch_id,
+            "algorithm_version": self.algorithm_version,
+            "parameters": self.parameters,
+            "graph_config": self.graph_config,
+            "results_location": self.results_location,
+            "result_count": self.result_count,
+            "performance_metrics": self.performance_metrics,
+            "result_sample": self.result_sample,
+            "error_message": self.error_message,
+            "workflow_mode": self.workflow_mode,
+            "catalog_execution_id": self.catalog_execution_id,
+            "started_at": self.started_at.isoformat(),
+            "completed_at": _datetime_to_str(self.completed_at),
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnalysisExecution":
+        """Create an execution from an ArangoDB document."""
+
+        return cls(
+            analysis_execution_id=data.get("analysis_execution_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            run_id=data["run_id"],
+            algorithm=data.get("algorithm", "unknown"),
+            status=AnalysisExecutionStatus(
+                data.get("status", AnalysisExecutionStatus.RUNNING.value)
+            ),
+            graph_profile_id=data.get("graph_profile_id"),
+            requirement_version_id=data.get("requirement_version_id"),
+            use_case_id=data.get("use_case_id"),
+            template_id=data.get("template_id"),
+            template_name=data.get("template_name", ""),
+            epoch_id=data.get("epoch_id"),
+            algorithm_version=data.get("algorithm_version", ""),
+            parameters=data.get("parameters", {}),
+            graph_config=data.get("graph_config", {}),
+            results_location=data.get("results_location"),
+            result_count=int(data.get("result_count", 0)),
+            performance_metrics=data.get("performance_metrics", {}),
+            result_sample=data.get("result_sample"),
+            error_message=data.get("error_message"),
+            workflow_mode=data.get("workflow_mode"),
+            catalog_execution_id=data.get("catalog_execution_id"),
+            started_at=datetime.fromisoformat(data["started_at"]),
+            completed_at=_datetime_from_str(data.get("completed_at")),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class AnalysisEpoch:
+    """Workspace-scoped group of related analysis executions."""
+
+    analysis_epoch_id: str
+    workspace_id: str
+    name: str
+    description: str = ""
+    timestamp: datetime = field(default_factory=current_timestamp)
+    status: AnalysisEpochStatus = AnalysisEpochStatus.ACTIVE
+    tags: List[str] = field(default_factory=list)
+    parent_epoch_id: Optional[str] = None
+    analysis_count: int = 0
+    analysis_execution_ids: List[str] = field(default_factory=list)
+    catalog_epoch_id: Optional[str] = None
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.name.strip():
+            raise ValidationError("AnalysisEpoch.name is required")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.analysis_epoch_id,
+            "analysis_epoch_id": self.analysis_epoch_id,
+            "workspace_id": self.workspace_id,
+            "name": self.name,
+            "description": self.description,
+            "timestamp": self.timestamp.isoformat(),
+            "status": _enum_value(self.status),
+            "tags": list(self.tags),
+            "parent_epoch_id": self.parent_epoch_id,
+            "analysis_count": self.analysis_count,
+            "analysis_execution_ids": list(self.analysis_execution_ids),
+            "catalog_epoch_id": self.catalog_epoch_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnalysisEpoch":
+        """Create an epoch from an ArangoDB document."""
+
+        return cls(
+            analysis_epoch_id=data.get("analysis_epoch_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            name=data["name"],
+            description=data.get("description", ""),
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+            status=AnalysisEpochStatus(
+                data.get("status", AnalysisEpochStatus.ACTIVE.value)
+            ),
+            tags=list(data.get("tags", [])),
+            parent_epoch_id=data.get("parent_epoch_id"),
+            analysis_count=int(data.get("analysis_count", 0)),
+            analysis_execution_ids=list(data.get("analysis_execution_ids", [])),
+            catalog_epoch_id=data.get("catalog_epoch_id"),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
 class ReportManifest:
     """Report identity, publication state, and lineage links."""
 
@@ -1537,6 +1737,38 @@ def create_workflow_run(
         run_id=generate_product_id("run"),
         workspace_id=workspace_id,
         workflow_mode=workflow_mode,
+        **kwargs,
+    )
+
+
+def create_analysis_execution(
+    workspace_id: str,
+    run_id: str,
+    algorithm: str,
+    **kwargs: Any,
+) -> AnalysisExecution:
+    """Create a product Analysis Catalog execution with a generated ID."""
+
+    return AnalysisExecution(
+        analysis_execution_id=generate_product_id("analysis-execution"),
+        workspace_id=workspace_id,
+        run_id=run_id,
+        algorithm=algorithm,
+        **kwargs,
+    )
+
+
+def create_analysis_epoch(
+    workspace_id: str,
+    name: str,
+    **kwargs: Any,
+) -> AnalysisEpoch:
+    """Create a product Analysis Catalog epoch with a generated ID."""
+
+    return AnalysisEpoch(
+        analysis_epoch_id=generate_product_id("analysis-epoch"),
+        workspace_id=workspace_id,
+        name=name,
         **kwargs,
     )
 

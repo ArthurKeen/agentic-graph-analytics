@@ -18,7 +18,6 @@ Covers:
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -28,7 +27,6 @@ from graph_analytics_ai.product import (
     GraphProfile,
     GraphSet,
     ProductAPIDispatcher,
-    create_graph_profile,
     create_graph_set,
 )
 from graph_analytics_ai.product.constants import (

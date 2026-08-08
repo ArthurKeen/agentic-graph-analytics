@@ -581,12 +581,29 @@ class AgenticRunSupervisor:
             if trace_collector is not None and hasattr(trace_collector, "add_listener"):
                 trace_collector.add_listener(reporter)
 
-            runner.run(
+            state = runner.run(
                 input_documents=self._build_input_documents(run),
                 database_config=None,
                 max_executions=max_executions,
                 cancel_token=handle.cancel_event,
             )
+
+            # FR-31: mirror each algorithm result into the workspace-scoped
+            # product Analysis Catalog before marking the run complete. Catalog
+            # persistence is observability/lineage, not the analysis critical
+            # path, so a metadata write failure becomes a warning rather than
+            # converting a successful graph analysis into a failed run.
+            try:
+                self._service.record_workflow_analysis_executions(run_id, state)
+            except Exception as catalog_exc:  # noqa: BLE001
+                logger.exception(
+                    "Failed to record Analysis Catalog rows for run %s", run_id
+                )
+                current = self._service.repository.get_workflow_run(run_id)
+                current.warnings = list(current.warnings or []) + [
+                    f"Analysis Catalog persistence failed: {catalog_exc}"
+                ]
+                self._service.repository.update_workflow_run(current)
 
             self._finalize_run(
                 run_id, RUN_OUTCOME_COMPLETED, status=WorkflowRunStatus.COMPLETED

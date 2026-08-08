@@ -1,6 +1,10 @@
 """Unit tests for product metadata models."""
 
 from graph_analytics_ai.product import (
+    AnalysisEpoch,
+    AnalysisEpochStatus,
+    AnalysisExecution,
+    AnalysisExecutionStatus,
     ChartType,
     ConnectionProfile,
     ConnectionVerificationStatus,
@@ -23,6 +27,8 @@ from graph_analytics_ai.product import (
     WorkflowStep,
     WorkflowStepStatus,
     create_audit_event,
+    create_analysis_epoch,
+    create_analysis_execution,
     create_chart_spec,
     create_connection_profile,
     create_graph_profile,
@@ -121,6 +127,54 @@ def test_connection_profile_round_trip_allows_secret_references():
     assert restored.deployment_mode == DeploymentMode.AMP
     assert restored.last_verification_status == ConnectionVerificationStatus.SUCCESS
     assert restored.secret_refs["password"]["ref"] == "AGA_CUSTOMER_PASSWORD"
+
+
+def test_analysis_execution_round_trip_preserves_catalog_lineage():
+    """Product catalog executions round-trip workspace and AI-catalog links."""
+
+    execution = create_analysis_execution(
+        workspace_id="workspace-1",
+        run_id="run-1",
+        algorithm="pagerank",
+        status=AnalysisExecutionStatus.COMPLETED,
+        graph_profile_id="graph-1",
+        requirement_version_id="requirement-1",
+        use_case_id="use-case-1",
+        template_id="template-1",
+        epoch_id="epoch-1",
+        result_count=42,
+        performance_metrics={"execution_time_seconds": 2.5},
+        catalog_execution_id="ai-catalog-execution-1",
+    )
+
+    restored = AnalysisExecution.from_dict(execution.to_dict())
+
+    assert restored.analysis_execution_id == execution.analysis_execution_id
+    assert restored.status == AnalysisExecutionStatus.COMPLETED
+    assert restored.workspace_id == "workspace-1"
+    assert restored.result_count == 42
+    assert restored.catalog_execution_id == "ai-catalog-execution-1"
+
+
+def test_analysis_epoch_round_trip_preserves_execution_membership():
+    """Product analysis epochs keep their workspace-scoped execution IDs."""
+
+    epoch = create_analysis_epoch(
+        workspace_id="workspace-1",
+        name="June baseline",
+        status=AnalysisEpochStatus.COMPLETED,
+        tags=["baseline"],
+        analysis_count=2,
+        analysis_execution_ids=["execution-1", "execution-2"],
+        catalog_epoch_id="ai-catalog-epoch-1",
+    )
+
+    restored = AnalysisEpoch.from_dict(epoch.to_dict())
+
+    assert restored.analysis_epoch_id == epoch.analysis_epoch_id
+    assert restored.status == AnalysisEpochStatus.COMPLETED
+    assert restored.analysis_execution_ids == ["execution-1", "execution-2"]
+    assert restored.catalog_epoch_id == "ai-catalog-epoch-1"
 
 
 def test_workspace_rejects_secret_like_metadata_keys():

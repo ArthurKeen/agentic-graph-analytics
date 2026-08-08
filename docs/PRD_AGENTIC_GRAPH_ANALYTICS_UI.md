@@ -502,7 +502,7 @@ version without losing prior context, audit trail, or domain.
 - **FR-6:** Connection profiles store non-secret descriptors and secret references.
 - **FR-7:** The backend can test database, graph inventory, and GAE access. *(Implemented:
   DB verification + named-graph inventory as before, plus a best-effort GAE reachability
-  probe — `ProductService._check_gae_access` in `graph_analytics_ai/product/service.py:1804`,
+  probe — `ProductService._check_gae_access` in `graph_analytics_ai/product/service.py:2237`,
   surfaced as `ConnectionVerificationResult.gae_status` and rendered in
   `frontend/src/components/workspace/ConnectionProfileCanvas.tsx:116`. The probe never
   raises and never blocks the DB result. Note GAE credentials are deployment-wide env
@@ -516,7 +516,7 @@ version without losing prior context, audit trail, or domain.
   variables degrade to empty strings so the form falls back to its own
   placeholders. *(Implemented: `GET /api/connections/defaults` in
   `graph_analytics_ai/product/api.py:132`; `ProductService.get_connection_defaults`
-  in `graph_analytics_ai/product/service.py:1694`; prefill effect in
+  in `graph_analytics_ai/product/service.py:2140`; prefill effect in
   `frontend/src/components/workspace/CreateConnectionProfileOverlay.tsx:55`;
   tested in `tests/unit/product/test_get_connection_defaults.py`.)*
 
@@ -526,13 +526,13 @@ version without losing prior context, audit trail, or domain.
 - **FR-10:** Users can assign collection roles. *(Implemented:
   `PATCH /api/graph-profiles/{graph_profile_id}/collection-roles` →
   `ProductService.assign_graph_profile_collection_roles` in
-  `graph_analytics_ai/product/service.py:2589`. Validates every referenced
+  `graph_analytics_ai/product/service.py:3078`. Validates every referenced
   collection is already on the profile's discovered inventory, persists an
   audit event, and survives re-discovery via FR-11.)*
 - **FR-11:** Graph profiles are versioned. *(Implemented: re-discovering an
   already-profiled `(connection_profile_id, graph_name)` bumps `version` in
   place and preserves `graph_profile_id` — see
-  `graph_analytics_ai/product/service.py:2006` in
+  `graph_analytics_ai/product/service.py:2531` in
   `ProductService.discover_graph_profile` — so `workspace.active_graph_profile_id`,
   `GraphSet` membership, and `WorkflowRun.graph_profile_id` all keep
   resolving across re-discoveries. Manually assigned collection roles are
@@ -544,7 +544,7 @@ version without losing prior context, audit trail, or domain.
 - **FR-13:** Users can upload Markdown, PDF, DOCX, and TXT documents. *(Implemented:
   `POST /api/workspaces/{workspace_id}/documents` →
   `ProductService.upload_source_document` in
-  `graph_analytics_ai/product/service.py:3024`. Content is base64-encoded in a JSON body
+  `graph_analytics_ai/product/service.py:3457`. Content is base64-encoded in a JSON body
   rather than multipart — every other route in this API is JSON-only
   (`fastapi_app._request_json`), so multipart would fork the dispatcher for one endpoint.
   UI: `frontend/src/components/workspace/UploadSourceDocumentOverlay.tsx`, reached via the
@@ -559,7 +559,7 @@ version without losing prior context, audit trail, or domain.
   failures are recorded on `metadata.extraction_errors` rather than losing the row.)*
 - **FR-15:** The system extracts structured requirements using existing document extraction logic.
   *(Partial: `ProductService._extract_requirements_summary`
-  (`graph_analytics_ai/product/service.py:3157`) invokes the existing
+  (`graph_analytics_ai/product/service.py:3590`) invokes the existing
   `RequirementsExtractor` (`graph_analytics_ai/ai/documents/extractor.py`) on upload and
   stores its `to_summary_dict()` under `metadata.extracted_requirements`. Extraction is
   best-effort — it needs an LLM provider, so it degrades to text-only when unavailable and
@@ -646,7 +646,7 @@ version without losing prior context, audit trail, or domain.
 - **FR-29:** Users can view run progress and GAE job IDs.
 - **FR-30:** Users can cancel, retry, or resume runs where supported. *(Implemented:
   cancel via `ProductService.cancel_workflow_run`; retry and resume both go through
-  `update_workflow_step` (`graph_analytics_ai/product/service.py:1278`), which already
+  `update_workflow_step` (`graph_analytics_ai/product/service.py:1711`), which already
   handled `PAUSED → RUNNING` identically to `FAILED → RUNNING` (without the retry_count
   bump). The gap was purely presentational — the UI labelled every action "Retry Run"
   regardless of step status, so resume looked unimplemented.
@@ -656,44 +656,41 @@ version without losing prior context, audit trail, or domain.
   `supported_workflow_recovery_actions` already advertised. Per-step retry stays hidden on
   agentic runs pending FR-31c checkpointing.)*
 - **FR-31:** Completed executions are recorded in the Analysis Catalog.
+  *(Implemented: `AgenticRunSupervisor` captures the runner's returned
+  `AgentState` and calls `ProductService.record_workflow_analysis_executions`
+  (`graph_analytics_ai/product/agentic_run_supervisor.py:597`). The service
+  mirrors each GAE result into the workspace-scoped product catalog and
+  appends its ID to `WorkflowRun.analysis_execution_ids`
+  (`graph_analytics_ai/product/service.py:1430` and `:1405`). Recording is
+  idempotent by GAE job ID; catalog-write failures become run warnings rather
+  than changing a successful analysis into a failed run.)*
 
-#### Known limitation: workflow runs are currently deterministic state, not executed agents
+#### Current execution status
 
-**Status as of v0.2:** `WorkflowMode.AGENTIC` is descriptive metadata only.
-The product workflow API (`POST /api/runs`, `POST /api/runs/{id}/start`,
-`PATCH /api/runs/{id}/steps/{step_id}`) is a **persisted DAG plus state
-machine**, not an executor:
+`WorkflowMode.AGENTIC` now executes through the in-process
+`AgenticRunSupervisor`:
 
-- Step labels and the linear DAG are built client-side in
-  `frontend/src/lib/product-api/client.ts:createWorkflowRunPayload` from
-  whatever text the user types in the Create Workflow Run overlay.
-- `ProductService.start_workflow_run` only flips run status to `RUNNING`
-  and stamps `started_at`; it does **not** invoke
-  `AgenticWorkflowRunner` or any agent.
-- Step transitions to `succeeded`/`failed` are driven by the UI calling
-  `PATCH .../steps/{id}`. There is no execution callback that produces
-  these transitions today, so the visualizer reflects user actions
-  rather than real agent progress.
+- `ProductService.start_workflow_run` persists `RUNNING` and dispatches the
+  run to the supervisor when `workflow_mode == AGENTIC`.
+- The supervisor constructs `AgenticWorkflowRunner`, executes it on a bounded
+  thread pool, and subscribes `StepStatusReporter` to trace events.
+- `TraceEventType.STEP_START` / `STEP_END` / `AGENT_ERROR` events persist
+  real step transitions through `update_workflow_step`; polling therefore
+  reflects live agent progress rather than UI-authored transitions.
+- Successful algorithm results are mirrored into the product Analysis
+  Catalog before the run is finalized (FR-31).
+- Cancellation is cooperative and orphaned in-process runs are swept on API
+  startup. A future durable executor remains the production-hardening path.
+- `PARALLEL_AGENTIC` still requires the supervisor/async-runner integration
+  described by FR-34; it is not yet a distinct live product execution mode.
 - `RequirementsCopilot` questions are a hardcoded list and the draft is
   template-rendered (`graph_analytics_ai/product/service.py:_requirements_copilot_questions`,
   `_build_requirements_draft`). It is intentionally deterministic for
   MVP; LLM-backed question generation and draft synthesis are not wired.
-- Real LLM-backed reasoning **does** exist in
-  `graph_analytics_ai/ai/agents/runner.AgenticWorkflowRunner` and the
-  specialized agents (`SchemaAnalysisAgent`, `RequirementsAgent` doc
-  extraction path, `ReportingAgent` insights). It is reachable today
-  only via MCP (`graph_analytics_ai/mcp/tools/workflow.start_workflow`)
-  and CLI/example entry points — not from the product workflow API.
 
-**FR-31a (planned, see "Planned: Live Agentic Execution" below):** Wire
-`POST /api/runs/{id}/start` (when `workflow_mode == AGENTIC`) to
-`AgenticWorkflowRunner.run_async`, derive step transitions from the
-runner's `TraceEventType.STEP_START` / `STEP_END` events, and persist
-them via the existing `update_workflow_step` path so the visualizer
-reflects real agent progress without UI involvement. Until FR-31a
-ships, the visualizer accurately reflects **persisted state**, not
-**live execution**, and `WorkflowMode.AGENTIC` should be read as
-"intended to run agentically" rather than "currently runs agents."
+**FR-31a status:** shipped for the synchronous agentic runner path. The
+remaining async/parallel and durable-executor work is tracked separately by
+FR-31b/FR-31c and FR-34.
 
 ### Agentic Workflow Visualizer
 
@@ -716,10 +713,47 @@ ships, the visualizer accurately reflects **persisted state**, not
 
 ### Catalog and Lineage
 
-- **FR-45:** Users can browse epochs, executions, templates, use cases, and requirements.
-- **FR-46:** Users can search executions by algorithm, status, epoch, date, graph, and workspace.
-- **FR-47:** Users can view lineage from report to execution to template to use case to requirement.
-- **FR-48:** Users can compare executions across epochs.
+> **Scope note for FR-45..FR-48 (backend complete, no UI yet).** The Analysis
+> Catalog service layer, storage, and HTTP endpoints all exist and are tested.
+> No frontend consumes any of them — nothing under `frontend/src` references a
+> catalog endpoint. Each of these four requirements is written as "**Users
+> can** …", so none is satisfied by an endpoint alone: a user still cannot
+> browse, search, compare, or trace anything from the product. They are marked
+> **Partial** deliberately rather than Implemented, to avoid recording a
+> user-facing capability that no user can reach. Closing them needs a catalog
+> UI (a filterable execution list, a comparison view, and a lineage trail).
+
+- **FR-45:** Users can browse epochs, executions, templates, use cases, and
+  requirements. *(Partial — backend only: the workspace-scoped browse projection
+  is assembled by `ProductService.browse_analysis_catalog`
+  (`graph_analytics_ai/product/service.py:1580`) and exposed at
+  `GET /api/workspaces/{workspace_id}/analysis-catalog`
+  (`graph_analytics_ai/product/api.py:413`). Executions and epochs are full
+  product records; templates/use cases are lineage IDs until their dedicated
+  product entities from FR-19..FR-26 ship. Remaining gap: no browse UI, and
+  templates/use cases are not yet browsable entities.)*
+- **FR-46:** Users can search executions by algorithm, status, epoch, date,
+  graph, and workspace. *(Partial — backend only:
+  `ProductService.list_analysis_executions`
+  (`graph_analytics_ai/product/service.py:1546`) applies all six filters to
+  workspace-scoped rows; the corresponding GET endpoint is indexed by
+  workspace/status/algorithm/epoch/graph/date in
+  `graph_analytics_ai/product/storage/arangodb.py:208`. Remaining gap: no search
+  UI — the filters are reachable only by calling the API directly.)*
+- **FR-47:** Users can view lineage from report to execution to template to use
+  case to requirement. *(Partial — backend only:
+  `ProductService.get_analysis_lineage`
+  (`graph_analytics_ai/product/service.py:1685`) returns the complete ID chain
+  plus matching report and execution records via
+  `GET /api/analysis-executions/{analysis_execution_id}/lineage`. Remaining gap:
+  no lineage view; the chain is IDs in a JSON response, not navigable. This is
+  the same gap FR-37 records from the run-detail side.)*
+- **FR-48:** Users can compare executions across epochs. *(Partial — backend
+  only: `ProductService.compare_analysis_executions`
+  (`graph_analytics_ai/product/service.py:1642`) validates workspace scope and
+  returns result-count and numeric performance-metric deltas against the first
+  selected execution; exposed as a POST comparison endpoint. Remaining gap: no
+  comparison UI, and no way for a user to select which executions to compare.)*
 
 ### Import and Export
 
@@ -811,7 +845,7 @@ older requirement, this section wins.
   *(Partial: the `?force_llm=true` opt-in is now exposed end-to-end —
   `discover_graph_profile` / `discover_graph_profiles` accept `force_llm`
   and thread it through `_acquire_and_persist_bundle`
-  (`graph_analytics_ai/product/service.py:2401`) into `acquire_schema`, which
+  (`graph_analytics_ai/product/service.py:2834`) into `acquire_schema`, which
   owns the escalation decision. The deterministic-baseline-first ordering and
   the confidence-threshold trigger are implemented in
   `graph_analytics_ai/ai/schema/acquire.py`. Remaining gap: the other three
@@ -1020,7 +1054,7 @@ older requirement, this section wins.
   confirmation`.
 
   *(Partial: `_schema_observations_from_graph_profile`
-  (`graph_analytics_ai/product/service.py:4009`) now reads the conceptual
+  (`graph_analytics_ai/product/service.py:4464`) now reads the conceptual
   schema rather than only raw collection lists — it surfaces entity types,
   relationship types with from→to entities, `graph_purpose`, and cross-graph
   links from any GraphSet containing the profile, and `_build_requirements_draft`

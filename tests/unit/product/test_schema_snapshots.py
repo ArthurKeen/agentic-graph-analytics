@@ -26,7 +26,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from graph_analytics_ai.ai.schema.acquire import (
-    InMemorySchemaCache,
     SchemaAcquisitionBundle,
     cache_key,
     reset_default_cache,
