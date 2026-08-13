@@ -33,6 +33,11 @@ import type {
   ReportExportDownload,
   ReportExportFormat,
   SourceDocumentSummary,
+  AnalysisCatalogView,
+  AnalysisExecution,
+  AnalysisExecutionComparison,
+  AnalysisExecutionFilters,
+  AnalysisLineage,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
   UploadSourceDocumentInput,
@@ -117,6 +122,18 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   uploadSourceDocument: (
     input: UploadSourceDocumentInput
   ) => Promise<SourceDocumentSummary>;
+  /** FR-45: browse the workspace's analysis epochs and executions. */
+  browseAnalysisCatalog: () => Promise<AnalysisCatalogView>;
+  /** FR-46: server-side filtered execution search. */
+  listAnalysisExecutions: (
+    filters?: AnalysisExecutionFilters
+  ) => Promise<AnalysisExecution[]>;
+  /** FR-48: compare executions; deltas are relative to the first id. */
+  compareAnalysisExecutions: (
+    analysisExecutionIds: string[]
+  ) => Promise<AnalysisExecutionComparison>;
+  /** FR-47: trace an execution back to its requirement. */
+  getAnalysisLineage: (analysisExecutionId: string) => Promise<AnalysisLineage>;
   listConnectionProfileGraphs: (
     connectionProfileId: string
   ) => Promise<ConnectionGraphsResult>;
@@ -670,6 +687,67 @@ export function useWorkspaceData({
     return statefulDemoUploadSourceDocument(input);
   };
 
+  const browseAnalysisCatalog = async (): Promise<AnalysisCatalogView> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.browseAnalysisCatalog(effectiveWorkspaceId);
+    }
+    return demoAnalysisCatalog();
+  };
+
+  const listAnalysisExecutions = async (
+    filters: AnalysisExecutionFilters = {}
+  ): Promise<AnalysisExecution[]> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.listAnalysisExecutions(effectiveWorkspaceId, filters);
+    }
+    // Demo mode has no server to filter, so apply the same predicates
+    // locally — otherwise the filter controls would look broken in demo.
+    return demoAnalysisCatalog().executions.filter((execution) => {
+      const startedAt = execution.startedAt ?? "";
+      return (
+        (!filters.algorithm || execution.algorithm === filters.algorithm) &&
+        (!filters.status || execution.status === filters.status) &&
+        (!filters.epochId || execution.epochId === filters.epochId) &&
+        (!filters.graphProfileId ||
+          execution.graphProfileId === filters.graphProfileId) &&
+        (!filters.startedAfter || startedAt >= filters.startedAfter) &&
+        (!filters.startedBefore || startedAt <= filters.startedBefore)
+      );
+    });
+  };
+
+  const compareAnalysisExecutions = async (
+    analysisExecutionIds: string[]
+  ): Promise<AnalysisExecutionComparison> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.compareAnalysisExecutions(
+        effectiveWorkspaceId,
+        analysisExecutionIds
+      );
+    }
+    return demoCompareAnalysisExecutions(analysisExecutionIds);
+  };
+
+  const getAnalysisLineage = async (
+    analysisExecutionId: string
+  ): Promise<AnalysisLineage> => {
+    if (isLive) {
+      return apiClient.getAnalysisLineage(analysisExecutionId);
+    }
+    const execution =
+      demoAnalysisCatalog().executions.find(
+        (item) => item.analysisExecutionId === analysisExecutionId
+      ) ?? null;
+    return {
+      workspaceId: "workspace-demo",
+      execution,
+      reports: [],
+      templateId: execution?.templateId ?? null,
+      useCaseId: execution?.useCaseId ?? null,
+      requirementVersionId: execution?.requirementVersionId ?? null
+    };
+  };
+
   const listConnectionProfileGraphs = async (
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult> => {
@@ -1016,6 +1094,10 @@ export function useWorkspaceData({
     listClusterDatabases,
     getConnectionDefaults,
     uploadSourceDocument,
+    browseAnalysisCatalog,
+    listAnalysisExecutions,
+    compareAnalysisExecutions,
+    getAnalysisLineage,
     listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -1105,6 +1187,126 @@ function statefulDemoVerifyConnectionProfile(
     endpoint: demoConnectionProfile.endpoint,
     database: demoConnectionProfile.database,
     errorMessage: null
+  };
+}
+
+/** Demo catalog fixture. Field shapes mirror the real service payloads. */
+function demoAnalysisCatalog(): AnalysisCatalogView {
+  const epochId = "analysis-epoch-demo";
+  const baseExecution = {
+    workspaceId: "workspace-demo",
+    runId: "run-demo",
+    graphProfileId: "graph-profile-demo",
+    requirementVersionId: "requirement-version-demo",
+    epochId,
+    algorithmVersion: "1.0",
+    parameters: {},
+    workflowMode: "agentic",
+    completedAt: null,
+    errorMessage: null,
+    metadata: {}
+  };
+
+  return {
+    workspaceId: "workspace-demo",
+    epochs: [
+      {
+        analysisEpochId: epochId,
+        workspaceId: "workspace-demo",
+        name: "2026-Q3 snapshot",
+        description: "Quarterly analysis snapshot",
+        timestamp: "2026-07-01T00:00:00Z",
+        status: "active",
+        tags: ["quarterly"],
+        analysisCount: 3,
+        analysisExecutionIds: [
+          "analysis-execution-demo-1",
+          "analysis-execution-demo-2",
+          "analysis-execution-demo-3"
+        ]
+      }
+    ],
+    executions: [
+      {
+        ...baseExecution,
+        analysisExecutionId: "analysis-execution-demo-1",
+        algorithm: "pagerank",
+        status: "completed",
+        useCaseId: "use-case-demo-1",
+        templateId: "template-demo-1",
+        templateName: "PageRank on Person",
+        resultsLocation: "pagerank_results",
+        resultCount: 1200,
+        performanceMetrics: { duration_ms: 4200 },
+        startedAt: "2026-07-01T09:00:00Z"
+      },
+      {
+        ...baseExecution,
+        analysisExecutionId: "analysis-execution-demo-2",
+        algorithm: "wcc",
+        status: "completed",
+        useCaseId: "use-case-demo-2",
+        templateId: "template-demo-2",
+        templateName: "Weakly Connected Components",
+        resultsLocation: "wcc_results",
+        resultCount: 800,
+        performanceMetrics: { duration_ms: 2100 },
+        startedAt: "2026-07-01T09:10:00Z"
+      },
+      {
+        ...baseExecution,
+        analysisExecutionId: "analysis-execution-demo-3",
+        algorithm: "pagerank",
+        status: "failed",
+        useCaseId: "use-case-demo-1",
+        templateId: "template-demo-1",
+        templateName: "PageRank on Person",
+        resultsLocation: null,
+        resultCount: 0,
+        performanceMetrics: {},
+        errorMessage: "Engine ran out of memory during projection",
+        startedAt: "2026-07-02T09:00:00Z"
+      }
+    ],
+    templates: [
+      { template_id: "template-demo-1", template_name: "PageRank on Person" },
+      { template_id: "template-demo-2", template_name: "Weakly Connected Components" }
+    ],
+    useCases: [{ use_case_id: "use-case-demo-1" }, { use_case_id: "use-case-demo-2" }],
+    requirements: [{ requirement_version_id: "requirement-version-demo" }]
+  };
+}
+
+function demoCompareAnalysisExecutions(
+  analysisExecutionIds: string[]
+): AnalysisExecutionComparison {
+  const all = demoAnalysisCatalog().executions;
+  const selected = analysisExecutionIds
+    .map((id) => all.find((item) => item.analysisExecutionId === id))
+    .filter((item): item is AnalysisExecution => Boolean(item));
+  const baseline = selected[0];
+
+  return {
+    workspaceId: "workspace-demo",
+    baselineExecutionId: baseline?.analysisExecutionId ?? "",
+    executions: selected,
+    deltas: selected.map((execution) => {
+      const metricKeys = new Set([
+        ...Object.keys(baseline?.performanceMetrics ?? {}),
+        ...Object.keys(execution.performanceMetrics)
+      ]);
+      const performanceMetrics: Record<string, number> = {};
+      for (const key of metricKeys) {
+        performanceMetrics[key] =
+          (execution.performanceMetrics[key] ?? 0) -
+          (baseline?.performanceMetrics[key] ?? 0);
+      }
+      return {
+        analysisExecutionId: execution.analysisExecutionId,
+        resultCount: execution.resultCount - (baseline?.resultCount ?? 0),
+        performanceMetrics
+      };
+    })
   };
 }
 

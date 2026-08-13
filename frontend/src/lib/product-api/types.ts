@@ -23,6 +23,12 @@ export type WorkspaceAssetKind =
   // version. This avoids the v1/v2/v3/… clutter the per-version model
   // produced and matches how users think about "the Requirements doc."
   | "requirements"
+  // FR-45..FR-48: ONE consolidated "Analysis Catalog" row per workspace,
+  // synthetic id `analysis-catalog:<workspaceId>`, same consolidation trick
+  // as "requirements" above. Unlike Requirements this row is shown even when
+  // empty — it is the only entry point to the catalog, so hiding it when no
+  // analyses have run yet would make the feature undiscoverable.
+  | "analysis-catalog"
   | "run"
   | "report";
 
@@ -96,6 +102,159 @@ export interface SourceDocumentSummary {
   extractedText?: string | null;
   uploadedAt?: string;
   metadata: Record<string, unknown>;
+}
+
+/* --------------------------------------------------------------------------
+ * Analysis Catalog (FR-45..FR-48)
+ *
+ * Field names below mirror the exact dicts ProductService returns
+ * (AnalysisExecution.to_dict / AnalysisEpoch.to_dict and the browse /
+ * compare / lineage projections), captured by running the service rather
+ * than read off the Python type hints.
+ * ----------------------------------------------------------------------- */
+
+export interface AnalysisExecution {
+  analysisExecutionId: string;
+  workspaceId: string;
+  runId?: string | null;
+  algorithm: string;
+  status: string;
+  graphProfileId?: string | null;
+  requirementVersionId?: string | null;
+  useCaseId?: string | null;
+  templateId?: string | null;
+  templateName: string;
+  epochId?: string | null;
+  algorithmVersion: string;
+  parameters: Record<string, unknown>;
+  resultsLocation?: string | null;
+  resultCount: number;
+  performanceMetrics: Record<string, number>;
+  errorMessage?: string | null;
+  workflowMode?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AnalysisEpoch {
+  analysisEpochId: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  timestamp?: string | null;
+  status: string;
+  tags: string[];
+  analysisCount: number;
+  analysisExecutionIds: string[];
+}
+
+export interface AnalysisCatalogView {
+  workspaceId: string;
+  epochs: AnalysisEpoch[];
+  executions: AnalysisExecution[];
+  /** Lineage-only ID references until FR-19..FR-26 ship real entities. */
+  templates: Array<Record<string, unknown>>;
+  useCases: Array<Record<string, unknown>>;
+  requirements: Array<Record<string, unknown>>;
+}
+
+/** FR-46 filters. All optional; omitted keys are not sent. */
+export interface AnalysisExecutionFilters {
+  algorithm?: string;
+  status?: string;
+  epochId?: string;
+  graphProfileId?: string;
+  startedAfter?: string;
+  startedBefore?: string;
+}
+
+export interface AnalysisExecutionDelta {
+  analysisExecutionId: string;
+  resultCount: number;
+  performanceMetrics: Record<string, number>;
+}
+
+export interface AnalysisExecutionComparison {
+  workspaceId: string;
+  /** Deltas are relative to this execution (the first one selected). */
+  baselineExecutionId: string;
+  executions: AnalysisExecution[];
+  deltas: AnalysisExecutionDelta[];
+}
+
+export interface AnalysisLineage {
+  workspaceId: string;
+  execution: AnalysisExecution | null;
+  reports: Array<Record<string, unknown>>;
+  templateId?: string | null;
+  useCaseId?: string | null;
+  requirementVersionId?: string | null;
+}
+
+export interface RawAnalysisExecution {
+  analysis_execution_id: string;
+  workspace_id: string;
+  run_id?: string | null;
+  algorithm: string;
+  status: string;
+  graph_profile_id?: string | null;
+  requirement_version_id?: string | null;
+  use_case_id?: string | null;
+  template_id?: string | null;
+  template_name?: string;
+  epoch_id?: string | null;
+  algorithm_version?: string;
+  parameters?: Record<string, unknown>;
+  results_location?: string | null;
+  result_count?: number;
+  performance_metrics?: Record<string, number>;
+  error_message?: string | null;
+  workflow_mode?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RawAnalysisEpoch {
+  analysis_epoch_id: string;
+  workspace_id: string;
+  name: string;
+  description?: string;
+  timestamp?: string | null;
+  status: string;
+  tags?: string[];
+  analysis_count?: number;
+  analysis_execution_ids?: string[];
+}
+
+export interface RawAnalysisCatalogView {
+  workspace_id: string;
+  epochs?: RawAnalysisEpoch[];
+  executions?: RawAnalysisExecution[];
+  templates?: Array<Record<string, unknown>>;
+  use_cases?: Array<Record<string, unknown>>;
+  requirements?: Array<Record<string, unknown>>;
+}
+
+export interface RawAnalysisExecutionComparison {
+  workspace_id: string;
+  baseline_execution_id: string;
+  executions?: RawAnalysisExecution[];
+  deltas?: Array<{
+    analysis_execution_id: string;
+    result_count?: number;
+    performance_metrics?: Record<string, number>;
+  }>;
+}
+
+export interface RawAnalysisLineage {
+  workspace_id: string;
+  execution?: RawAnalysisExecution | null;
+  reports?: Array<Record<string, unknown>>;
+  template_id?: string | null;
+  use_case_id?: string | null;
+  requirement_version_id?: string | null;
 }
 
 /** FR-13: document content is sent base64-encoded in a JSON body — this
@@ -515,6 +674,20 @@ export interface ProductAPIClient {
     workspaceId: string,
     input: UploadSourceDocumentInput
   ): Promise<SourceDocumentSummary>;
+  /** FR-45: browse epochs + executions for a workspace. */
+  browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView>;
+  /** FR-46: server-side filtered execution search. */
+  listAnalysisExecutions(
+    workspaceId: string,
+    filters?: AnalysisExecutionFilters
+  ): Promise<AnalysisExecution[]>;
+  /** FR-48: compare executions; deltas are relative to the first id. */
+  compareAnalysisExecutions(
+    workspaceId: string,
+    analysisExecutionIds: string[]
+  ): Promise<AnalysisExecutionComparison>;
+  /** FR-47: trace report -> execution -> template -> use case -> requirement. */
+  getAnalysisLineage(analysisExecutionId: string): Promise<AnalysisLineage>;
   listConnectionProfileGraphs(
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult>;

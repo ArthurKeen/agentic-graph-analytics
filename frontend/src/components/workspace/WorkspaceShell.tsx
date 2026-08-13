@@ -65,6 +65,10 @@ export function WorkspaceShell({
     listClusterDatabases,
     getConnectionDefaults,
     uploadSourceDocument,
+    browseAnalysisCatalog,
+    listAnalysisExecutions,
+    compareAnalysisExecutions,
+    getAnalysisLineage,
     listConnectionProfileGraphs,
     discoverGraphProfile,
     startRequirementsCopilot,
@@ -866,6 +870,10 @@ export function WorkspaceShell({
               }
             : undefined
         }
+        onBrowseAnalysisCatalog={browseAnalysisCatalog}
+        onSearchAnalysisExecutions={listAnalysisExecutions}
+        onCompareAnalysisExecutions={compareAnalysisExecutions}
+        onGetAnalysisLineage={getAnalysisLineage}
         onFitCanvas={() => {
           setCanvasActionMessage("Fit All requested. The current workspace layout is already fit to visible assets.");
         }}

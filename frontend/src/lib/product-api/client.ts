@@ -26,6 +26,17 @@ import type {
   RawRequirementVersion,
   RawRequirementsDraftResult,
   RawReportBundle,
+  AnalysisCatalogView,
+  AnalysisEpoch,
+  AnalysisExecution,
+  AnalysisExecutionComparison,
+  AnalysisExecutionFilters,
+  AnalysisLineage,
+  RawAnalysisCatalogView,
+  RawAnalysisEpoch,
+  RawAnalysisExecution,
+  RawAnalysisExecutionComparison,
+  RawAnalysisLineage,
   RawSourceDocumentSummary,
   RawWorkflowDAGView,
   RawWorkflowRunSummary,
@@ -181,6 +192,58 @@ export function createProductAPIClient(
             mime_type: input.mimeType,
             content_base64: input.contentBase64
           }
+        )
+      );
+    },
+    async browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView> {
+      return mapAnalysisCatalogView(
+        await getJSON<RawAnalysisCatalogView>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/analysis-catalog`
+        )
+      );
+    },
+    async listAnalysisExecutions(
+      workspaceId: string,
+      filters: AnalysisExecutionFilters = {}
+    ): Promise<AnalysisExecution[]> {
+      // Only send filters the user actually set — the backend treats a
+      // present-but-empty filter as a real constraint and would match nothing.
+      const query = new URLSearchParams();
+      const wireNames: Array<[keyof AnalysisExecutionFilters, string]> = [
+        ["algorithm", "algorithm"],
+        ["status", "status"],
+        ["epochId", "epoch_id"],
+        ["graphProfileId", "graph_profile_id"],
+        ["startedAfter", "started_after"],
+        ["startedBefore", "started_before"]
+      ];
+      for (const [key, wireName] of wireNames) {
+        const value = filters[key];
+        if (value !== undefined && value !== null && value !== "") {
+          query.set(wireName, value);
+        }
+      }
+      const suffix = query.toString() ? `?${query.toString()}` : "";
+      const raw = await getJSON<RawAnalysisExecution[]>(
+        `${normalizedBaseUrl}/api/workspaces/${workspaceId}/analysis-executions${suffix}`
+      );
+      return (raw ?? []).map(mapAnalysisExecution);
+    },
+    async compareAnalysisExecutions(
+      workspaceId: string,
+      analysisExecutionIds: string[]
+    ): Promise<AnalysisExecutionComparison> {
+      return mapAnalysisExecutionComparison(
+        await postJSON<RawAnalysisExecutionComparison>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/analysis-executions/compare`,
+          { analysis_execution_ids: analysisExecutionIds }
+        )
+      );
+    },
+    async getAnalysisLineage(analysisExecutionId: string): Promise<AnalysisLineage> {
+      return mapAnalysisLineage(
+        await getJSON<RawAnalysisLineage>(
+          `${normalizedBaseUrl}/api/analysis-executions/${analysisExecutionId}/lineage`
         )
       );
     },
@@ -614,6 +677,85 @@ export function mapRequirementVersion(raw: RawRequirementVersion): RequirementVe
   };
 }
 
+export function mapAnalysisExecution(raw: RawAnalysisExecution): AnalysisExecution {
+  return {
+    analysisExecutionId: raw.analysis_execution_id,
+    workspaceId: raw.workspace_id,
+    runId: raw.run_id,
+    algorithm: raw.algorithm,
+    status: raw.status,
+    graphProfileId: raw.graph_profile_id,
+    requirementVersionId: raw.requirement_version_id,
+    useCaseId: raw.use_case_id,
+    templateId: raw.template_id,
+    templateName: raw.template_name ?? "",
+    epochId: raw.epoch_id,
+    algorithmVersion: raw.algorithm_version ?? "",
+    parameters: raw.parameters ?? {},
+    resultsLocation: raw.results_location,
+    resultCount: raw.result_count ?? 0,
+    performanceMetrics: raw.performance_metrics ?? {},
+    errorMessage: raw.error_message,
+    workflowMode: raw.workflow_mode,
+    startedAt: raw.started_at,
+    completedAt: raw.completed_at,
+    metadata: raw.metadata ?? {}
+  };
+}
+
+export function mapAnalysisEpoch(raw: RawAnalysisEpoch): AnalysisEpoch {
+  return {
+    analysisEpochId: raw.analysis_epoch_id,
+    workspaceId: raw.workspace_id,
+    name: raw.name,
+    description: raw.description ?? "",
+    timestamp: raw.timestamp,
+    status: raw.status,
+    tags: raw.tags ?? [],
+    analysisCount: raw.analysis_count ?? 0,
+    analysisExecutionIds: raw.analysis_execution_ids ?? []
+  };
+}
+
+export function mapAnalysisCatalogView(
+  raw: RawAnalysisCatalogView
+): AnalysisCatalogView {
+  return {
+    workspaceId: raw.workspace_id,
+    epochs: (raw.epochs ?? []).map(mapAnalysisEpoch),
+    executions: (raw.executions ?? []).map(mapAnalysisExecution),
+    templates: raw.templates ?? [],
+    useCases: raw.use_cases ?? [],
+    requirements: raw.requirements ?? []
+  };
+}
+
+export function mapAnalysisExecutionComparison(
+  raw: RawAnalysisExecutionComparison
+): AnalysisExecutionComparison {
+  return {
+    workspaceId: raw.workspace_id,
+    baselineExecutionId: raw.baseline_execution_id,
+    executions: (raw.executions ?? []).map(mapAnalysisExecution),
+    deltas: (raw.deltas ?? []).map((delta) => ({
+      analysisExecutionId: delta.analysis_execution_id,
+      resultCount: delta.result_count ?? 0,
+      performanceMetrics: delta.performance_metrics ?? {}
+    }))
+  };
+}
+
+export function mapAnalysisLineage(raw: RawAnalysisLineage): AnalysisLineage {
+  return {
+    workspaceId: raw.workspace_id,
+    execution: raw.execution ? mapAnalysisExecution(raw.execution) : null,
+    reports: raw.reports ?? [],
+    templateId: raw.template_id,
+    useCaseId: raw.use_case_id,
+    requirementVersionId: raw.requirement_version_id
+  };
+}
+
 export function mapConnectionVerificationResult(
   raw: RawConnectionVerificationResult
 ): ConnectionVerificationResult {
@@ -867,13 +1009,24 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     description: `Report (${report.status})`
   }));
 
+  // FR-45..FR-48: always present, even with no analyses yet — this row is the
+  // only entry point to the catalog, so hiding it when empty would make the
+  // feature undiscoverable. The canvas renders its own empty state.
+  const analysisCatalogAsset: WorkspaceAsset = {
+    id: `analysis-catalog:${overview.workspace.workspace_id}`,
+    kind: "analysis-catalog" as const,
+    label: "Analysis Catalog",
+    description: "Executions, epochs, comparison, and lineage"
+  };
+
   return [
     ...connectionProfileAssets,
     ...graphProfileAssets,
     ...requirementsAssets,
     ...documentAssets,
     ...runAssets,
-    ...reportAssets
+    ...reportAssets,
+    analysisCatalogAsset
   ];
 }
 

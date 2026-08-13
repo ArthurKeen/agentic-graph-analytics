@@ -1410,3 +1410,59 @@ button {
   cursor: not-allowed;
   opacity: 0.65;
 }
+
+/* Analysis Catalog (FR-45..FR-48) */
+.catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.catalog-filters label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--aga-muted, #9aa5b1);
+}
+
+.catalog-filters select,
+.catalog-filters input {
+  min-width: 150px;
+  border: 1px solid var(--aga-border);
+  border-radius: 8px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  padding: 6px 8px;
+}
+
+/* Wide tables scroll inside their own container so the page body never
+   scrolls horizontally. */
+.catalog-table-scroll {
+  overflow-x: auto;
+}
+
+.catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.catalog-table th,
+.catalog-table td {
+  border-bottom: 1px solid var(--aga-border);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.catalog-table th {
+  color: var(--aga-muted, #9aa5b1);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.catalog-table td[data-status="failed"] {
+  color: var(--aga-danger, #ff6b6b);
+}

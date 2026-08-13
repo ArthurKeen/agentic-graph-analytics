@@ -713,47 +713,65 @@ FR-31b/FR-31c and FR-34.
 
 ### Catalog and Lineage
 
-> **Scope note for FR-45..FR-48 (backend complete, no UI yet).** The Analysis
-> Catalog service layer, storage, and HTTP endpoints all exist and are tested.
-> No frontend consumes any of them — nothing under `frontend/src` references a
-> catalog endpoint. Each of these four requirements is written as "**Users
-> can** …", so none is satisfied by an endpoint alone: a user still cannot
-> browse, search, compare, or trace anything from the product. They are marked
-> **Partial** deliberately rather than Implemented, to avoid recording a
-> user-facing capability that no user can reach. Closing them needs a catalog
-> UI (a filterable execution list, a comparison view, and a lineage trail).
+> **Scope note for FR-45..FR-48.** These four are reachable end-to-end from the
+> product: the Assets panel carries an always-present "Analysis Catalog" row
+> (`frontend/src/lib/product-api/client.ts:1017`) that opens
+> `AnalysisCatalogCanvas`
+> (`frontend/src/components/workspace/AnalysisCatalogCanvas.tsx:25`), which
+> browses epochs/executions, filters them server-side, compares a selection, and
+> traces lineage. They were held at **Partial** for one cycle while only the
+> backend existed — each is written "**Users can** …", and an endpoint no screen
+> calls does not satisfy that. Verified in a real browser against a live API
+> with seeded data: the algorithm filter narrowed 3 rows to 1, comparison
+> returned real deltas against the baseline, and lineage resolved template and
+> use-case IDs, with no console errors.
+>
+> Still deliberately scoped out: templates and use cases appear as **IDs**, not
+> navigable records, because they have no product entities yet (FR-19..FR-26).
+> FR-45's "browse … templates, use cases" is therefore satisfied only in the
+> sense that their references are listed — see the per-requirement note below.
 
 - **FR-45:** Users can browse epochs, executions, templates, use cases, and
-  requirements. *(Partial — backend only: the workspace-scoped browse projection
-  is assembled by `ProductService.browse_analysis_catalog`
-  (`graph_analytics_ai/product/service.py:1580`) and exposed at
+  requirements. *(Partial: the browse projection is assembled by
+  `ProductService.browse_analysis_catalog`
+  (`graph_analytics_ai/product/service.py:1580`), exposed at
   `GET /api/workspaces/{workspace_id}/analysis-catalog`
-  (`graph_analytics_ai/product/api.py:413`). Executions and epochs are full
-  product records; templates/use cases are lineage IDs until their dedicated
-  product entities from FR-19..FR-26 ship. Remaining gap: no browse UI, and
-  templates/use cases are not yet browsable entities.)*
+  (`graph_analytics_ai/product/api.py:413`), and rendered as epoch and execution
+  sections in `AnalysisCatalogCanvas`
+  (`frontend/src/components/workspace/AnalysisCatalogCanvas.tsx:148` and `:166`).
+  Epochs and executions are fully browsable. Remaining gap: templates, use
+  cases, and requirements are still only ID references — they have no product
+  entities to browse until FR-19..FR-26 ship, so this stays Partial rather than
+  claiming a capability the data model cannot yet support.)*
 - **FR-46:** Users can search executions by algorithm, status, epoch, date,
-  graph, and workspace. *(Partial — backend only:
+  graph, and workspace. *(Implemented:
   `ProductService.list_analysis_executions`
   (`graph_analytics_ai/product/service.py:1546`) applies all six filters to
-  workspace-scoped rows; the corresponding GET endpoint is indexed by
-  workspace/status/algorithm/epoch/graph/date in
-  `graph_analytics_ai/product/storage/arangodb.py:208`. Remaining gap: no search
-  UI — the filters are reachable only by calling the API directly.)*
+  workspace-scoped rows, backed by the workspace/status/algorithm/epoch/graph/
+  date index (`graph_analytics_ai/product/storage/arangodb.py:208`). The filter
+  bar in `AnalysisCatalogCanvas.tsx:166` drives it server-side via
+  `listAnalysisExecutions` (`frontend/src/lib/product-api/client.ts:205`), which
+  omits blank filters — a present-but-empty filter is a real constraint
+  server-side and would match nothing. Filter options are derived from the
+  workspace's own executions rather than hard-coded. Verified in a browser:
+  selecting an algorithm narrowed the table from 3 rows to 1.)*
 - **FR-47:** Users can view lineage from report to execution to template to use
-  case to requirement. *(Partial — backend only:
-  `ProductService.get_analysis_lineage`
-  (`graph_analytics_ai/product/service.py:1685`) returns the complete ID chain
-  plus matching report and execution records via
-  `GET /api/analysis-executions/{analysis_execution_id}/lineage`. Remaining gap:
-  no lineage view; the chain is IDs in a JSON response, not navigable. This is
-  the same gap FR-37 records from the run-detail side.)*
-- **FR-48:** Users can compare executions across epochs. *(Partial — backend
-  only: `ProductService.compare_analysis_executions`
+  case to requirement. *(Implemented: `ProductService.get_analysis_lineage`
+  (`graph_analytics_ai/product/service.py:1685`) returns the ID chain plus the
+  matching report and execution records; the "Trace" action per execution row
+  renders it as an ordered trail in `AnalysisCatalogCanvas.tsx:380` via
+  `getAnalysisLineage` (`frontend/src/lib/product-api/client.ts:243`). Template
+  and use case render as IDs — the trail states this inline — until their
+  product entities ship.)*
+- **FR-48:** Users can compare executions across epochs. *(Implemented:
+  `ProductService.compare_analysis_executions`
   (`graph_analytics_ai/product/service.py:1642`) validates workspace scope and
   returns result-count and numeric performance-metric deltas against the first
-  selected execution; exposed as a POST comparison endpoint. Remaining gap: no
-  comparison UI, and no way for a user to select which executions to compare.)*
+  selected execution. Users pick executions with per-row checkboxes and compare
+  from `AnalysisCatalogCanvas.tsx:331`; the action requires at least two
+  selections, since deltas are relative to the first. Verified in a browser:
+  comparing two executions produced −400 results and −2,100 ms against the
+  baseline.)*
 
 ### Import and Export
 

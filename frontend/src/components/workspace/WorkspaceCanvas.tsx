@@ -1,5 +1,6 @@
 "use client";
 
+import { AnalysisCatalogCanvas } from "./AnalysisCatalogCanvas";
 import { CanvasLensLegend } from "./CanvasLensLegend";
 import { ConnectionProfileCanvas } from "./ConnectionProfileCanvas";
 import { DynamicReportCanvas } from "./DynamicReportCanvas";
@@ -15,6 +16,11 @@ import { buildCanvasContextMenu } from "./contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
 import type {
+  AnalysisCatalogView,
+  AnalysisExecution,
+  AnalysisExecutionComparison,
+  AnalysisExecutionFilters,
+  AnalysisLineage,
   ConnectionProfileSummary,
   ConnectionVerificationResult,
   ReportBundle,
@@ -90,6 +96,16 @@ interface WorkspaceCanvasProps {
   /** FR-13: omitted when no workspace is loaded (demo mode included), so
    * the canvas hides the action rather than rendering a dead entry. */
   onRequestUploadDocument?: () => void;
+  /** FR-45..FR-48: Analysis Catalog data access. All four are supplied
+   * together by the shell; the catalog view renders only when present. */
+  onBrowseAnalysisCatalog?: () => Promise<AnalysisCatalogView>;
+  onSearchAnalysisExecutions?: (
+    filters: AnalysisExecutionFilters
+  ) => Promise<AnalysisExecution[]>;
+  onCompareAnalysisExecutions?: (
+    ids: string[]
+  ) => Promise<AnalysisExecutionComparison>;
+  onGetAnalysisLineage?: (id: string) => Promise<AnalysisLineage>;
   onFitCanvas: () => void;
   onCenterCanvas: () => void;
   onViewOperationalDAG: () => void;
@@ -163,6 +179,10 @@ export function WorkspaceCanvas({
   onExportWorkspace,
   onRequestImportWorkspace,
   onRequestUploadDocument,
+  onBrowseAnalysisCatalog,
+  onSearchAnalysisExecutions,
+  onCompareAnalysisExecutions,
+  onGetAnalysisLineage,
   onFitCanvas,
   onCenterCanvas,
   onViewOperationalDAG,
@@ -191,7 +211,9 @@ export function WorkspaceCanvas({
             ? "Source Document"
             : selectedAsset?.kind === "requirements"
               ? "Requirements"
-              : "Operational DAG";
+              : selectedAsset?.kind === "analysis-catalog"
+                ? "Analysis Catalog"
+                : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateWorkspace: onRequestCreateWorkspace,
@@ -289,6 +311,17 @@ export function WorkspaceCanvas({
           isStartingRequirementsCopilot={isStartingRequirementsCopilot}
           onSelectVersion={onSelectRequirementVersion}
           onReopenCopilot={onRequestReopenRequirementsCopilot}
+        />
+      ) : selectedAsset.kind === "analysis-catalog" &&
+        onBrowseAnalysisCatalog &&
+        onSearchAnalysisExecutions &&
+        onCompareAnalysisExecutions &&
+        onGetAnalysisLineage ? (
+        <AnalysisCatalogCanvas
+          onBrowse={onBrowseAnalysisCatalog}
+          onSearch={onSearchAnalysisExecutions}
+          onCompare={onCompareAnalysisExecutions}
+          onLineage={onGetAnalysisLineage}
         />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section
