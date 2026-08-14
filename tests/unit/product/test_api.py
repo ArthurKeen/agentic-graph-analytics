@@ -54,6 +54,32 @@ def test_product_api_contract_includes_core_ui_routes():
         "/api/workspaces/{workspace_id}/analysis-epochs",
     ) in route_keys
     assert ("GET", "/api/catalog/stats") in route_keys
+    # FR-19..FR-26: use cases and analysis templates as product records.
+    assert ("POST", "/api/workspaces/{workspace_id}/use-cases") in route_keys
+    assert ("GET", "/api/workspaces/{workspace_id}/use-cases") in route_keys
+    assert ("PATCH", "/api/use-cases/{use_case_id}") in route_keys
+    assert ("POST", "/api/use-cases/{use_case_id}/status") in route_keys
+    assert ("POST", "/api/use-cases/{use_case_id}/priority") in route_keys
+    assert (
+        "POST",
+        "/api/workspaces/{workspace_id}/analysis-templates",
+    ) in route_keys
+    assert (
+        "POST",
+        "/api/workspaces/{workspace_id}/analysis-templates/import",
+    ) in route_keys
+    assert (
+        "PATCH",
+        "/api/analysis-templates/{analysis_template_id}",
+    ) in route_keys
+    assert (
+        "POST",
+        "/api/analysis-templates/{analysis_template_id}/approve",
+    ) in route_keys
+    assert (
+        "GET",
+        "/api/analysis-templates/{analysis_template_id}/versions",
+    ) in route_keys
 
     # Exactly one public URL per catalog operation. The earlier draft also
     # exposed /catalog/executions, /catalog/epochs, and

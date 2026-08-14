@@ -34,7 +34,13 @@ from graph_analytics_ai.product import (
     create_workspace,
 )
 from graph_analytics_ai.product.exceptions import ConflictError, ValidationError
-from graph_analytics_ai.product.models import DeploymentMode, DocumentStorageMode
+from graph_analytics_ai.product.models import (
+    AnalysisTemplateStatus,
+    DeploymentMode,
+    DocumentStorageMode,
+    UseCaseOrigin,
+    UseCaseStatus,
+)
 from graph_analytics_ai.ai.schema.models import (
     CollectionSchema,
     CollectionType,
@@ -51,6 +57,8 @@ class FakeProductRepository:
         self.connection_profiles = []
         self.graph_profiles = []
         self.source_documents = []
+        self.use_cases = []
+        self.analysis_templates = []
         self.requirement_interviews = []
         self.requirement_versions = []
         self.workflow_runs = {}
@@ -122,6 +130,56 @@ class FakeProductRepository:
                 self.graph_profiles[index] = profile
                 return profile.graph_profile_id
         raise KeyError(profile.graph_profile_id)
+
+    # --- Use cases and analysis templates (FR-19..FR-26) ---
+
+    def create_use_case(self, use_case):
+        self.use_cases.append(use_case)
+        return use_case.use_case_id
+
+    def get_use_case(self, use_case_id):
+        for use_case in self.use_cases:
+            if use_case.use_case_id == use_case_id:
+                return use_case
+        raise KeyError(use_case_id)
+
+    def update_use_case(self, use_case):
+        for index, existing in enumerate(self.use_cases):
+            if existing.use_case_id == use_case.use_case_id:
+                self.use_cases[index] = use_case
+                return use_case.use_case_id
+        raise KeyError(use_case.use_case_id)
+
+    def list_use_cases(self, workspace_id):
+        return [
+            use_case
+            for use_case in self.use_cases
+            if use_case.workspace_id == workspace_id
+        ]
+
+    def create_analysis_template(self, template):
+        self.analysis_templates.append(template)
+        return template.analysis_template_id
+
+    def get_analysis_template(self, analysis_template_id):
+        for template in self.analysis_templates:
+            if template.analysis_template_id == analysis_template_id:
+                return template
+        raise KeyError(analysis_template_id)
+
+    def update_analysis_template(self, template):
+        for index, existing in enumerate(self.analysis_templates):
+            if existing.analysis_template_id == template.analysis_template_id:
+                self.analysis_templates[index] = template
+                return template.analysis_template_id
+        raise KeyError(template.analysis_template_id)
+
+    def list_analysis_templates(self, workspace_id):
+        return [
+            template
+            for template in self.analysis_templates
+            if template.workspace_id == workspace_id
+        ]
 
     def list_source_documents(self, workspace_id):
         return [
@@ -2758,3 +2816,262 @@ def test_record_workflow_analysis_executions_is_idempotent_by_job_id():
     assert second == []
     assert len(repository.analysis_executions) == 1
     assert first[0].metadata["gae_job_id"] == "gae-job-1"
+
+
+# ---------------------------------------------------------------------------
+# Use cases and analysis templates (FR-19..FR-26)
+# ---------------------------------------------------------------------------
+
+
+def _workspace_for_use_cases(repository):
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    return workspace
+
+
+def test_create_use_case_starts_as_draft_and_audits():
+    """PRD FR-19: users can author a use case by hand."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+
+    use_case = ProductService(repository).create_use_case(
+        workspace_id=workspace.workspace_id,
+        title="Find fraud rings",
+        use_case_type="community",
+        priority="high",
+        actor="analyst@example.com",
+    )
+
+    assert use_case.status is UseCaseStatus.DRAFT
+    # Approval is a separate, audited decision — creating never approves.
+    assert use_case.origin is UseCaseOrigin.MANUAL
+    assert use_case.priority == "high"
+    assert repository.use_cases[0].use_case_id == use_case.use_case_id
+    assert any(
+        event.action == "create_use_case" for event in repository.audit_events
+    )
+
+
+def test_use_case_review_lifecycle_and_terminal_archive():
+    """PRD FR-20: approve/reject/archive are audited; archive is terminal."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+    use_case = service.create_use_case(
+        workspace_id=workspace.workspace_id, title="Rank accounts"
+    )
+
+    rejected = service.set_use_case_status(
+        use_case.use_case_id, "rejected", review_note="Out of scope", actor="lead"
+    )
+    assert rejected.status is UseCaseStatus.REJECTED
+    assert rejected.review_note == "Out of scope"
+    # A rejected use case can be revised and re-submitted.
+    service.update_use_case(use_case.use_case_id, title="Rank accounts by risk")
+    approved = service.set_use_case_status(use_case.use_case_id, "approved")
+    assert approved.status is UseCaseStatus.APPROVED
+
+    service.set_use_case_status(use_case.use_case_id, "archived")
+    with pytest.raises(ConflictError):
+        service.set_use_case_status(use_case.use_case_id, "approved")
+
+
+def test_approved_use_case_cannot_be_edited_but_can_be_reprioritized():
+    """An approved use case feeds template generation, so content is frozen.
+
+    Priority is not content — a reviewer must be able to re-rank an approved
+    backlog without reopening it for edits (FR-20).
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+    use_case = service.create_use_case(
+        workspace_id=workspace.workspace_id, title="Detect anomalies"
+    )
+    service.set_use_case_status(use_case.use_case_id, "approved")
+
+    with pytest.raises(ConflictError):
+        service.update_use_case(use_case.use_case_id, title="Something else")
+
+    reprioritized = service.set_use_case_priority(use_case.use_case_id, "critical")
+    assert reprioritized.priority == "critical"
+
+
+def test_create_use_case_rejects_unknown_type_and_priority():
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+
+    with pytest.raises(ValidationError):
+        service.create_use_case(
+            workspace_id=workspace.workspace_id, title="X", use_case_type="telepathy"
+        )
+    with pytest.raises(ValidationError):
+        service.create_use_case(
+            workspace_id=workspace.workspace_id, title="X", priority="urgent-ish"
+        )
+
+
+def test_editing_a_draft_template_mutates_it_in_place():
+    """PRD FR-23: algorithm parameters are editable before approval."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+    template = service.create_analysis_template(
+        workspace_id=workspace.workspace_id,
+        name="PageRank",
+        algorithm="pagerank",
+        parameters={"damping_factor": 0.85},
+    )
+
+    edited = service.update_analysis_template(
+        template.analysis_template_id, parameters={"damping_factor": 0.9}
+    )
+
+    assert edited.analysis_template_id == template.analysis_template_id
+    assert edited.version == 1
+    assert edited.parameters == {"damping_factor": 0.9}
+    assert len(repository.analysis_templates) == 1
+
+
+def test_editing_an_approved_template_creates_a_new_version():
+    """PRD FR-25: approved templates are immutable and versioned.
+
+    A completed run must still resolve the exact row it executed, so editing
+    supersedes rather than mutates.
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+    v1 = service.create_analysis_template(
+        workspace_id=workspace.workspace_id,
+        name="PageRank",
+        algorithm="pagerank",
+        parameters={"damping_factor": 0.85},
+    )
+    service.approve_analysis_template(v1.analysis_template_id, actor="approver")
+
+    v2 = service.update_analysis_template(
+        v1.analysis_template_id, parameters={"damping_factor": 0.5}, actor="analyst"
+    )
+
+    assert v2.analysis_template_id != v1.analysis_template_id
+    assert v2.version == 2
+    assert v2.status is AnalysisTemplateStatus.DRAFT
+    # Same lineage: "this template" is stable across versions.
+    assert v2.lineage_id == v1.lineage_id
+
+    stored_v1 = service.get_analysis_template(v1.analysis_template_id)
+    assert stored_v1.status is AnalysisTemplateStatus.SUPERSEDED
+    assert stored_v1.superseded_by == v2.analysis_template_id
+    # The executed configuration is untouched.
+    assert stored_v1.parameters == {"damping_factor": 0.85}
+
+    versions = service.get_analysis_template_versions(v2.analysis_template_id)
+    assert [item.version for item in versions] == [1, 2]
+    # Superseded rows are hidden from the default listing.
+    listed = service.list_analysis_templates(workspace.workspace_id)
+    assert [item.analysis_template_id for item in listed] == [
+        v2.analysis_template_id
+    ]
+
+
+def test_only_draft_templates_can_be_approved():
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+    template = service.create_analysis_template(
+        workspace_id=workspace.workspace_id, name="WCC", algorithm="wcc"
+    )
+    service.approve_analysis_template(template.analysis_template_id)
+
+    with pytest.raises(ConflictError):
+        service.approve_analysis_template(template.analysis_template_id)
+
+
+def test_import_template_dictionary_ignores_unknown_keys_and_executes_nothing():
+    """PRD FR-26: import supported template dictionaries without executing code.
+
+    Only the whitelisted fields are read. A payload naming a Python type or
+    shell command is inert data — it is recorded as ignored, never resolved,
+    imported, or run.
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+
+    imported = ProductService(repository).import_analysis_templates(
+        workspace_id=workspace.workspace_id,
+        templates=[
+            {
+                "name": "WCC",
+                "algorithm": "wcc",
+                "parameters": {"max_iterations": 20},
+                "__class__": "os.system",
+                "cmd": "rm -rf /",
+                "eval": "__import__('os').system('id')",
+            }
+        ],
+        actor="analyst@example.com",
+    )
+
+    assert len(imported) == 1
+    template = imported[0]
+    assert template.name == "WCC"
+    assert template.algorithm == "wcc"
+    assert template.parameters == {"max_iterations": 20}
+    # Importing is not approving — everything lands as a draft for review.
+    assert template.status is AnalysisTemplateStatus.DRAFT
+    assert template.metadata["ignored_keys"] == ["__class__", "cmd", "eval"]
+    # The hostile keys never became attributes of the persisted record.
+    assert "cmd" not in template.to_dict()
+    assert "__class__" not in template.to_dict()
+
+
+def test_import_template_dictionary_rejects_malformed_entries():
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+
+    with pytest.raises(ValidationError):
+        service.import_analysis_templates(
+            workspace_id=workspace.workspace_id, templates=[{"algorithm": "wcc"}]
+        )
+    with pytest.raises(ValidationError):
+        service.import_analysis_templates(
+            workspace_id=workspace.workspace_id,
+            templates=[{"name": "X", "algorithm": "wcc", "parameters": "not-an-object"}],
+        )
+
+
+def test_browse_catalog_returns_real_templates_and_use_cases():
+    """PRD FR-45: templates and use cases are browsable records, not bare IDs."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_use_cases(repository)
+    service = ProductService(repository)
+    use_case = service.create_use_case(
+        workspace_id=workspace.workspace_id, title="Find fraud rings"
+    )
+    service.create_analysis_template(
+        workspace_id=workspace.workspace_id,
+        name="PageRank",
+        algorithm="pagerank",
+        use_case_id=use_case.use_case_id,
+    )
+
+    catalog = service.browse_analysis_catalog(workspace.workspace_id)
+
+    assert [item["title"] for item in catalog["use_cases"]] == ["Find fraud rings"]
+    assert [item["name"] for item in catalog["templates"]] == ["PageRank"]
+    assert catalog["unresolved_template_ids"] == []
+    assert catalog["unresolved_use_case_ids"] == []

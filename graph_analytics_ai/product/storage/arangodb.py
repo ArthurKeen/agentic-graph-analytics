@@ -10,7 +10,9 @@ from arango.exceptions import DocumentGetError, DocumentInsertError, DocumentUpd
 
 from ..constants import (
     ANALYSIS_EPOCHS_COLLECTION,
+    USE_CASES_COLLECTION,
     ANALYSIS_EXECUTIONS_COLLECTION,
+    ANALYSIS_TEMPLATES_COLLECTION,
     AUDIT_EVENTS_COLLECTION,
     CHART_SPECS_COLLECTION,
     COLLECTION_ROLES_COLLECTION,
@@ -34,6 +36,7 @@ from ..exceptions import DuplicateError, NotFoundError, StorageError
 from ..models import (
     AnalysisEpoch,
     AnalysisExecution,
+    AnalysisTemplate,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -46,6 +49,7 @@ from ..models import (
     RequirementVersion,
     SchemaSnapshot,
     SourceDocument,
+    UseCase,
     Workspace,
     WorkflowRun,
 )
@@ -77,6 +81,8 @@ class ProductArangoStorage:
     GRAPH_SETS_COLLECTION = GRAPH_SETS_COLLECTION
     ANALYSIS_EXECUTIONS_COLLECTION = ANALYSIS_EXECUTIONS_COLLECTION
     ANALYSIS_EPOCHS_COLLECTION = ANALYSIS_EPOCHS_COLLECTION
+    USE_CASES_COLLECTION = USE_CASES_COLLECTION
+    ANALYSIS_TEMPLATES_COLLECTION = ANALYSIS_TEMPLATES_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -150,6 +156,8 @@ class ProductArangoStorage:
                 AUDIT_EVENTS_COLLECTION,
                 ANALYSIS_EXECUTIONS_COLLECTION,
                 ANALYSIS_EPOCHS_COLLECTION,
+                USE_CASES_COLLECTION,
+                ANALYSIS_TEMPLATES_COLLECTION,
             ]:
                 collection = self.db.collection(collection_name)
                 collection.add_hash_index(fields=["workspace_id"], unique=False)
@@ -183,6 +191,17 @@ class ProductArangoStorage:
             )
             self.db.collection(AUDIT_EVENTS_COLLECTION).add_skiplist_index(
                 fields=["timestamp"], unique=False
+            )
+            # FR-25: template version chains are resolved by lineage_id, and
+            # use cases are filtered by status in the review queue.
+            self.db.collection(ANALYSIS_TEMPLATES_COLLECTION).add_hash_index(
+                fields=["lineage_id"], unique=False
+            )
+            self.db.collection(ANALYSIS_TEMPLATES_COLLECTION).add_hash_index(
+                fields=["use_case_id"], unique=False
+            )
+            self.db.collection(USE_CASES_COLLECTION).add_hash_index(
+                fields=["workspace_id", "status"], unique=False
             )
             # PRD v0.6: cache_key is the SchemaCache lookup field used
             # by every acquire_schema call. Hash index is non-unique
@@ -772,6 +791,66 @@ class ProductArangoStorage:
             sort_field="timestamp",
         )
         return [AnalysisEpoch.from_dict(doc) for doc in docs]
+
+    # --- Use case and analysis template operations (FR-19..FR-26) ---
+
+    def insert_use_case(self, use_case: UseCase) -> str:
+        """Insert a workspace-scoped use case."""
+
+        return self._insert_document(USE_CASES_COLLECTION, use_case.to_dict())
+
+    def get_use_case(self, use_case_id: str) -> UseCase:
+        """Get a use case by ID."""
+
+        return UseCase.from_dict(self._get_document(USE_CASES_COLLECTION, use_case_id))
+
+    def update_use_case(self, use_case: UseCase) -> str:
+        """Update a use case."""
+
+        use_case.updated_at = datetime.now(timezone.utc)
+        return self._update_document(USE_CASES_COLLECTION, use_case.to_dict())
+
+    def list_use_cases(self, workspace_id: str) -> List[UseCase]:
+        """List a workspace's use cases, newest first."""
+
+        docs = self._list_workspace_documents(
+            USE_CASES_COLLECTION,
+            workspace_id,
+            sort_field="created_at",
+        )
+        return [UseCase.from_dict(doc) for doc in docs]
+
+    def insert_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Insert a workspace-scoped analysis template."""
+
+        return self._insert_document(
+            ANALYSIS_TEMPLATES_COLLECTION, template.to_dict()
+        )
+
+    def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
+        """Get an analysis template by ID."""
+
+        return AnalysisTemplate.from_dict(
+            self._get_document(ANALYSIS_TEMPLATES_COLLECTION, analysis_template_id)
+        )
+
+    def update_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Update an analysis template."""
+
+        template.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            ANALYSIS_TEMPLATES_COLLECTION, template.to_dict()
+        )
+
+    def list_analysis_templates(self, workspace_id: str) -> List[AnalysisTemplate]:
+        """List a workspace's analysis templates, newest first."""
+
+        docs = self._list_workspace_documents(
+            ANALYSIS_TEMPLATES_COLLECTION,
+            workspace_id,
+            sort_field="created_at",
+        )
+        return [AnalysisTemplate.from_dict(doc) for doc in docs]
 
     # --- Report operations ---
 

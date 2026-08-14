@@ -7,6 +7,7 @@ from .exceptions import ConflictError
 from .models import (
     AnalysisEpoch,
     AnalysisExecution,
+    AnalysisTemplate,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -20,6 +21,7 @@ from .models import (
     RequirementVersionStatus,
     SchemaSnapshot,
     SourceDocument,
+    UseCase,
     Workspace,
     WorkflowRun,
     create_schema_snapshot,
@@ -305,6 +307,46 @@ class ProductRepository:
         """List analysis epochs for a workspace."""
 
         return self.storage.list_analysis_epochs(workspace_id)
+
+    def create_use_case(self, use_case: UseCase) -> str:
+        """Create a use case."""
+
+        return self.storage.insert_use_case(use_case)
+
+    def get_use_case(self, use_case_id: str) -> UseCase:
+        """Get a use case."""
+
+        return self.storage.get_use_case(use_case_id)
+
+    def update_use_case(self, use_case: UseCase) -> str:
+        """Update a use case."""
+
+        return self.storage.update_use_case(use_case)
+
+    def list_use_cases(self, workspace_id: str) -> List[UseCase]:
+        """List use cases for a workspace."""
+
+        return self.storage.list_use_cases(workspace_id)
+
+    def create_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Create an analysis template."""
+
+        return self.storage.insert_analysis_template(template)
+
+    def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
+        """Get an analysis template."""
+
+        return self.storage.get_analysis_template(analysis_template_id)
+
+    def update_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Update an analysis template."""
+
+        return self.storage.update_analysis_template(template)
+
+    def list_analysis_templates(self, workspace_id: str) -> List[AnalysisTemplate]:
+        """List analysis templates for a workspace."""
+
+        return self.storage.list_analysis_templates(workspace_id)
 
     def create_report_manifest(self, manifest: ReportManifest) -> str:
         """Create a report manifest."""

@@ -40,6 +40,8 @@ from .models import (
     AnalysisEpoch,
     AnalysisExecution,
     AnalysisExecutionStatus,
+    AnalysisTemplate,
+    AnalysisTemplateStatus,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -58,6 +60,9 @@ from .models import (
     RequirementVersion,
     RequirementVersionStatus,
     SourceDocument,
+    UseCase,
+    UseCaseOrigin,
+    UseCaseStatus,
     Workspace,
     WorkspaceStatus,
     WorkflowDAGEdge,
@@ -69,6 +74,7 @@ from .models import (
     create_audit_event,
     create_analysis_epoch,
     create_analysis_execution,
+    create_analysis_template,
     create_connection_profile,
     create_graph_profile,
     create_graph_set,
@@ -76,6 +82,7 @@ from .models import (
     create_requirement_interview,
     create_requirement_version,
     create_source_document,
+    create_use_case,
     create_workspace,
     create_workflow_run,
     current_timestamp,
@@ -89,7 +96,7 @@ logger = logging.getLogger(__name__)
 # accepted bundle set explicit so an older workspace export remains importable
 # after additive catalog/schema features land.
 _SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset(
-    {"1.0.0", "1.1.0", "1.2.0", PRODUCT_SCHEMA_VERSION}
+    {"1.0.0", "1.1.0", "1.2.0", "1.3.0", PRODUCT_SCHEMA_VERSION}
 )
 
 
@@ -1282,6 +1289,623 @@ class ProductService:
             "supervisor": supervisor_status,
         }
 
+    # --- Use cases (FR-19..FR-21) ---
+
+    USE_CASE_TYPES = (
+        "centrality",
+        "community",
+        "pathfinding",
+        "pattern",
+        "anomaly",
+        "recommendation",
+        "similarity",
+    )
+    USE_CASE_PRIORITIES = ("critical", "high", "medium", "low", "unknown")
+
+    def create_use_case(
+        self,
+        workspace_id: str,
+        title: str,
+        description: str = "",
+        use_case_type: str = "pattern",
+        priority: str = "medium",
+        requirement_version_id: Optional[str] = None,
+        related_requirements: Optional[List[str]] = None,
+        graph_algorithms: Optional[List[str]] = None,
+        data_needs: Optional[List[str]] = None,
+        expected_outputs: Optional[List[str]] = None,
+        success_metrics: Optional[List[str]] = None,
+        origin: str = "manual",
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Author a use case by hand (FR-19).
+
+        Created as a DRAFT — approval is a separate, audited decision
+        (FR-20). ``origin`` distinguishes user-authored rows from ones an
+        agentic run generated, so provenance is visible in the UI.
+        """
+
+        if not title.strip():
+            raise ValidationError("Use case title is required")
+        self._validate_use_case_type(use_case_type)
+        self._validate_use_case_priority(priority)
+        if origin not in {item.value for item in UseCaseOrigin}:
+            raise ValidationError(
+                f"origin must be one of {[i.value for i in UseCaseOrigin]}"
+            )
+        self.repository.get_workspace(workspace_id)
+
+        if requirement_version_id:
+            version = self.repository.get_requirement_version(requirement_version_id)
+            if version.workspace_id != workspace_id:
+                raise ValidationError(
+                    "requirement_version_id must belong to this workspace"
+                )
+
+        use_case = create_use_case(
+            workspace_id=workspace_id,
+            title=title.strip(),
+            description=description.strip(),
+            use_case_type=use_case_type,
+            priority=priority,
+            origin=UseCaseOrigin(origin),
+            requirement_version_id=requirement_version_id,
+            related_requirements=list(related_requirements or []),
+            graph_algorithms=list(graph_algorithms or []),
+            data_needs=list(data_needs or []),
+            expected_outputs=list(expected_outputs or []),
+            success_metrics=list(success_metrics or []),
+            created_by=actor,
+        )
+        self.repository.create_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="create_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"title": use_case.title, "origin": origin},
+            )
+        )
+        return use_case
+
+    def update_use_case(
+        self,
+        use_case_id: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        use_case_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        related_requirements: Optional[List[str]] = None,
+        graph_algorithms: Optional[List[str]] = None,
+        data_needs: Optional[List[str]] = None,
+        expected_outputs: Optional[List[str]] = None,
+        success_metrics: Optional[List[str]] = None,
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Edit a draft use case (FR-19).
+
+        Only DRAFT and REJECTED rows are editable. An APPROVED use case is
+        the input to template generation, so silently mutating one would
+        change what downstream templates claim to be derived from; a
+        rejected one can be revised and re-submitted.
+        """
+
+        use_case = self.repository.get_use_case(use_case_id)
+        if use_case.status in {UseCaseStatus.APPROVED, UseCaseStatus.ARCHIVED}:
+            raise ConflictError(
+                f"Use case {use_case_id} is {use_case.status.value} and cannot be "
+                "edited. Approved use cases are inputs to template generation; "
+                "archive and clone instead."
+            )
+
+        changes: Dict[str, Any] = {}
+        if title is not None:
+            stripped = title.strip()
+            if not stripped:
+                raise ValidationError("Use case title cannot be empty")
+            if stripped != use_case.title:
+                changes["title"] = {"from": use_case.title, "to": stripped}
+                use_case.title = stripped
+        if description is not None and description.strip() != use_case.description:
+            changes["description"] = True
+            use_case.description = description.strip()
+        if use_case_type is not None and use_case_type != use_case.use_case_type:
+            self._validate_use_case_type(use_case_type)
+            changes["use_case_type"] = {
+                "from": use_case.use_case_type,
+                "to": use_case_type,
+            }
+            use_case.use_case_type = use_case_type
+        if priority is not None and priority != use_case.priority:
+            self._validate_use_case_priority(priority)
+            changes["priority"] = {"from": use_case.priority, "to": priority}
+            use_case.priority = priority
+
+        for field_name, value in (
+            ("related_requirements", related_requirements),
+            ("graph_algorithms", graph_algorithms),
+            ("data_needs", data_needs),
+            ("expected_outputs", expected_outputs),
+            ("success_metrics", success_metrics),
+        ):
+            if value is not None and list(value) != getattr(use_case, field_name):
+                changes[field_name] = {"count": len(value)}
+                setattr(use_case, field_name, list(value))
+
+        if not changes:
+            return use_case
+
+        use_case.updated_at = current_timestamp()
+        self.repository.update_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=use_case.workspace_id,
+                actor=actor or "system",
+                action="update_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"changes": changes},
+            )
+        )
+        return use_case
+
+    def set_use_case_status(
+        self,
+        use_case_id: str,
+        status: str,
+        review_note: str = "",
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Approve, reject, or archive a use case (FR-20).
+
+        Prioritisation is a separate concern handled by
+        :meth:`update_use_case` (draft) and
+        :meth:`set_use_case_priority` (any non-archived state), because a
+        reviewer often needs to re-rank an already-approved backlog without
+        reopening it for edits.
+
+        ARCHIVED is terminal: an archived row is history, and re-approving
+        it would silently resurrect a use case that downstream templates may
+        already have been retired against.
+        """
+
+        try:
+            target = UseCaseStatus(status)
+        except ValueError:
+            raise ValidationError(
+                f"status must be one of {[s.value for s in UseCaseStatus]}"
+            ) from None
+
+        use_case = self.repository.get_use_case(use_case_id)
+        if use_case.status is UseCaseStatus.ARCHIVED:
+            raise ConflictError(
+                f"Use case {use_case_id} is archived; archived use cases are "
+                "terminal and cannot be re-opened."
+            )
+        if use_case.status is target:
+            return use_case
+
+        previous = use_case.status.value
+        use_case.status = target
+        use_case.reviewed_by = actor
+        use_case.reviewed_at = current_timestamp()
+        use_case.review_note = review_note.strip()
+        use_case.updated_at = current_timestamp()
+        self.repository.update_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=use_case.workspace_id,
+                actor=actor or "system",
+                action=f"{target.value}_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"from": previous, "to": target.value, "note": review_note},
+            )
+        )
+        return use_case
+
+    def set_use_case_priority(
+        self,
+        use_case_id: str,
+        priority: str,
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Re-prioritise a use case at any non-archived status (FR-20)."""
+
+        self._validate_use_case_priority(priority)
+        use_case = self.repository.get_use_case(use_case_id)
+        if use_case.status is UseCaseStatus.ARCHIVED:
+            raise ConflictError("Archived use cases cannot be re-prioritised")
+        if use_case.priority == priority:
+            return use_case
+
+        previous = use_case.priority
+        use_case.priority = priority
+        use_case.updated_at = current_timestamp()
+        self.repository.update_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=use_case.workspace_id,
+                actor=actor or "system",
+                action="prioritize_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"from": previous, "to": priority},
+            )
+        )
+        return use_case
+
+    def get_use_case(self, use_case_id: str) -> UseCase:
+        """Get a single use case."""
+
+        return self.repository.get_use_case(use_case_id)
+
+    def list_use_cases(
+        self,
+        workspace_id: str,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+    ) -> List[UseCase]:
+        """List a workspace's use cases, optionally filtered (FR-45)."""
+
+        self.repository.get_workspace(workspace_id)
+        rows = self.repository.list_use_cases(workspace_id)
+        if status:
+            normalized = UseCaseStatus(status)
+            rows = [row for row in rows if row.status is normalized]
+        if priority:
+            rows = [row for row in rows if row.priority == priority]
+        return rows
+
+    def _validate_use_case_type(self, use_case_type: str) -> None:
+        if use_case_type not in self.USE_CASE_TYPES:
+            raise ValidationError(
+                f"use_case_type must be one of {list(self.USE_CASE_TYPES)}, "
+                f"got {use_case_type!r}"
+            )
+
+    def _validate_use_case_priority(self, priority: str) -> None:
+        if priority not in self.USE_CASE_PRIORITIES:
+            raise ValidationError(
+                f"priority must be one of {list(self.USE_CASE_PRIORITIES)}, "
+                f"got {priority!r}"
+            )
+
+    # --- Analysis templates (FR-22..FR-26) ---
+
+    # FR-26: the import path reads ONLY these keys off an incoming dict and
+    # ignores everything else. Nothing is eval'd, exec'd, imported by name, or
+    # instantiated from a caller-supplied type — an imported template is inert
+    # data until a user approves and runs it.
+    IMPORTABLE_TEMPLATE_FIELDS = (
+        "name",
+        "description",
+        "algorithm",
+        "parameters",
+        "config",
+        "estimated_runtime_seconds",
+    )
+
+    def create_analysis_template(
+        self,
+        workspace_id: str,
+        name: str,
+        algorithm: str,
+        description: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        use_case_id: Optional[str] = None,
+        estimated_runtime_seconds: Optional[float] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisTemplate:
+        """Create a draft analysis template (FR-22)."""
+
+        if not name.strip():
+            raise ValidationError("Template name is required")
+        if not algorithm.strip():
+            raise ValidationError("Template algorithm is required")
+        self.repository.get_workspace(workspace_id)
+
+        if use_case_id:
+            use_case = self.repository.get_use_case(use_case_id)
+            if use_case.workspace_id != workspace_id:
+                raise ValidationError("use_case_id must belong to this workspace")
+
+        template = create_analysis_template(
+            workspace_id=workspace_id,
+            name=name.strip(),
+            algorithm=algorithm.strip(),
+            description=description.strip(),
+            parameters=dict(parameters or {}),
+            config=dict(config or {}),
+            use_case_id=use_case_id,
+            estimated_runtime_seconds=estimated_runtime_seconds,
+            created_by=actor,
+        )
+        self.repository.create_analysis_template(template)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="create_analysis_template",
+                target_type="analysis_template",
+                target_id=template.analysis_template_id,
+                details={"name": template.name, "algorithm": template.algorithm},
+            )
+        )
+        return template
+
+    def update_analysis_template(
+        self,
+        analysis_template_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        algorithm: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        estimated_runtime_seconds: Optional[float] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisTemplate:
+        """Edit algorithm parameters and config (FR-23), honouring FR-25.
+
+        A DRAFT template is edited in place. An APPROVED template is
+        immutable, so editing one instead creates the next version in the
+        same lineage and flips the original to SUPERSEDED — any completed
+        run still resolves the exact template row it executed. The returned
+        template is whichever row the caller should now be looking at.
+        """
+
+        template = self.repository.get_analysis_template(analysis_template_id)
+        if template.status in {
+            AnalysisTemplateStatus.SUPERSEDED,
+            AnalysisTemplateStatus.ARCHIVED,
+        }:
+            raise ConflictError(
+                f"Template {analysis_template_id} is {template.status.value} and "
+                "cannot be edited; edit its current version instead."
+            )
+
+        patch: Dict[str, Any] = {}
+        if name is not None and name.strip() != template.name:
+            if not name.strip():
+                raise ValidationError("Template name cannot be empty")
+            patch["name"] = name.strip()
+        if description is not None and description.strip() != template.description:
+            patch["description"] = description.strip()
+        if algorithm is not None and algorithm.strip() != template.algorithm:
+            if not algorithm.strip():
+                raise ValidationError("Template algorithm cannot be empty")
+            patch["algorithm"] = algorithm.strip()
+        if parameters is not None and dict(parameters) != template.parameters:
+            patch["parameters"] = dict(parameters)
+        if config is not None and dict(config) != template.config:
+            patch["config"] = dict(config)
+        if (
+            estimated_runtime_seconds is not None
+            and estimated_runtime_seconds != template.estimated_runtime_seconds
+        ):
+            patch["estimated_runtime_seconds"] = estimated_runtime_seconds
+
+        if not patch:
+            return template
+
+        if template.status is AnalysisTemplateStatus.DRAFT:
+            for key, value in patch.items():
+                setattr(template, key, value)
+            template.updated_at = current_timestamp()
+            self.repository.update_analysis_template(template)
+            self.repository.create_audit_event(
+                create_audit_event(
+                    workspace_id=template.workspace_id,
+                    actor=actor or "system",
+                    action="update_analysis_template",
+                    target_type="analysis_template",
+                    target_id=template.analysis_template_id,
+                    details={"changed_fields": sorted(patch.keys())},
+                )
+            )
+            return template
+
+        # APPROVED -> new version in the same lineage (FR-25).
+        successor = create_analysis_template(
+            workspace_id=template.workspace_id,
+            name=patch.get("name", template.name),
+            lineage_id=template.lineage_id,
+            description=patch.get("description", template.description),
+            algorithm=patch.get("algorithm", template.algorithm),
+            parameters=patch.get("parameters", dict(template.parameters)),
+            config=patch.get("config", dict(template.config)),
+            version=template.version + 1,
+            status=AnalysisTemplateStatus.DRAFT,
+            use_case_id=template.use_case_id,
+            estimated_runtime_seconds=patch.get(
+                "estimated_runtime_seconds", template.estimated_runtime_seconds
+            ),
+            created_by=actor,
+            metadata={"supersedes": template.analysis_template_id},
+        )
+        self.repository.create_analysis_template(successor)
+
+        template.status = AnalysisTemplateStatus.SUPERSEDED
+        template.superseded_by = successor.analysis_template_id
+        template.updated_at = current_timestamp()
+        self.repository.update_analysis_template(template)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=template.workspace_id,
+                actor=actor or "system",
+                action="version_analysis_template",
+                target_type="analysis_template",
+                target_id=successor.analysis_template_id,
+                details={
+                    "supersedes": template.analysis_template_id,
+                    "version": successor.version,
+                    "changed_fields": sorted(patch.keys()),
+                },
+            )
+        )
+        return successor
+
+    def approve_analysis_template(
+        self,
+        analysis_template_id: str,
+        actor: Optional[str] = None,
+    ) -> AnalysisTemplate:
+        """Approve a draft template, making it immutable (FR-25)."""
+
+        template = self.repository.get_analysis_template(analysis_template_id)
+        if template.status is not AnalysisTemplateStatus.DRAFT:
+            raise ConflictError(
+                f"Only draft templates can be approved; {analysis_template_id} is "
+                f"{template.status.value}."
+            )
+
+        template.status = AnalysisTemplateStatus.APPROVED
+        template.approved_by = actor
+        template.approved_at = current_timestamp()
+        template.updated_at = current_timestamp()
+        self.repository.update_analysis_template(template)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=template.workspace_id,
+                actor=actor or "system",
+                action="approve_analysis_template",
+                target_type="analysis_template",
+                target_id=template.analysis_template_id,
+                details={"version": template.version},
+            )
+        )
+        return template
+
+    def import_analysis_templates(
+        self,
+        workspace_id: str,
+        templates: List[Dict[str, Any]],
+        actor: Optional[str] = None,
+    ) -> List[AnalysisTemplate]:
+        """Import template dictionaries without executing anything (FR-26).
+
+        Accepts plain JSON objects and reads only
+        :data:`IMPORTABLE_TEMPLATE_FIELDS` off each. Unknown keys are
+        ignored rather than rejected, so a dictionary exported from a
+        richer project still imports; nothing in the payload can name a
+        Python type, module, or callable to construct, so a hostile
+        dictionary is inert.
+
+        Every imported row lands as a DRAFT for review — importing is not
+        approving.
+        """
+
+        if not isinstance(templates, list):
+            raise ValidationError("templates must be a list of template objects")
+        self.repository.get_workspace(workspace_id)
+
+        imported: List[AnalysisTemplate] = []
+        for index, raw in enumerate(templates):
+            if not isinstance(raw, dict):
+                raise ValidationError(f"templates[{index}] must be an object")
+
+            fields = {
+                key: raw[key] for key in self.IMPORTABLE_TEMPLATE_FIELDS if key in raw
+            }
+            name = str(fields.get("name", "")).strip()
+            algorithm = str(fields.get("algorithm", "")).strip()
+            if not name:
+                raise ValidationError(f"templates[{index}] is missing 'name'")
+            if not algorithm:
+                raise ValidationError(f"templates[{index}] is missing 'algorithm'")
+
+            parameters = fields.get("parameters") or {}
+            config = fields.get("config") or {}
+            if not isinstance(parameters, dict):
+                raise ValidationError(f"templates[{index}].parameters must be an object")
+            if not isinstance(config, dict):
+                raise ValidationError(f"templates[{index}].config must be an object")
+
+            runtime = fields.get("estimated_runtime_seconds")
+            template = create_analysis_template(
+                workspace_id=workspace_id,
+                name=name,
+                algorithm=algorithm,
+                description=str(fields.get("description", "")).strip(),
+                parameters=dict(parameters),
+                config=dict(config),
+                estimated_runtime_seconds=(
+                    float(runtime) if isinstance(runtime, (int, float)) else None
+                ),
+                created_by=actor,
+                metadata={
+                    "import_source": "template_dictionary",
+                    "ignored_keys": sorted(
+                        set(raw.keys()) - set(self.IMPORTABLE_TEMPLATE_FIELDS)
+                    ),
+                },
+            )
+            self.repository.create_analysis_template(template)
+            imported.append(template)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="import_analysis_templates",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={"imported": len(imported)},
+            )
+        )
+        return imported
+
+    def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
+        """Get a single analysis template."""
+
+        return self.repository.get_analysis_template(analysis_template_id)
+
+    def list_analysis_templates(
+        self,
+        workspace_id: str,
+        status: Optional[str] = None,
+        use_case_id: Optional[str] = None,
+        include_superseded: bool = False,
+    ) -> List[AnalysisTemplate]:
+        """List a workspace's templates (FR-45).
+
+        Superseded versions are hidden by default — the list should show
+        the current state of each lineage, not its whole history.
+        """
+
+        self.repository.get_workspace(workspace_id)
+        rows = self.repository.list_analysis_templates(workspace_id)
+        if not include_superseded:
+            rows = [
+                row
+                for row in rows
+                if row.status is not AnalysisTemplateStatus.SUPERSEDED
+            ]
+        if status:
+            normalized = AnalysisTemplateStatus(status)
+            rows = [row for row in rows if row.status is normalized]
+        if use_case_id:
+            rows = [row for row in rows if row.use_case_id == use_case_id]
+        return rows
+
+    def get_analysis_template_versions(
+        self,
+        analysis_template_id: str,
+    ) -> List[AnalysisTemplate]:
+        """Return every version in a template's lineage, oldest first (FR-25)."""
+
+        template = self.repository.get_analysis_template(analysis_template_id)
+        rows = [
+            row
+            for row in self.repository.list_analysis_templates(template.workspace_id)
+            if row.lineage_id == template.lineage_id
+        ]
+        return sorted(rows, key=lambda row: row.version)
+
     # --- Product Analysis Catalog (FR-31 / FR-45..FR-48) ---
 
     def create_analysis_epoch(
@@ -1578,29 +2202,38 @@ class ProductService:
         return [item for item in executions if matches(item)][: max(0, limit)]
 
     def browse_analysis_catalog(self, workspace_id: str) -> Dict[str, Any]:
-        """Browse workspace-scoped epochs, executions, and lineage references."""
+        """Browse workspace-scoped epochs, executions, templates, use cases,
+        and requirements (FR-45).
+
+        Templates and use cases are full product records now that FR-19..FR-26
+        entities exist. Executions can still reference ids that have no product
+        record — anything produced by an agentic run before those entities
+        landed, or generated inside the AI layer without being mirrored — so
+        those are surfaced separately as ``unresolved_*_ids`` rather than
+        silently dropped, which would make lineage look complete when it isn't.
+        """
 
         executions = self.list_analysis_executions(workspace_id, limit=500)
         epochs = self.list_analysis_epochs(workspace_id)
         requirements = self.repository.list_requirement_versions(workspace_id)
+        use_cases = self.repository.list_use_cases(workspace_id)
+        templates = self.list_analysis_templates(workspace_id)
+
+        known_template_ids = {item.analysis_template_id for item in templates}
+        known_use_case_ids = {item.use_case_id for item in use_cases}
+        referenced_template_ids = {
+            execution.template_id for execution in executions if execution.template_id
+        }
+        referenced_use_case_ids = {
+            execution.use_case_id for execution in executions if execution.use_case_id
+        }
+
         return {
             "workspace_id": workspace_id,
             "epochs": [epoch.to_dict() for epoch in epochs],
             "executions": [execution.to_dict() for execution in executions],
-            "templates": sorted(
-                {
-                    execution.template_id
-                    for execution in executions
-                    if execution.template_id
-                }
-            ),
-            "use_cases": sorted(
-                {
-                    execution.use_case_id
-                    for execution in executions
-                    if execution.use_case_id
-                }
-            ),
+            "templates": [template.to_dict() for template in templates],
+            "use_cases": [use_case.to_dict() for use_case in use_cases],
             "requirements": [
                 {
                     "requirement_version_id": item.requirement_version_id,
@@ -1610,6 +2243,12 @@ class ProductService:
                 }
                 for item in requirements
             ],
+            "unresolved_template_ids": sorted(
+                referenced_template_ids - known_template_ids
+            ),
+            "unresolved_use_case_ids": sorted(
+                referenced_use_case_ids - known_use_case_ids
+            ),
         }
 
     def get_analysis_catalog_stats(self, workspace_id: str) -> Dict[str, Any]:
