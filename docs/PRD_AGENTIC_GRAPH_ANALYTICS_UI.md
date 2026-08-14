@@ -627,17 +627,70 @@ version without losing prior context, audit trail, or domain.
 ### Use Cases
 
 - **FR-18:** The system can generate use cases from requirement versions and graph profiles.
-- **FR-19:** Users can manually create and edit draft use cases.
+- **FR-19:** Users can manually create and edit draft use cases. *(Implemented:
+  `ProductService.create_use_case` / `update_use_case`
+  (`graph_analytics_ai/product/service.py:1305`) back the authoring form in
+  `UseCaseTemplateCanvas`
+  (`frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:143`), reached
+  from the "Use Cases & Templates" row in the Assets panel. Editing is allowed
+  while DRAFT or REJECTED — a rejected use case can be revised and resubmitted —
+  but an APPROVED one is frozen: it is the input to template generation, so
+  mutating it would change what downstream templates claim to derive from.
+  `origin` distinguishes user-authored rows from agent-generated ones.)*
 - **FR-20:** Users can approve, reject, prioritize, and archive use cases.
+  *(Implemented: `set_use_case_status`
+  (`graph_analytics_ai/product/service.py:1454`) and `set_use_case_priority`
+  (`:1509`), surfaced as per-row actions in
+  `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:210`. Priority is
+  deliberately a separate action from status so a reviewer can re-rank an
+  already-approved backlog without reopening it for edits. ARCHIVED is terminal —
+  re-approving would resurrect a use case that templates may already have been
+  retired against, so the UI drops the action and the service rejects it. Every
+  transition emits an audit event. Verified in a browser: authored a use case,
+  approved it, and re-prioritised an approved one.)*
 - **FR-21:** Use cases link back to requirements and forward to templates.
 
 ### Templates
 
 - **FR-22:** The system can generate analysis templates from use cases.
 - **FR-23:** Users can view and edit algorithm parameters before approval.
+  *(Implemented: parameters are stored flat on the product `AnalysisTemplate`
+  (rather than the AI layer's nested `AlgorithmParameters`) so a single field
+  can be patched without round-tripping a nested structure.
+  `ProductService.update_analysis_template`
+  (`graph_analytics_ai/product/service.py:1640`) backs the per-row parameter
+  editor in `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:333`,
+  which validates JSON client-side before submitting. Editing a DRAFT mutates it
+  in place; editing an APPROVED template versions it instead — see FR-25.)*
 - **FR-24:** The system validates graph, algorithm, parameter, and result storage compatibility.
 - **FR-25:** Approved templates are versioned and immutable for completed runs.
+  *(Implemented: `approve_analysis_template`
+  (`graph_analytics_ai/product/service.py:1752`) freezes a template, and editing
+  an approved one creates the next version in the same lineage while the
+  original flips to SUPERSEDED with a `superseded_by` pointer — so a completed
+  run still resolves the exact row it executed, with the parameters it ran.
+  `lineage_id` is stable across the chain, so "this template" is identifiable
+  independent of version. Superseded rows are hidden from the default listing
+  but reachable via `.../versions`, rendered as a version trail at
+  `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:533`. Verified in
+  a browser: editing an approved template produced v2 as a draft and left v1
+  superseded with its original `damping_factor` intact.)*
 - **FR-26:** The system can import supported template dictionaries from existing projects without executing arbitrary code.
+  *(Implemented: `import_analysis_templates`
+  (`graph_analytics_ai/product/service.py:1783`) reads **only** the whitelisted
+  fields in `IMPORTABLE_TEMPLATE_FIELDS` off each dict. Nothing in the payload
+  is eval'd, exec'd, imported by name, or used to construct a caller-named type,
+  so a dictionary carrying `__class__`, `cmd`, or `eval` keys is inert data —
+  those keys are recorded under `metadata.ignored_keys` and never resolved
+  (asserted by
+  `tests/unit/product/test_service.py::test_import_template_dictionary_ignores_unknown_keys_and_executes_nothing`).
+  Unknown keys are ignored rather than rejected so a dictionary exported from a
+  richer project still imports. Every imported row lands as DRAFT — importing is
+  not approving. The UI exposes it as "Import Dictionary" in
+  `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:333`.
+  Note this covers the generic JSON template-dictionary format; the
+  vertical-specific importers in FR-49/FR-50 remain deferred for lack of a
+  concrete source format.)*
 
 ### Workflow Runs
 
@@ -726,23 +779,22 @@ FR-31b/FR-31c and FR-34.
 > returned real deltas against the baseline, and lineage resolved template and
 > use-case IDs, with no console errors.
 >
-> Still deliberately scoped out: templates and use cases appear as **IDs**, not
-> navigable records, because they have no product entities yet (FR-19..FR-26).
-> FR-45's "browse … templates, use cases" is therefore satisfied only in the
-> sense that their references are listed — see the per-requirement note below.
+> As of FR-19..FR-26 shipping, templates and use cases are real product records
+> rather than bare IDs, so FR-45 is now satisfied in full — see its note below.
 
 - **FR-45:** Users can browse epochs, executions, templates, use cases, and
-  requirements. *(Partial: the browse projection is assembled by
-  `ProductService.browse_analysis_catalog`
-  (`graph_analytics_ai/product/service.py:1580`), exposed at
-  `GET /api/workspaces/{workspace_id}/analysis-catalog`
-  (`graph_analytics_ai/product/api.py:413`), and rendered as epoch and execution
-  sections in `AnalysisCatalogCanvas`
-  (`frontend/src/components/workspace/AnalysisCatalogCanvas.tsx:148` and `:166`).
-  Epochs and executions are fully browsable. Remaining gap: templates, use
-  cases, and requirements are still only ID references — they have no product
-  entities to browse until FR-19..FR-26 ship, so this stays Partial rather than
-  claiming a capability the data model cannot yet support.)*
+  requirements. *(Implemented: `ProductService.browse_analysis_catalog`
+  (`graph_analytics_ai/product/service.py:2204`) returns all five as records —
+  templates and use cases became real entities with FR-19..FR-26, replacing the
+  bare ID strings this requirement was previously held Partial for. Epochs and
+  executions render in `AnalysisCatalogCanvas`
+  (`frontend/src/components/workspace/AnalysisCatalogCanvas.tsx:148` and `:166`);
+  templates and use cases in `UseCaseTemplateCanvas`
+  (`frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:210` and `:333`);
+  requirement versions in the existing Requirements canvas. Execution references
+  with no product record — from runs that predate these entities — are returned
+  as `unresolved_template_ids` / `unresolved_use_case_ids` rather than dropped,
+  so a lineage gap stays visible instead of looking complete.)*
 - **FR-46:** Users can search executions by algorithm, status, epoch, date,
   graph, and workspace. *(Implemented:
   `ProductService.list_analysis_executions`

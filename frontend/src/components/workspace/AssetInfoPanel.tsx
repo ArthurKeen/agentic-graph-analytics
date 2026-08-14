@@ -15,7 +15,8 @@ const assetKindLabels: Record<WorkspaceAsset["kind"], string> = {
   requirements: "Requirements",
   report: "Report",
   run: "Run",
-  "analysis-catalog": "Analysis Catalog"
+  "analysis-catalog": "Analysis Catalog",
+  "use-cases": "Use Cases & Templates"
 };
 
 export function AssetInfoPanel({ asset, onClose }: AssetInfoPanelProps) {

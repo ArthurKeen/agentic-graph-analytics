@@ -66,6 +66,14 @@ export function WorkspaceShell({
     getConnectionDefaults,
     uploadSourceDocument,
     browseAnalysisCatalog,
+    createUseCase,
+    setUseCaseStatus,
+    setUseCasePriority,
+    createAnalysisTemplate,
+    updateAnalysisTemplate,
+    approveAnalysisTemplate,
+    getAnalysisTemplateVersions,
+    importAnalysisTemplates,
     listAnalysisExecutions,
     compareAnalysisExecutions,
     getAnalysisLineage,
@@ -874,6 +882,14 @@ export function WorkspaceShell({
         onSearchAnalysisExecutions={listAnalysisExecutions}
         onCompareAnalysisExecutions={compareAnalysisExecutions}
         onGetAnalysisLineage={getAnalysisLineage}
+        onCreateUseCase={createUseCase}
+        onSetUseCaseStatus={setUseCaseStatus}
+        onSetUseCasePriority={setUseCasePriority}
+        onCreateAnalysisTemplate={createAnalysisTemplate}
+        onUpdateAnalysisTemplate={updateAnalysisTemplate}
+        onApproveAnalysisTemplate={approveAnalysisTemplate}
+        onGetAnalysisTemplateVersions={getAnalysisTemplateVersions}
+        onImportAnalysisTemplates={importAnalysisTemplates}
         onFitCanvas={() => {
           setCanvasActionMessage("Fit All requested. The current workspace layout is already fit to visible assets.");
         }}

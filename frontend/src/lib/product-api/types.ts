@@ -29,6 +29,8 @@ export type WorkspaceAssetKind =
   // empty — it is the only entry point to the catalog, so hiding it when no
   // analyses have run yet would make the feature undiscoverable.
   | "analysis-catalog"
+  // FR-19..FR-26: one consolidated "Use Cases & Templates" row per workspace.
+  | "use-cases"
   | "run"
   | "report";
 
@@ -113,6 +115,119 @@ export interface SourceDocumentSummary {
  * than read off the Python type hints.
  * ----------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------
+ * Use Cases and Analysis Templates (FR-19..FR-26)
+ * Field names mirror UseCase.to_dict / AnalysisTemplate.to_dict, captured by
+ * running the service rather than read off its type hints.
+ * ----------------------------------------------------------------------- */
+
+export type UseCaseStatus = "draft" | "approved" | "rejected" | "archived";
+export type AnalysisTemplateStatus =
+  | "draft"
+  | "approved"
+  | "superseded"
+  | "archived";
+
+export interface UseCase {
+  useCaseId: string;
+  workspaceId: string;
+  title: string;
+  description: string;
+  useCaseType: string;
+  priority: string;
+  status: UseCaseStatus;
+  origin: string;
+  requirementVersionId?: string | null;
+  relatedRequirements: string[];
+  graphAlgorithms: string[];
+  dataNeeds: string[];
+  expectedOutputs: string[];
+  successMetrics: string[];
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote: string;
+  createdAt?: string;
+  createdBy?: string | null;
+}
+
+export interface AnalysisTemplate {
+  analysisTemplateId: string;
+  workspaceId: string;
+  name: string;
+  lineageId: string;
+  description: string;
+  algorithm: string;
+  parameters: Record<string, unknown>;
+  config: Record<string, unknown>;
+  version: number;
+  status: AnalysisTemplateStatus;
+  useCaseId?: string | null;
+  estimatedRuntimeSeconds?: number | null;
+  supersededBy?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  createdAt?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreateUseCaseInput {
+  title: string;
+  description?: string;
+  useCaseType?: string;
+  priority?: string;
+}
+
+export interface CreateAnalysisTemplateInput {
+  name: string;
+  algorithm: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  useCaseId?: string | null;
+}
+
+export interface RawUseCase {
+  use_case_id: string;
+  workspace_id: string;
+  title: string;
+  description?: string;
+  use_case_type?: string;
+  priority?: string;
+  status: UseCaseStatus;
+  origin?: string;
+  requirement_version_id?: string | null;
+  related_requirements?: string[];
+  graph_algorithms?: string[];
+  data_needs?: string[];
+  expected_outputs?: string[];
+  success_metrics?: string[];
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string;
+  created_at?: string;
+  created_by?: string | null;
+}
+
+export interface RawAnalysisTemplate {
+  analysis_template_id: string;
+  workspace_id: string;
+  name: string;
+  lineage_id?: string;
+  description?: string;
+  algorithm?: string;
+  parameters?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  version?: number;
+  status: AnalysisTemplateStatus;
+  use_case_id?: string | null;
+  estimated_runtime_seconds?: number | null;
+  superseded_by?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface AnalysisExecution {
   analysisExecutionId: string;
   workspaceId: string;
@@ -153,10 +268,13 @@ export interface AnalysisCatalogView {
   workspaceId: string;
   epochs: AnalysisEpoch[];
   executions: AnalysisExecution[];
-  /** Lineage-only ID references until FR-19..FR-26 ship real entities. */
-  templates: Array<Record<string, unknown>>;
-  useCases: Array<Record<string, unknown>>;
+  templates: AnalysisTemplate[];
+  useCases: UseCase[];
   requirements: Array<Record<string, unknown>>;
+  /** Execution references with no product record (runs that predate
+   * FR-19..FR-26). Surfaced rather than dropped so lineage gaps stay visible. */
+  unresolvedTemplateIds: string[];
+  unresolvedUseCaseIds: string[];
 }
 
 /** FR-46 filters. All optional; omitted keys are not sent. */
@@ -232,9 +350,11 @@ export interface RawAnalysisCatalogView {
   workspace_id: string;
   epochs?: RawAnalysisEpoch[];
   executions?: RawAnalysisExecution[];
-  templates?: Array<Record<string, unknown>>;
-  use_cases?: Array<Record<string, unknown>>;
+  templates?: RawAnalysisTemplate[];
+  use_cases?: RawUseCase[];
   requirements?: Array<Record<string, unknown>>;
+  unresolved_template_ids?: string[];
+  unresolved_use_case_ids?: string[];
 }
 
 export interface RawAnalysisExecutionComparison {
@@ -674,6 +794,37 @@ export interface ProductAPIClient {
     workspaceId: string,
     input: UploadSourceDocumentInput
   ): Promise<SourceDocumentSummary>;
+  /** FR-19: author a use case by hand. */
+  createUseCase(workspaceId: string, input: CreateUseCaseInput): Promise<UseCase>;
+  /** FR-20: approve / reject / archive a use case. */
+  setUseCaseStatus(
+    useCaseId: string,
+    status: UseCaseStatus,
+    reviewNote?: string
+  ): Promise<UseCase>;
+  /** FR-20: re-prioritise a use case at any non-archived status. */
+  setUseCasePriority(useCaseId: string, priority: string): Promise<UseCase>;
+  /** FR-22: create a draft analysis template. */
+  createAnalysisTemplate(
+    workspaceId: string,
+    input: CreateAnalysisTemplateInput
+  ): Promise<AnalysisTemplate>;
+  /** FR-23: edit algorithm parameters; versions an approved template (FR-25). */
+  updateAnalysisTemplate(
+    analysisTemplateId: string,
+    patch: { parameters?: Record<string, unknown>; config?: Record<string, unknown> }
+  ): Promise<AnalysisTemplate>;
+  /** FR-25: approve a draft template, making it immutable. */
+  approveAnalysisTemplate(analysisTemplateId: string): Promise<AnalysisTemplate>;
+  /** FR-25: every version in a template's lineage, oldest first. */
+  getAnalysisTemplateVersions(
+    analysisTemplateId: string
+  ): Promise<AnalysisTemplate[]>;
+  /** FR-26: import template dictionaries; nothing in the payload is executed. */
+  importAnalysisTemplates(
+    workspaceId: string,
+    templates: Array<Record<string, unknown>>
+  ): Promise<AnalysisTemplate[]>;
   /** FR-45: browse epochs + executions for a workspace. */
   browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView>;
   /** FR-46: server-side filtered execution search. */

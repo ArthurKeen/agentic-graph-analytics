@@ -35,9 +35,14 @@ import type {
   SourceDocumentSummary,
   AnalysisCatalogView,
   AnalysisExecution,
+  AnalysisTemplate,
   AnalysisExecutionComparison,
   AnalysisExecutionFilters,
   AnalysisLineage,
+  CreateAnalysisTemplateInput,
+  CreateUseCaseInput,
+  UseCase,
+  UseCaseStatus,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
   UploadSourceDocumentInput,
@@ -122,6 +127,35 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   uploadSourceDocument: (
     input: UploadSourceDocumentInput
   ) => Promise<SourceDocumentSummary>;
+  /** FR-19: author a use case. */
+  createUseCase: (input: CreateUseCaseInput) => Promise<UseCase>;
+  /** FR-20: approve / reject / archive a use case. */
+  setUseCaseStatus: (
+    useCaseId: string,
+    status: UseCaseStatus,
+    reviewNote?: string
+  ) => Promise<UseCase>;
+  /** FR-20: re-prioritise a use case. */
+  setUseCasePriority: (useCaseId: string, priority: string) => Promise<UseCase>;
+  /** FR-22: create a draft analysis template. */
+  createAnalysisTemplate: (
+    input: CreateAnalysisTemplateInput
+  ) => Promise<AnalysisTemplate>;
+  /** FR-23/FR-25: edit parameters; versions an approved template. */
+  updateAnalysisTemplate: (
+    analysisTemplateId: string,
+    patch: { parameters?: Record<string, unknown>; config?: Record<string, unknown> }
+  ) => Promise<AnalysisTemplate>;
+  /** FR-25: approve a draft template. */
+  approveAnalysisTemplate: (analysisTemplateId: string) => Promise<AnalysisTemplate>;
+  /** FR-25: version history for a template lineage. */
+  getAnalysisTemplateVersions: (
+    analysisTemplateId: string
+  ) => Promise<AnalysisTemplate[]>;
+  /** FR-26: import template dictionaries. */
+  importAnalysisTemplates: (
+    templates: Array<Record<string, unknown>>
+  ) => Promise<AnalysisTemplate[]>;
   /** FR-45: browse the workspace's analysis epochs and executions. */
   browseAnalysisCatalog: () => Promise<AnalysisCatalogView>;
   /** FR-46: server-side filtered execution search. */
@@ -687,6 +721,138 @@ export function useWorkspaceData({
     return statefulDemoUploadSourceDocument(input);
   };
 
+  const createUseCase = async (input: CreateUseCaseInput): Promise<UseCase> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.createUseCase(effectiveWorkspaceId, input);
+    }
+    return {
+      ...demoUseCases()[1],
+      useCaseId: `use-case-demo-${Date.now()}`,
+      title: input.title,
+      description: input.description ?? "",
+      useCaseType: input.useCaseType ?? "pattern",
+      priority: input.priority ?? "medium",
+      status: "draft",
+      origin: "manual"
+    };
+  };
+
+  const setUseCaseStatus = async (
+    useCaseId: string,
+    status: UseCaseStatus,
+    reviewNote = ""
+  ): Promise<UseCase> => {
+    if (isLive) {
+      return apiClient.setUseCaseStatus(useCaseId, status, reviewNote);
+    }
+    const existing =
+      demoUseCases().find((item) => item.useCaseId === useCaseId) ?? demoUseCases()[0];
+    return { ...existing, status, reviewNote };
+  };
+
+  const setUseCasePriority = async (
+    useCaseId: string,
+    priority: string
+  ): Promise<UseCase> => {
+    if (isLive) {
+      return apiClient.setUseCasePriority(useCaseId, priority);
+    }
+    const existing =
+      demoUseCases().find((item) => item.useCaseId === useCaseId) ?? demoUseCases()[0];
+    return { ...existing, priority };
+  };
+
+  const createAnalysisTemplate = async (
+    input: CreateAnalysisTemplateInput
+  ): Promise<AnalysisTemplate> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.createAnalysisTemplate(effectiveWorkspaceId, input);
+    }
+    const id = `analysis-template-demo-${Date.now()}`;
+    return {
+      ...demoAnalysisTemplates()[1],
+      analysisTemplateId: id,
+      lineageId: id,
+      name: input.name,
+      algorithm: input.algorithm,
+      description: input.description ?? "",
+      parameters: input.parameters ?? {},
+      version: 1,
+      status: "draft"
+    };
+  };
+
+  const updateAnalysisTemplate = async (
+    analysisTemplateId: string,
+    patch: { parameters?: Record<string, unknown>; config?: Record<string, unknown> }
+  ): Promise<AnalysisTemplate> => {
+    if (isLive) {
+      return apiClient.updateAnalysisTemplate(analysisTemplateId, patch);
+    }
+    const existing =
+      demoAnalysisTemplates().find(
+        (item) => item.analysisTemplateId === analysisTemplateId
+      ) ?? demoAnalysisTemplates()[0];
+    // Mirror the FR-25 rule in demo: editing an approved template versions it.
+    if (existing.status === "approved") {
+      return {
+        ...existing,
+        ...patch,
+        analysisTemplateId: `${existing.analysisTemplateId}-v2`,
+        version: existing.version + 1,
+        status: "draft"
+      };
+    }
+    return { ...existing, ...patch };
+  };
+
+  const approveAnalysisTemplate = async (
+    analysisTemplateId: string
+  ): Promise<AnalysisTemplate> => {
+    if (isLive) {
+      return apiClient.approveAnalysisTemplate(analysisTemplateId);
+    }
+    const existing =
+      demoAnalysisTemplates().find(
+        (item) => item.analysisTemplateId === analysisTemplateId
+      ) ?? demoAnalysisTemplates()[1];
+    return { ...existing, status: "approved" };
+  };
+
+  const getAnalysisTemplateVersions = async (
+    analysisTemplateId: string
+  ): Promise<AnalysisTemplate[]> => {
+    if (isLive) {
+      return apiClient.getAnalysisTemplateVersions(analysisTemplateId);
+    }
+    const existing = demoAnalysisTemplates().find(
+      (item) => item.analysisTemplateId === analysisTemplateId
+    );
+    return existing ? [existing] : [];
+  };
+
+  const importAnalysisTemplates = async (
+    templates: Array<Record<string, unknown>>
+  ): Promise<AnalysisTemplate[]> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.importAnalysisTemplates(effectiveWorkspaceId, templates);
+    }
+    return templates.map((raw, index) => {
+      const id = `analysis-template-demo-import-${index}`;
+      return {
+        ...demoAnalysisTemplates()[1],
+        analysisTemplateId: id,
+        lineageId: id,
+        name: String(raw.name ?? "Imported template"),
+        algorithm: String(raw.algorithm ?? ""),
+        description: String(raw.description ?? ""),
+        parameters: (raw.parameters as Record<string, unknown>) ?? {},
+        version: 1,
+        status: "draft" as const
+      };
+    });
+  };
+
   const browseAnalysisCatalog = async (): Promise<AnalysisCatalogView> => {
     if (isLive && effectiveWorkspaceId) {
       return apiClient.browseAnalysisCatalog(effectiveWorkspaceId);
@@ -1094,6 +1260,14 @@ export function useWorkspaceData({
     listClusterDatabases,
     getConnectionDefaults,
     uploadSourceDocument,
+    createUseCase,
+    setUseCaseStatus,
+    setUseCasePriority,
+    createAnalysisTemplate,
+    updateAnalysisTemplate,
+    approveAnalysisTemplate,
+    getAnalysisTemplateVersions,
+    importAnalysisTemplates,
     browseAnalysisCatalog,
     listAnalysisExecutions,
     compareAnalysisExecutions,
@@ -1268,13 +1442,98 @@ function demoAnalysisCatalog(): AnalysisCatalogView {
         startedAt: "2026-07-02T09:00:00Z"
       }
     ],
-    templates: [
-      { template_id: "template-demo-1", template_name: "PageRank on Person" },
-      { template_id: "template-demo-2", template_name: "Weakly Connected Components" }
-    ],
-    useCases: [{ use_case_id: "use-case-demo-1" }, { use_case_id: "use-case-demo-2" }],
-    requirements: [{ requirement_version_id: "requirement-version-demo" }]
+    templates: demoAnalysisTemplates(),
+    useCases: demoUseCases(),
+    requirements: [{ requirement_version_id: "requirement-version-demo" }],
+    unresolvedTemplateIds: [],
+    unresolvedUseCaseIds: []
   };
+}
+
+/** Demo use cases (FR-19..FR-21). Shapes mirror UseCase.to_dict. */
+function demoUseCases(): UseCase[] {
+  const base = {
+    workspaceId: "workspace-demo",
+    requirementVersionId: "requirement-version-demo",
+    relatedRequirements: ["REQ-001"],
+    dataNeeds: ["Account", "transfers"],
+    reviewedBy: null,
+    reviewedAt: null,
+    reviewNote: "",
+    createdAt: "2026-07-01T08:00:00Z",
+    createdBy: "analyst@example.com"
+  };
+  return [
+    {
+      ...base,
+      useCaseId: "use-case-demo-1",
+      title: "Rank accounts by influence",
+      description: "Identify the most influential accounts in the network.",
+      useCaseType: "centrality",
+      priority: "high",
+      status: "approved",
+      origin: "generated",
+      graphAlgorithms: ["pagerank"],
+      expectedOutputs: ["ranked account list"],
+      successMetrics: ["top-50 reviewed by analysts"]
+    },
+    {
+      ...base,
+      useCaseId: "use-case-demo-2",
+      title: "Find fraud rings",
+      description: "Detect tightly connected clusters of colluding accounts.",
+      useCaseType: "community",
+      priority: "critical",
+      status: "draft",
+      origin: "manual",
+      graphAlgorithms: ["wcc", "label_propagation"],
+      expectedOutputs: ["ring clusters"],
+      successMetrics: ["precision > 0.8"]
+    }
+  ];
+}
+
+/** Demo templates (FR-22..FR-26). Shapes mirror AnalysisTemplate.to_dict. */
+function demoAnalysisTemplates(): AnalysisTemplate[] {
+  const base = {
+    workspaceId: "workspace-demo",
+    config: { graph_name: "customer_graph", result_collection: "results" },
+    supersededBy: null,
+    createdAt: "2026-07-01T08:30:00Z",
+    metadata: {}
+  };
+  return [
+    {
+      ...base,
+      analysisTemplateId: "analysis-template-demo-1",
+      lineageId: "analysis-template-demo-1",
+      name: "PageRank on Person",
+      description: "Rank people by influence.",
+      algorithm: "pagerank",
+      parameters: { damping_factor: 0.85, max_iterations: 20 },
+      version: 1,
+      status: "approved",
+      useCaseId: "use-case-demo-1",
+      estimatedRuntimeSeconds: 45,
+      approvedBy: "approver@example.com",
+      approvedAt: "2026-07-01T09:00:00Z"
+    },
+    {
+      ...base,
+      analysisTemplateId: "analysis-template-demo-2",
+      lineageId: "analysis-template-demo-2",
+      name: "Weakly Connected Components",
+      description: "Cluster the graph into connected components.",
+      algorithm: "wcc",
+      parameters: {},
+      version: 1,
+      status: "draft",
+      useCaseId: "use-case-demo-2",
+      estimatedRuntimeSeconds: null,
+      approvedBy: null,
+      approvedAt: null
+    }
+  ];
 }
 
 function demoCompareAnalysisExecutions(

@@ -1466,3 +1466,36 @@ button {
 .catalog-table td[data-status="failed"] {
   color: var(--aga-danger, #ff6b6b);
 }
+
+/* Use Cases & Templates (FR-19..FR-26) */
+.catalog-filters input[type="text"] {
+  min-width: 200px;
+}
+
+.catalog-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.template-params {
+  width: 100%;
+  min-width: 220px;
+  border: 1px solid var(--aga-border);
+  border-radius: 8px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.catalog-table td[data-status="approved"] {
+  color: var(--aga-success, #7ddf64);
+}
+
+.catalog-table td[data-status="rejected"],
+.catalog-table td[data-status="archived"],
+.catalog-table td[data-status="superseded"] {
+  color: var(--aga-muted, #9aa5b1);
+}

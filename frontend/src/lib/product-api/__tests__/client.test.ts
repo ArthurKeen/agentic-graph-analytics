@@ -199,6 +199,14 @@ describe("product API client mappers", () => {
         kind: "analysis-catalog",
         label: "Analysis Catalog",
         description: "Executions, epochs, comparison, and lineage"
+      },
+      {
+        // FR-19..FR-26: likewise the only entry point for authoring and
+        // reviewing use cases and templates.
+        id: "use-cases:workspace-1",
+        kind: "use-cases",
+        label: "Use Cases & Templates",
+        description: "Author, review, and version analysis templates"
       }
     ]);
   });
@@ -1413,6 +1421,136 @@ describe("product API client mappers", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://api.example/api/runs/run-1/status",
       expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps use case payloads and posts status changes (FR-19/FR-20)", async () => {
+    // Fixture mirrors UseCase.to_dict, captured by running the service.
+    const rawUseCase = {
+      _key: "use-case-1",
+      use_case_id: "use-case-1",
+      workspace_id: "workspace-1",
+      title: "Find fraud rings",
+      description: "Detect rings across linked accounts",
+      use_case_type: "community",
+      priority: "high",
+      status: "draft",
+      origin: "manual",
+      requirement_version_id: null,
+      related_requirements: [],
+      graph_algorithms: ["wcc"],
+      data_needs: ["Account"],
+      expected_outputs: ["ring clusters"],
+      success_metrics: ["precision > 0.8"],
+      reviewed_by: null,
+      reviewed_at: null,
+      review_note: "",
+      created_at: "2026-08-14T00:00:00+00:00",
+      updated_at: "2026-08-14T00:00:00+00:00",
+      created_by: "analyst@example.com",
+      metadata: {}
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...rawUseCase, status: "approved" })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const useCase = await createProductAPIClient(
+      "http://api.example"
+    ).setUseCaseStatus("use-case-1", "approved", "Looks good");
+
+    expect(useCase).toMatchObject({
+      useCaseId: "use-case-1",
+      title: "Find fraud rings",
+      status: "approved",
+      origin: "manual",
+      graphAlgorithms: ["wcc"]
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/use-cases/use-case-1/status",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ status: "approved", review_note: "Looks good" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps analysis template payloads including version lineage (FR-23/FR-25)", async () => {
+    // Fixture mirrors AnalysisTemplate.to_dict. Editing an approved template
+    // returns a DIFFERENT row (the next version) sharing the lineage id — the
+    // mapper must carry both ids through or the UI would show the stale row.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _key: "analysis-template-2",
+        analysis_template_id: "analysis-template-2",
+        workspace_id: "workspace-1",
+        name: "PageRank on Person",
+        lineage_id: "analysis-template-1",
+        description: "Rank people by influence",
+        algorithm: "pagerank",
+        parameters: { damping_factor: 0.5 },
+        config: { graph_name: "kg" },
+        version: 2,
+        status: "draft",
+        use_case_id: "use-case-1",
+        estimated_runtime_seconds: 45.0,
+        superseded_by: null,
+        approved_by: null,
+        approved_at: null,
+        created_at: "2026-08-14T00:00:00+00:00",
+        updated_at: "2026-08-14T00:00:00+00:00",
+        created_by: null,
+        metadata: { supersedes: "analysis-template-1" }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const template = await createProductAPIClient(
+      "http://api.example"
+    ).updateAnalysisTemplate("analysis-template-1", {
+      parameters: { damping_factor: 0.5 }
+    });
+
+    expect(template).toMatchObject({
+      analysisTemplateId: "analysis-template-2",
+      lineageId: "analysis-template-1",
+      version: 2,
+      status: "draft",
+      parameters: { damping_factor: 0.5 }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/analysis-templates/analysis-template-1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("posts template dictionaries to the import route (FR-26)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProductAPIClient("http://api.example").importAnalysisTemplates(
+      "workspace-1",
+      [{ name: "WCC", algorithm: "wcc", cmd: "rm -rf /" }]
+    );
+
+    // The client forwards the payload verbatim; the *server* is what decides
+    // which keys are read, so hostile keys never need special-casing here.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/analysis-templates/import",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          templates: [{ name: "WCC", algorithm: "wcc", cmd: "rm -rf /" }]
+        })
+      })
     );
 
     vi.unstubAllGlobals();

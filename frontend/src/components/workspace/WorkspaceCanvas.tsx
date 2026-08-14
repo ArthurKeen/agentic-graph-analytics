@@ -1,6 +1,7 @@
 "use client";
 
 import { AnalysisCatalogCanvas } from "./AnalysisCatalogCanvas";
+import { UseCaseTemplateCanvas } from "./UseCaseTemplateCanvas";
 import { CanvasLensLegend } from "./CanvasLensLegend";
 import { ConnectionProfileCanvas } from "./ConnectionProfileCanvas";
 import { DynamicReportCanvas } from "./DynamicReportCanvas";
@@ -17,6 +18,11 @@ import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
 import type {
   AnalysisCatalogView,
+  AnalysisTemplate,
+  CreateAnalysisTemplateInput,
+  CreateUseCaseInput,
+  UseCase,
+  UseCaseStatus,
   AnalysisExecution,
   AnalysisExecutionComparison,
   AnalysisExecutionFilters,
@@ -106,6 +112,27 @@ interface WorkspaceCanvasProps {
     ids: string[]
   ) => Promise<AnalysisExecutionComparison>;
   onGetAnalysisLineage?: (id: string) => Promise<AnalysisLineage>;
+  /** FR-19..FR-26: use case + template authoring and review. Supplied as a
+   * group by the shell; the view renders only when all are present. */
+  onCreateUseCase?: (input: CreateUseCaseInput) => Promise<UseCase>;
+  onSetUseCaseStatus?: (
+    useCaseId: string,
+    status: UseCaseStatus,
+    reviewNote?: string
+  ) => Promise<UseCase>;
+  onSetUseCasePriority?: (useCaseId: string, priority: string) => Promise<UseCase>;
+  onCreateAnalysisTemplate?: (
+    input: CreateAnalysisTemplateInput
+  ) => Promise<AnalysisTemplate>;
+  onUpdateAnalysisTemplate?: (
+    analysisTemplateId: string,
+    patch: { parameters?: Record<string, unknown> }
+  ) => Promise<AnalysisTemplate>;
+  onApproveAnalysisTemplate?: (id: string) => Promise<AnalysisTemplate>;
+  onGetAnalysisTemplateVersions?: (id: string) => Promise<AnalysisTemplate[]>;
+  onImportAnalysisTemplates?: (
+    templates: Array<Record<string, unknown>>
+  ) => Promise<AnalysisTemplate[]>;
   onFitCanvas: () => void;
   onCenterCanvas: () => void;
   onViewOperationalDAG: () => void;
@@ -183,6 +210,14 @@ export function WorkspaceCanvas({
   onSearchAnalysisExecutions,
   onCompareAnalysisExecutions,
   onGetAnalysisLineage,
+  onCreateUseCase,
+  onSetUseCaseStatus,
+  onSetUseCasePriority,
+  onCreateAnalysisTemplate,
+  onUpdateAnalysisTemplate,
+  onApproveAnalysisTemplate,
+  onGetAnalysisTemplateVersions,
+  onImportAnalysisTemplates,
   onFitCanvas,
   onCenterCanvas,
   onViewOperationalDAG,
@@ -213,7 +248,9 @@ export function WorkspaceCanvas({
               ? "Requirements"
               : selectedAsset?.kind === "analysis-catalog"
                 ? "Analysis Catalog"
-                : "Operational DAG";
+                : selectedAsset?.kind === "use-cases"
+                  ? "Use Cases & Templates"
+                  : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateWorkspace: onRequestCreateWorkspace,
@@ -322,6 +359,27 @@ export function WorkspaceCanvas({
           onSearch={onSearchAnalysisExecutions}
           onCompare={onCompareAnalysisExecutions}
           onLineage={onGetAnalysisLineage}
+        />
+      ) : selectedAsset.kind === "use-cases" &&
+        onBrowseAnalysisCatalog &&
+        onCreateUseCase &&
+        onSetUseCaseStatus &&
+        onSetUseCasePriority &&
+        onCreateAnalysisTemplate &&
+        onUpdateAnalysisTemplate &&
+        onApproveAnalysisTemplate &&
+        onGetAnalysisTemplateVersions &&
+        onImportAnalysisTemplates ? (
+        <UseCaseTemplateCanvas
+          onBrowse={onBrowseAnalysisCatalog}
+          onCreateUseCase={onCreateUseCase}
+          onSetUseCaseStatus={onSetUseCaseStatus}
+          onSetUseCasePriority={onSetUseCasePriority}
+          onCreateTemplate={onCreateAnalysisTemplate}
+          onUpdateTemplate={onUpdateAnalysisTemplate}
+          onApproveTemplate={onApproveAnalysisTemplate}
+          onGetTemplateVersions={onGetAnalysisTemplateVersions}
+          onImportTemplates={onImportAnalysisTemplates}
         />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section

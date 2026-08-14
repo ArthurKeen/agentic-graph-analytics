@@ -28,12 +28,17 @@ import type {
   RawReportBundle,
   AnalysisCatalogView,
   AnalysisEpoch,
+  AnalysisTemplate,
   AnalysisExecution,
   AnalysisExecutionComparison,
   AnalysisExecutionFilters,
   AnalysisLineage,
+  CreateAnalysisTemplateInput,
+  CreateUseCaseInput,
   RawAnalysisCatalogView,
   RawAnalysisEpoch,
+  RawAnalysisTemplate,
+  RawUseCase,
   RawAnalysisExecution,
   RawAnalysisExecutionComparison,
   RawAnalysisLineage,
@@ -54,6 +59,8 @@ import type {
   RequirementVersion,
   RequirementsDraftResult,
   SourceDocumentSummary,
+  UseCase,
+  UseCaseStatus,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
   UploadSourceDocumentInput,
@@ -194,6 +201,99 @@ export function createProductAPIClient(
           }
         )
       );
+    },
+    async createUseCase(
+      workspaceId: string,
+      input: CreateUseCaseInput
+    ): Promise<UseCase> {
+      return mapUseCase(
+        await postJSON<RawUseCase>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/use-cases`,
+          {
+            title: input.title,
+            description: input.description ?? "",
+            use_case_type: input.useCaseType ?? "pattern",
+            priority: input.priority ?? "medium"
+          }
+        )
+      );
+    },
+    async setUseCaseStatus(
+      useCaseId: string,
+      status: UseCaseStatus,
+      reviewNote = ""
+    ): Promise<UseCase> {
+      return mapUseCase(
+        await postJSON<RawUseCase>(
+          `${normalizedBaseUrl}/api/use-cases/${useCaseId}/status`,
+          { status, review_note: reviewNote }
+        )
+      );
+    },
+    async setUseCasePriority(useCaseId: string, priority: string): Promise<UseCase> {
+      return mapUseCase(
+        await postJSON<RawUseCase>(
+          `${normalizedBaseUrl}/api/use-cases/${useCaseId}/priority`,
+          { priority }
+        )
+      );
+    },
+    async createAnalysisTemplate(
+      workspaceId: string,
+      input: CreateAnalysisTemplateInput
+    ): Promise<AnalysisTemplate> {
+      return mapAnalysisTemplate(
+        await postJSON<RawAnalysisTemplate>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/analysis-templates`,
+          {
+            name: input.name,
+            algorithm: input.algorithm,
+            description: input.description ?? "",
+            parameters: input.parameters ?? {},
+            config: input.config ?? {},
+            ...(input.useCaseId ? { use_case_id: input.useCaseId } : {})
+          }
+        )
+      );
+    },
+    async updateAnalysisTemplate(
+      analysisTemplateId: string,
+      patch: { parameters?: Record<string, unknown>; config?: Record<string, unknown> }
+    ): Promise<AnalysisTemplate> {
+      return mapAnalysisTemplate(
+        await patchJSON<RawAnalysisTemplate>(
+          `${normalizedBaseUrl}/api/analysis-templates/${analysisTemplateId}`,
+          patch
+        )
+      );
+    },
+    async approveAnalysisTemplate(
+      analysisTemplateId: string
+    ): Promise<AnalysisTemplate> {
+      return mapAnalysisTemplate(
+        await postJSON<RawAnalysisTemplate>(
+          `${normalizedBaseUrl}/api/analysis-templates/${analysisTemplateId}/approve`,
+          {}
+        )
+      );
+    },
+    async getAnalysisTemplateVersions(
+      analysisTemplateId: string
+    ): Promise<AnalysisTemplate[]> {
+      const raw = await getJSON<RawAnalysisTemplate[]>(
+        `${normalizedBaseUrl}/api/analysis-templates/${analysisTemplateId}/versions`
+      );
+      return (raw ?? []).map(mapAnalysisTemplate);
+    },
+    async importAnalysisTemplates(
+      workspaceId: string,
+      templates: Array<Record<string, unknown>>
+    ): Promise<AnalysisTemplate[]> {
+      const raw = await postJSON<RawAnalysisTemplate[]>(
+        `${normalizedBaseUrl}/api/workspaces/${workspaceId}/analysis-templates/import`,
+        { templates }
+      );
+      return (raw ?? []).map(mapAnalysisTemplate);
     },
     async browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView> {
       return mapAnalysisCatalogView(
@@ -717,6 +817,52 @@ export function mapAnalysisEpoch(raw: RawAnalysisEpoch): AnalysisEpoch {
   };
 }
 
+export function mapUseCase(raw: RawUseCase): UseCase {
+  return {
+    useCaseId: raw.use_case_id,
+    workspaceId: raw.workspace_id,
+    title: raw.title,
+    description: raw.description ?? "",
+    useCaseType: raw.use_case_type ?? "pattern",
+    priority: raw.priority ?? "medium",
+    status: raw.status,
+    origin: raw.origin ?? "manual",
+    requirementVersionId: raw.requirement_version_id,
+    relatedRequirements: raw.related_requirements ?? [],
+    graphAlgorithms: raw.graph_algorithms ?? [],
+    dataNeeds: raw.data_needs ?? [],
+    expectedOutputs: raw.expected_outputs ?? [],
+    successMetrics: raw.success_metrics ?? [],
+    reviewedBy: raw.reviewed_by,
+    reviewedAt: raw.reviewed_at,
+    reviewNote: raw.review_note ?? "",
+    createdAt: raw.created_at,
+    createdBy: raw.created_by
+  };
+}
+
+export function mapAnalysisTemplate(raw: RawAnalysisTemplate): AnalysisTemplate {
+  return {
+    analysisTemplateId: raw.analysis_template_id,
+    workspaceId: raw.workspace_id,
+    name: raw.name,
+    lineageId: raw.lineage_id ?? raw.analysis_template_id,
+    description: raw.description ?? "",
+    algorithm: raw.algorithm ?? "",
+    parameters: raw.parameters ?? {},
+    config: raw.config ?? {},
+    version: raw.version ?? 1,
+    status: raw.status,
+    useCaseId: raw.use_case_id,
+    estimatedRuntimeSeconds: raw.estimated_runtime_seconds,
+    supersededBy: raw.superseded_by,
+    approvedBy: raw.approved_by,
+    approvedAt: raw.approved_at,
+    createdAt: raw.created_at,
+    metadata: raw.metadata ?? {}
+  };
+}
+
 export function mapAnalysisCatalogView(
   raw: RawAnalysisCatalogView
 ): AnalysisCatalogView {
@@ -724,9 +870,11 @@ export function mapAnalysisCatalogView(
     workspaceId: raw.workspace_id,
     epochs: (raw.epochs ?? []).map(mapAnalysisEpoch),
     executions: (raw.executions ?? []).map(mapAnalysisExecution),
-    templates: raw.templates ?? [],
-    useCases: raw.use_cases ?? [],
-    requirements: raw.requirements ?? []
+    templates: (raw.templates ?? []).map(mapAnalysisTemplate),
+    useCases: (raw.use_cases ?? []).map(mapUseCase),
+    requirements: raw.requirements ?? [],
+    unresolvedTemplateIds: raw.unresolved_template_ids ?? [],
+    unresolvedUseCaseIds: raw.unresolved_use_case_ids ?? []
   };
 }
 
@@ -1019,6 +1167,13 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     description: "Executions, epochs, comparison, and lineage"
   };
 
+  const useCaseAsset: WorkspaceAsset = {
+    id: `use-cases:${overview.workspace.workspace_id}`,
+    kind: "use-cases" as const,
+    label: "Use Cases & Templates",
+    description: "Author, review, and version analysis templates"
+  };
+
   return [
     ...connectionProfileAssets,
     ...graphProfileAssets,
@@ -1026,7 +1181,8 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     ...documentAssets,
     ...runAssets,
     ...reportAssets,
-    analysisCatalogAsset
+    analysisCatalogAsset,
+    useCaseAsset
   ];
 }
 
