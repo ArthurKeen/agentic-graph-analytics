@@ -19,6 +19,7 @@ from .models import (
     RequirementInterview,
     RequirementVersion,
     RequirementVersionStatus,
+    RetentionPolicy,
     SchemaSnapshot,
     SourceDocument,
     UseCase,
@@ -347,6 +348,26 @@ class ProductRepository:
         """List analysis templates for a workspace."""
 
         return self.storage.list_analysis_templates(workspace_id)
+
+    def get_retention_policy(self, workspace_id: str) -> Optional[RetentionPolicy]:
+        """Get a workspace's retention policy, or None."""
+
+        return self.storage.get_retention_policy(workspace_id)
+
+    def create_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Create a retention policy."""
+
+        return self.storage.insert_retention_policy(policy)
+
+    def update_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Update a retention policy."""
+
+        return self.storage.update_retention_policy(policy)
+
+    def delete_document_by_key(self, collection_name: str, key: str) -> bool:
+        """Delete one document by key (FR-54 retention sweep)."""
+
+        return self.storage.delete_document_by_key(collection_name, key)
 
     def create_report_manifest(self, manifest: ReportManifest) -> str:
         """Create a report manifest."""

@@ -25,6 +25,7 @@ from ..ai.schema.acquire import (
     describe_schema_change,
 )
 from ..ai.schema.graph_purpose import classify_graph_purpose
+from ..ai.schema.sharding import detect_sharding_profile
 from ..ai.schema.sensitivity import (
     classify_conceptual_schema,
     classify_schema_sensitivity,
@@ -34,7 +35,14 @@ from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
 from ..config import parse_ssl_verify
 from ..db_connection import connect_arango_database
-from .constants import PRODUCT_SCHEMA_VERSION
+from .constants import (
+    AUDIT_EVENTS_COLLECTION,
+    DOCUMENTS_COLLECTION,
+    PRODUCT_SCHEMA_VERSION,
+    REPORT_MANIFESTS_COLLECTION,
+    REQUIREMENT_VERSIONS_COLLECTION,
+    WORKFLOW_RUNS_COLLECTION,
+)
 from .exceptions import ConflictError, ValidationError
 from .models import (
     AnalysisEpoch,
@@ -81,6 +89,7 @@ from .models import (
     create_published_snapshot,
     create_requirement_interview,
     create_requirement_version,
+    create_retention_policy,
     create_source_document,
     create_use_case,
     create_workspace,
@@ -96,7 +105,7 @@ logger = logging.getLogger(__name__)
 # accepted bundle set explicit so an older workspace export remains importable
 # after additive catalog/schema features land.
 _SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset(
-    {"1.0.0", "1.1.0", "1.2.0", "1.3.0", PRODUCT_SCHEMA_VERSION}
+    {"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", PRODUCT_SCHEMA_VERSION}
 )
 
 
@@ -1337,6 +1346,272 @@ class ProductService:
             "errors": list(run.errors or []),
             "supervisor": supervisor_status,
         }
+
+    # --- Retention (FR-54) ---
+
+    RETENTION_CATEGORIES = (
+        "drafts",
+        "runs",
+        "documents",
+        "report_snapshots",
+        "audit_logs",
+    )
+
+    def get_retention_policy(self, workspace_id: str) -> Dict[str, Any]:
+        """Return the workspace's retention policy, defaulted when unset.
+
+        An unset workspace reports ``enabled: false`` with zero windows —
+        "keep everything" — so callers never have to distinguish "no policy"
+        from "policy that deletes nothing".
+        """
+
+        self.repository.get_workspace(workspace_id)
+        policy = self.repository.get_retention_policy(workspace_id)
+        if policy is None:
+            return {
+                "workspace_id": workspace_id,
+                "enabled": False,
+                "draft_retention_days": 0,
+                "run_retention_days": 0,
+                "document_retention_days": 0,
+                "report_snapshot_retention_days": 0,
+                "audit_log_retention_days": 0,
+                "configured": False,
+            }
+        result = policy.to_dict()
+        result["configured"] = True
+        return result
+
+    def set_retention_policy(
+        self,
+        workspace_id: str,
+        enabled: Optional[bool] = None,
+        draft_retention_days: Optional[int] = None,
+        run_retention_days: Optional[int] = None,
+        document_retention_days: Optional[int] = None,
+        report_snapshot_retention_days: Optional[int] = None,
+        audit_log_retention_days: Optional[int] = None,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Configure retention windows for a workspace (FR-54).
+
+        Windows are whole days; ``0`` means keep forever. Negative values are
+        rejected rather than clamped — a negative window most likely means a
+        caller computed it wrong, and silently treating it as "delete
+        everything" would be destructive.
+        """
+
+        self.repository.get_workspace(workspace_id)
+        windows = {
+            "draft_retention_days": draft_retention_days,
+            "run_retention_days": run_retention_days,
+            "document_retention_days": document_retention_days,
+            "report_snapshot_retention_days": report_snapshot_retention_days,
+            "audit_log_retention_days": audit_log_retention_days,
+        }
+        for name, value in windows.items():
+            if value is not None and int(value) < 0:
+                raise ValidationError(f"{name} must be >= 0 (0 means keep forever)")
+
+        policy = self.repository.get_retention_policy(workspace_id)
+        created = policy is None
+        if policy is None:
+            policy = create_retention_policy(workspace_id=workspace_id)
+
+        if enabled is not None:
+            policy.enabled = bool(enabled)
+        for name, value in windows.items():
+            if value is not None:
+                setattr(policy, name, int(value))
+        policy.updated_by = actor
+        policy.updated_at = current_timestamp()
+
+        if created:
+            self.repository.create_retention_policy(policy)
+        else:
+            self.repository.update_retention_policy(policy)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="set_retention_policy",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={
+                    "enabled": policy.enabled,
+                    **{name: getattr(policy, name) for name in windows},
+                },
+            )
+        )
+        result = policy.to_dict()
+        result["configured"] = True
+        return result
+
+    def apply_retention_policy(
+        self,
+        workspace_id: str,
+        dry_run: bool = True,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Sweep expired records for a workspace (FR-54).
+
+        **Dry run by default.** This deletes data, so a caller must pass
+        ``dry_run=False`` explicitly; the default returns exactly what *would*
+        be removed. Returns the same shape either way, with ``deleted`` telling
+        the caller which mode ran.
+
+        Deliberately excluded from every category, regardless of age, because
+        these are the records an audit would ask for:
+
+        * APPROVED requirement versions (only DRAFT / REJECTED are eligible)
+        * published report snapshots and any report manifest that has one
+        * runs that produced a published report
+        * audit events, unless ``audit_log_retention_days`` is set explicitly —
+          they are the record of everything else being deleted
+
+        Ephemeral quick-analysis runs (``metadata.ephemeral``) are swept under
+        the ``runs`` window, which is the concrete behaviour the PRD names.
+        """
+
+        from datetime import timedelta
+
+        self.repository.get_workspace(workspace_id)
+        policy = self.repository.get_retention_policy(workspace_id)
+        now = current_timestamp()
+
+        result: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "deleted": not dry_run,
+            "enabled": bool(policy and policy.enabled),
+            "candidates": {category: [] for category in self.RETENTION_CATEGORIES},
+            "protected": {},
+            # Always present so callers get one response shape regardless of
+            # whether a policy exists, is disabled, or actually swept.
+            "counts": {category: 0 for category in self.RETENTION_CATEGORIES},
+        }
+        if policy is None or not policy.enabled:
+            result["reason"] = (
+                "No retention policy configured"
+                if policy is None
+                else "Retention policy is disabled"
+            )
+            return result
+
+        def _expired(timestamp, days: int) -> bool:
+            if not days or timestamp is None:
+                return False
+            return timestamp < now - timedelta(days=days)
+
+        protected_report_ids = set()
+        protected_run_ids = set()
+        for manifest in self.repository.list_report_manifests(workspace_id):
+            if manifest.published_snapshot_id:
+                protected_report_ids.add(manifest.report_id)
+                if manifest.run_id:
+                    protected_run_ids.add(manifest.run_id)
+
+        # Drafts: only unapproved requirement versions.
+        draft_days = policy.draft_retention_days
+        for version in self.repository.list_requirement_versions(workspace_id):
+            if version.status in (
+                RequirementVersionStatus.APPROVED,
+                RequirementVersionStatus.SUPERSEDED,
+            ):
+                continue
+            if _expired(version.created_at, draft_days):
+                result["candidates"]["drafts"].append(
+                    {
+                        "id": version.requirement_version_id,
+                        "collection": REQUIREMENT_VERSIONS_COLLECTION,
+                        "label": f"v{version.version} ({version.status.value})",
+                    }
+                )
+
+        # Runs: skip anything that produced a published report.
+        run_days = policy.run_retention_days
+        for run in self.repository.list_workflow_runs(workspace_id):
+            if run.run_id in protected_run_ids:
+                continue
+            if _expired(run.created_at, run_days):
+                result["candidates"]["runs"].append(
+                    {
+                        "id": run.run_id,
+                        "collection": WORKFLOW_RUNS_COLLECTION,
+                        "label": run.workflow_mode.value,
+                        "ephemeral": bool((run.metadata or {}).get("ephemeral")),
+                    }
+                )
+
+        document_days = policy.document_retention_days
+        for document in self.repository.list_source_documents(workspace_id):
+            if _expired(document.uploaded_at, document_days):
+                result["candidates"]["documents"].append(
+                    {
+                        "id": document.document_id,
+                        "collection": DOCUMENTS_COLLECTION,
+                        "label": document.filename,
+                    }
+                )
+
+        snapshot_days = policy.report_snapshot_retention_days
+        for manifest in self.repository.list_report_manifests(workspace_id):
+            if manifest.report_id in protected_report_ids:
+                continue
+            if _expired(manifest.created_at, snapshot_days):
+                result["candidates"]["report_snapshots"].append(
+                    {
+                        "id": manifest.report_id,
+                        "collection": REPORT_MANIFESTS_COLLECTION,
+                        "label": manifest.title,
+                    }
+                )
+
+        audit_days = policy.audit_log_retention_days
+        if audit_days:
+            for event in self.repository.list_audit_events(workspace_id, limit=10_000):
+                if _expired(event.timestamp, audit_days):
+                    result["candidates"]["audit_logs"].append(
+                        {
+                            "id": event.audit_event_id,
+                            "collection": AUDIT_EVENTS_COLLECTION,
+                            "label": event.action,
+                        }
+                    )
+
+        result["protected"] = {
+            "published_report_ids": sorted(protected_report_ids),
+            "runs_with_published_reports": sorted(protected_run_ids),
+        }
+        result["counts"] = {
+            category: len(items) for category, items in result["candidates"].items()
+        }
+
+        if dry_run:
+            return result
+
+        removed = 0
+        for items in result["candidates"].values():
+            for item in items:
+                if self.repository.delete_document_by_key(
+                    item["collection"], item["id"]
+                ):
+                    removed += 1
+        result["removed"] = removed
+
+        policy.last_applied_at = now
+        self.repository.update_retention_policy(policy)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="apply_retention_policy",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={"removed": removed, "counts": result["counts"]},
+            )
+        )
+        return result
 
     # --- Use cases (FR-19..FR-21) ---
 
@@ -3167,6 +3442,28 @@ class ProductService:
                 merged_meta["sensitivity"] = sensitivity_report.to_dict()
                 v6_kwargs["analyzer_metadata"] = merged_meta
 
+        # FR-65: read the deployment's sharding/multitenancy layout straight
+        # from ArangoDB. This does NOT depend on the acquisition bundle — the
+        # upstream analyzer never emits metadata.multitenancy /
+        # metadata.shardingProfile, so waiting for it would leave FR-65
+        # permanently blocked. Runs even when acquisition failed, and its own
+        # failure is non-fatal.
+        try:
+            sharding_profile = detect_sharding_profile(db)
+        except Exception:  # noqa: BLE001 — never block discovery
+            sharding_profile = None
+        if sharding_profile is not None:
+            merged_meta = dict(v6_kwargs.get("analyzer_metadata") or {})
+            merged_meta["sharding_profile"] = sharding_profile.to_dict()
+            merged_meta["multitenancy"] = {
+                "is_multitenant": sharding_profile.is_multitenant,
+                "tenant_key": sharding_profile.tenant_key,
+            }
+            merged_meta["gae_projection_hints"] = (
+                sharding_profile.gae_projection_hints()
+            )
+            v6_kwargs["analyzer_metadata"] = merged_meta
+
         # FR-11: re-discovering a graph_name already profiled on this
         # connection bumps the version in place instead of piling up
         # disconnected duplicate rows. Picking the most recently updated
@@ -4021,7 +4318,9 @@ class ProductService:
         self,
         graph_set_id: str,
         max_links: int = 16,
-        min_overlap: int = 5,
+        min_overlap: int = 2,
+        probe_edges: bool = True,
+        sample_size: int = 500,
     ) -> List[Dict[str, Any]]:
         """Suggest CrossGraphLinks across the profiles in a set (FR-69).
 
@@ -4034,14 +4333,22 @@ class ProductService:
         (same database — the most common case for a workspace's own
         corpus + KG).
 
-        This method does NOT touch the database; it only inspects the
-        conceptual_schema / physical_mapping snapshots already on the
-        graph profiles. Heavier statistical overlap probes (which
-        WOULD need DB access) are intentionally deferred to Phase 6d.
+        FR-69 also requires inspecting real edges: when ``probe_edges`` is
+        set (the default), each member profile's edge collections are sampled
+        and their ``_from``/``_to`` endpoints are read. An edge whose endpoints
+        land in collections belonging to two *different* member profiles is a
+        cross-graph hop that actually exists in the data, so it is reported at
+        confidence 0.95 — strictly higher than any name match, which is only a
+        guess that two same-named fields mean the same thing.
+
+        Edge probing needs a live connection. Any failure (no credentials,
+        unreachable database, permissions) degrades to name-matching alone
+        rather than failing the call, since suggestions are advisory.
 
         ``max_links`` caps the number of suggestions returned to keep
-        the workbench tooltip manageable. ``min_overlap`` reserved
-        for the future statistical path; ignored here.
+        the workbench tooltip manageable. ``min_overlap`` is the minimum
+        number of sampled edges that must support a hop before it is
+        reported, which keeps a single stray edge from looking structural.
         """
 
         graph_set = self.repository.get_graph_set(graph_set_id)
@@ -4052,9 +4359,6 @@ class ProductService:
             profile = self.repository.get_graph_profile(pid)
             field_names = self._collect_joinable_fields(profile)
             members.append((pid, profile.connection_profile_id, field_names))
-
-        # Limit reserved (paginates the suggestion list shown in UI).
-        del min_overlap
 
         candidates: List[Dict[str, Any]] = []
         for i in range(len(members)):
@@ -4079,6 +4383,28 @@ class ProductService:
                         }
                     )
 
+        if probe_edges:
+            # Observed hops outrank name guesses, so they are prepended and
+            # dedupe wins over any name match for the same profile pair.
+            observed = self._probe_cross_graph_edges(
+                graph_set_id=graph_set_id,
+                min_overlap=min_overlap,
+                sample_size=sample_size,
+            )
+            seen_pairs = {
+                (link["from_graph_profile_id"], link["to_graph_profile_id"])
+                for link in observed
+            }
+            candidates = observed + [
+                candidate
+                for candidate in candidates
+                if (
+                    candidate["from_graph_profile_id"],
+                    candidate["to_graph_profile_id"],
+                )
+                not in seen_pairs
+            ]
+
         # Sort by confidence desc then field name for stable output.
         candidates.sort(
             key=lambda c: (
@@ -4088,6 +4414,146 @@ class ProductService:
             )
         )
         return candidates[:max_links]
+
+    def _probe_cross_graph_edges(
+        self,
+        graph_set_id: str,
+        min_overlap: int,
+        sample_size: int,
+    ) -> List[Dict[str, Any]]:
+        """Sample real edges and report hops that cross member profiles (FR-69).
+
+        Returns an empty list on any failure: cross-graph suggestions are
+        advisory, so a missing credential or unreachable database must not
+        turn a workbench hint into an error.
+        """
+
+        graph_set = self.repository.get_graph_set(graph_set_id)
+        profiles = []
+        for pid in graph_set.graph_profile_ids:
+            try:
+                profiles.append(self.repository.get_graph_profile(pid))
+            except Exception:  # noqa: BLE001
+                continue
+        if len(profiles) < 2:
+            return []
+
+        # collection name -> owning profile id. A collection shared by two
+        # profiles is ambiguous, so it is excluded rather than attributed to
+        # whichever profile happened to be seen first.
+        owner: Dict[str, Optional[str]] = {}
+        for profile in profiles:
+            for name in list(profile.vertex_collections or []):
+                owner[name] = (
+                    None if name in owner else profile.graph_profile_id
+                )
+
+        # Group edge collections by connection so each database is opened once.
+        by_connection: Dict[str, List[GraphProfile]] = {}
+        for profile in profiles:
+            by_connection.setdefault(profile.connection_profile_id, []).append(
+                profile
+            )
+
+        # (from_profile, to_profile, edge_collection) -> observed count
+        hops: Dict[tuple, int] = {}
+
+        for connection_profile_id, connection_profiles in by_connection.items():
+            try:
+                db = self._connect_for_connection_profile(connection_profile_id)
+            except Exception:  # noqa: BLE001 — advisory feature, degrade quietly
+                logger.info(
+                    "Cross-graph edge probe skipped for connection %s",
+                    connection_profile_id,
+                    exc_info=True,
+                )
+                continue
+
+            edge_collections = sorted(
+                {
+                    name
+                    for profile in connection_profiles
+                    for name in list(profile.edge_collections or [])
+                }
+            )
+            for edge_collection in edge_collections:
+                for from_id, to_id in self._sample_edge_endpoints(
+                    db, edge_collection, sample_size
+                ):
+                    from_owner = owner.get(from_id.split("/", 1)[0])
+                    to_owner = owner.get(to_id.split("/", 1)[0])
+                    if not from_owner or not to_owner or from_owner == to_owner:
+                        continue
+                    key = (from_owner, to_owner, edge_collection)
+                    hops[key] = hops.get(key, 0) + 1
+
+        links: List[Dict[str, Any]] = []
+        for (from_profile, to_profile, edge_collection), count in hops.items():
+            if count < max(1, min_overlap):
+                continue
+            links.append(
+                {
+                    "from_graph_profile_id": from_profile,
+                    "to_graph_profile_id": to_profile,
+                    "from_field": "_from",
+                    "to_field": "_to",
+                    "link_type": "edge_traversal",
+                    # Observed in the data, not inferred from a name.
+                    "confidence": 0.95,
+                    "metadata": {
+                        "discovery": "edge_endpoint_probe",
+                        "edge_collection": edge_collection,
+                        "observed_edges": count,
+                        "sample_size": sample_size,
+                    },
+                }
+            )
+        return links
+
+    def _connect_for_connection_profile(
+        self, connection_profile_id: str, password_secret_key: str = "password"
+    ):
+        """Open a database handle for a connection profile."""
+
+        profile = self.repository.get_connection_profile(connection_profile_id)
+        password_ref = profile.secret_refs.get(password_secret_key)
+        if not password_ref:
+            raise ValidationError(
+                f"Connection profile is missing secret ref: {password_secret_key}"
+            )
+        return self.db_connector(
+            endpoint=profile.endpoint,
+            username=profile.username,
+            password=self.secret_resolver.resolve(password_ref),
+            database=profile.database,
+            verify_ssl=profile.verify_ssl,
+            verify_system=False,
+        )
+
+    @staticmethod
+    def _sample_edge_endpoints(db, edge_collection: str, sample_size: int):
+        """Yield (_from, _to) pairs from a bounded edge sample.
+
+        Only the two endpoint fields are projected — edge documents can carry
+        large payloads and none of it is needed to detect a hop.
+        """
+
+        query = (
+            "FOR e IN @@edge LIMIT @limit "
+            "RETURN {f: e._from, t: e._to}"
+        )
+        try:
+            cursor = db.aql.execute(
+                query,
+                bind_vars={"@edge": edge_collection, "limit": int(sample_size)},
+            )
+        except Exception:  # noqa: BLE001 — a missing collection is not fatal
+            return
+        for row in cursor or []:
+            from_id = row.get("f") if isinstance(row, dict) else None
+            to_id = row.get("t") if isinstance(row, dict) else None
+            if isinstance(from_id, str) and isinstance(to_id, str):
+                yield from_id, to_id
 
     @staticmethod
     def _collect_joinable_fields(profile: GraphProfile) -> set[str]:
@@ -5207,6 +5673,23 @@ class ProductService:
         cross_graph_links = self._cross_graph_links_for_profile(graph_profile)
         if cross_graph_links:
             observations["cross_graph_links"] = cross_graph_links
+
+        # FR-65c: surface the inferred tenant key so Copilot questions can be
+        # tenant-scoped, and warn when an analysis would span tenants.
+        analyzer_metadata = graph_profile.analyzer_metadata or {}
+        multitenancy = analyzer_metadata.get("multitenancy") or {}
+        if multitenancy.get("is_multitenant"):
+            observations["multitenancy"] = {
+                "tenant_key": multitenancy.get("tenant_key"),
+                "note": (
+                    "This deployment is sharded by "
+                    f"{multitenancy.get('tenant_key')!r}. Scope questions to a "
+                    "single tenant unless a cross-tenant view is intended."
+                ),
+            }
+        sharding_profile = analyzer_metadata.get("sharding_profile") or {}
+        if sharding_profile.get("deployment_kind") not in (None, "", "unknown"):
+            observations["deployment_kind"] = sharding_profile["deployment_kind"]
 
         return observations
 

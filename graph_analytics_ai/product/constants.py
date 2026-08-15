@@ -1,10 +1,10 @@
 """Constants for Agentic Graph Analytics product metadata."""
 
-# Bumped to 1.4.0 for FR-19..FR-26: aga_use_cases and aga_analysis_templates
-# join the additive collection set (1.3.0 added the Analysis Catalog pair).
-# The bundle import path accepts the open set 1.0.0 .. 1.4.0 so older callers
-# can still round-trip.
-PRODUCT_SCHEMA_VERSION = "1.4.0"
+# Bumped to 1.5.0 for FR-54 (aga_retention_policies). 1.4.0 added the
+# FR-19..FR-26 pair (aga_use_cases, aga_analysis_templates); 1.3.0 added the
+# Analysis Catalog pair. All are additive collections, and the bundle import
+# path accepts the open set 1.0.0 .. 1.5.0 so older exports still round-trip.
+PRODUCT_SCHEMA_VERSION = "1.5.0"
 
 META_COLLECTION = "aga_product_meta"
 WORKSPACES_COLLECTION = "aga_workspaces"
@@ -48,6 +48,8 @@ ANALYSIS_EPOCHS_COLLECTION = "aga_analysis_epochs"
 # their own lifecycle, so users can author and approve them directly.
 USE_CASES_COLLECTION = "aga_use_cases"
 ANALYSIS_TEMPLATES_COLLECTION = "aga_analysis_templates"
+# FR-54: one retention policy row per workspace.
+RETENTION_POLICIES_COLLECTION = "aga_retention_policies"
 
 PRODUCT_COLLECTIONS = [
     META_COLLECTION,
@@ -70,4 +72,5 @@ PRODUCT_COLLECTIONS = [
     ANALYSIS_EPOCHS_COLLECTION,
     USE_CASES_COLLECTION,
     ANALYSIS_TEMPLATES_COLLECTION,
+    RETENTION_POLICIES_COLLECTION,
 ]

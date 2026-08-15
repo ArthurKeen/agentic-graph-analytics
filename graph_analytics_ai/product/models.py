@@ -1329,6 +1329,90 @@ class AnalysisEpoch:
 
 
 @dataclass
+class RetentionPolicy:
+    """Per-workspace data-retention configuration (FR-54).
+
+    The PRD says "admins can configure retention" without saying what that
+    means mechanically. The design chosen here is an explicit per-workspace
+    policy record plus an on-demand sweep, rather than ArangoDB TTL indexes,
+    because retention has to be *selective*: approved requirement versions,
+    published report snapshots, and audit events are compliance artifacts that
+    must survive even when older than the window. A TTL index cannot express
+    "delete drafts but never published snapshots".
+
+    ``0`` means "keep forever" for that category — the safe default, so
+    creating a policy never silently starts deleting anything.
+    """
+
+    retention_policy_id: str
+    workspace_id: str
+    enabled: bool = False
+    draft_retention_days: int = 0
+    run_retention_days: int = 0
+    document_retention_days: int = 0
+    report_snapshot_retention_days: int = 0
+    audit_log_retention_days: int = 0
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    updated_by: Optional[str] = None
+    last_applied_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def window_for(self, category: str) -> int:
+        return {
+            "drafts": self.draft_retention_days,
+            "runs": self.run_retention_days,
+            "documents": self.document_retention_days,
+            "report_snapshots": self.report_snapshot_retention_days,
+            "audit_logs": self.audit_log_retention_days,
+        }.get(category, 0)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.retention_policy_id,
+            "retention_policy_id": self.retention_policy_id,
+            "workspace_id": self.workspace_id,
+            "enabled": self.enabled,
+            "draft_retention_days": self.draft_retention_days,
+            "run_retention_days": self.run_retention_days,
+            "document_retention_days": self.document_retention_days,
+            "report_snapshot_retention_days": self.report_snapshot_retention_days,
+            "audit_log_retention_days": self.audit_log_retention_days,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "updated_by": self.updated_by,
+            "last_applied_at": _datetime_to_str(self.last_applied_at),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RetentionPolicy":
+        """Create a retention policy from an ArangoDB document."""
+
+        return cls(
+            retention_policy_id=data.get("retention_policy_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            enabled=bool(data.get("enabled", False)),
+            draft_retention_days=int(data.get("draft_retention_days", 0)),
+            run_retention_days=int(data.get("run_retention_days", 0)),
+            document_retention_days=int(data.get("document_retention_days", 0)),
+            report_snapshot_retention_days=int(
+                data.get("report_snapshot_retention_days", 0)
+            ),
+            audit_log_retention_days=int(data.get("audit_log_retention_days", 0)),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            updated_by=data.get("updated_by"),
+            last_applied_at=_datetime_from_str(data.get("last_applied_at")),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
 class UseCase:
     """A workspace-scoped analytics use case (FR-19..FR-21).
 
@@ -1962,6 +2046,19 @@ def create_workflow_run(
         run_id=generate_product_id("run"),
         workspace_id=workspace_id,
         workflow_mode=workflow_mode,
+        **kwargs,
+    )
+
+
+def create_retention_policy(
+    workspace_id: str,
+    **kwargs: Any,
+) -> RetentionPolicy:
+    """Create a retention policy with a generated ID (FR-54)."""
+
+    return RetentionPolicy(
+        retention_policy_id=generate_product_id("retention-policy"),
+        workspace_id=workspace_id,
         **kwargs,
     )
 

@@ -408,6 +408,34 @@ PRODUCT_API_ENDPOINTS = [
         summary="List supported workflow recovery actions by step",
         tags=["workflow-runs"],
     ),
+    # FR-54. Retention configuration and sweep. The sweep is dry-run by
+    # default; deleting requires an explicit dry_run=false in the body.
+    ProductAPIEndpoint(
+        method="GET",
+        path="/api/workspaces/{workspace_id}/retention-policy",
+        service_method="get_retention_policy",
+        summary="Get a workspace's retention policy",
+        tags=["admin"],
+        response_model="RetentionPolicy",
+    ),
+    ProductAPIEndpoint(
+        method="PUT",
+        path="/api/workspaces/{workspace_id}/retention-policy",
+        service_method="set_retention_policy",
+        summary="Configure retention windows for a workspace",
+        tags=["admin"],
+        request_model="SetRetentionPolicyRequest",
+        response_model="RetentionPolicy",
+    ),
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/retention-policy/apply",
+        service_method="apply_retention_policy",
+        summary="Sweep expired records (dry run unless dry_run=false)",
+        tags=["admin"],
+        request_model="ApplyRetentionPolicyRequest",
+        response_model="RetentionSweepResult",
+    ),
     # FR-19..FR-21. Use cases as first-class product records: manual
     # authoring, editing while draft, and an audited review lifecycle.
     ProductAPIEndpoint(

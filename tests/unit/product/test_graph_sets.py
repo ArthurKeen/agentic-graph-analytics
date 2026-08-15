@@ -17,6 +17,7 @@ Covers:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -515,3 +516,176 @@ class TestGraphSetEndpoints:
         assert captured["name"] == "Set 1"
         assert captured["actor"] == "carol"
         assert result == {"name": "Set 1", "graph_profile_ids": ["gp-1", "gp-2"]}
+
+
+# ---------------------------------------------------------------------------
+# FR-69: edge-endpoint probing (real hops, not name guesses)
+# ---------------------------------------------------------------------------
+
+
+class _FakeAql:
+    def __init__(self, rows_by_collection):
+        self._rows = rows_by_collection
+
+    def execute(self, query, bind_vars=None):
+        collection = (bind_vars or {}).get("@edge")
+        if collection not in self._rows:
+            raise RuntimeError(f"no such collection: {collection}")
+        return list(self._rows[collection])
+
+
+class _FakeEdgeDb:
+    def __init__(self, rows_by_collection):
+        self.aql = _FakeAql(rows_by_collection)
+
+
+def _graph_set_with_two_profiles(repo_cls, edge_rows, *, same_connection=True):
+    """Build a GraphSet whose members own distinct vertex collections."""
+    from graph_analytics_ai.product.models import GraphProfile, GraphSet
+
+    corpus = GraphProfile(
+        graph_profile_id="gp-corpus",
+        workspace_id="ws-1",
+        connection_profile_id="cp-1",
+        graph_name="corpus",
+        vertex_collections=["Documents"],
+        edge_collections=["mentions"],
+    )
+    kg = GraphProfile(
+        graph_profile_id="gp-kg",
+        workspace_id="ws-1",
+        connection_profile_id="cp-1" if same_connection else "cp-2",
+        graph_name="kg",
+        vertex_collections=["Entities"],
+        edge_collections=[],
+    )
+    graph_set = GraphSet(
+        graph_set_id="gs-1",
+        workspace_id="ws-1",
+        name="corpus+kg",
+        graph_profile_ids=["gp-corpus", "gp-kg"],
+    )
+    repo = repo_cls(profiles=[corpus, kg])
+    repo._sets[graph_set.graph_set_id] = graph_set
+    return repo
+
+
+def test_edge_probe_reports_observed_cross_graph_hops():
+    """FR-69: an edge whose endpoints span two profiles is a real hop."""
+
+    repo = _graph_set_with_two_profiles(
+        _FakeRepository,
+        None,
+    )
+    db = _FakeEdgeDb(
+        {
+            "mentions": [
+                {"f": "Entities/e1", "t": "Documents/d1"},
+                {"f": "Entities/e2", "t": "Documents/d2"},
+                {"f": "Entities/e3", "t": "Documents/d3"},
+            ]
+        }
+    )
+    service = _service(repo)
+    service.db_connector = lambda **_: db
+    repo.get_connection_profile = lambda _id: SimpleNamespace(
+        endpoint="http://arango",
+        username="root",
+        database="demo",
+        verify_ssl=False,
+        secret_refs={"password": "vault://pw"},
+    )
+
+    links = service.discover_cross_graph_links("gs-1")
+
+    observed = [
+        link for link in links if link["link_type"] == "edge_traversal"
+    ]
+    assert len(observed) == 1
+    hop = observed[0]
+    assert hop["from_graph_profile_id"] == "gp-kg"
+    assert hop["to_graph_profile_id"] == "gp-corpus"
+    assert hop["metadata"]["edge_collection"] == "mentions"
+    assert hop["metadata"]["observed_edges"] == 3
+    # An observed hop must outrank any name-match guess.
+    assert hop["confidence"] > 0.85
+    assert links[0]["link_type"] == "edge_traversal"
+
+
+def test_edge_probe_ignores_hops_below_min_overlap():
+    """A single stray edge is not structural."""
+
+    repo = _graph_set_with_two_profiles(_FakeRepository, None)
+    db = _FakeEdgeDb({"mentions": [{"f": "Entities/e1", "t": "Documents/d1"}]})
+    service = _service(repo)
+    service.db_connector = lambda **_: db
+    repo.get_connection_profile = lambda _id: SimpleNamespace(
+        endpoint="http://arango",
+        username="root",
+        database="demo",
+        verify_ssl=False,
+        secret_refs={"password": "vault://pw"},
+    )
+
+    links = service.discover_cross_graph_links("gs-1", min_overlap=2)
+
+    assert not [l for l in links if l["link_type"] == "edge_traversal"]
+
+
+def test_edge_probe_ignores_edges_within_one_profile():
+    repo = _graph_set_with_two_profiles(_FakeRepository, None)
+    db = _FakeEdgeDb(
+        {
+            "mentions": [
+                {"f": "Documents/d1", "t": "Documents/d2"},
+                {"f": "Documents/d2", "t": "Documents/d3"},
+            ]
+        }
+    )
+    service = _service(repo)
+    service.db_connector = lambda **_: db
+    repo.get_connection_profile = lambda _id: SimpleNamespace(
+        endpoint="http://arango",
+        username="root",
+        database="demo",
+        verify_ssl=False,
+        secret_refs={"password": "vault://pw"},
+    )
+
+    links = service.discover_cross_graph_links("gs-1")
+
+    assert not [l for l in links if l["link_type"] == "edge_traversal"]
+
+
+def test_edge_probe_failure_degrades_to_name_matching():
+    """Suggestions are advisory — an unreachable database must not raise."""
+
+    repo = _graph_set_with_two_profiles(_FakeRepository, None)
+    service = _service(repo)
+
+    def _explode(**_):
+        raise RuntimeError("database unreachable")
+
+    service.db_connector = _explode
+    repo.get_connection_profile = lambda _id: SimpleNamespace(
+        endpoint="http://arango",
+        username="root",
+        database="demo",
+        verify_ssl=False,
+        secret_refs={"password": "vault://pw"},
+    )
+
+    links = service.discover_cross_graph_links("gs-1")
+
+    assert not [l for l in links if l["link_type"] == "edge_traversal"]
+
+
+def test_probe_edges_can_be_disabled():
+    repo = _graph_set_with_two_profiles(_FakeRepository, None)
+    service = _service(repo)
+    called = []
+    service.db_connector = lambda **_: called.append(1)
+
+    service.discover_cross_graph_links("gs-1", probe_edges=False)
+
+    assert called == []

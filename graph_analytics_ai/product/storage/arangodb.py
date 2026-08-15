@@ -13,6 +13,7 @@ from ..constants import (
     USE_CASES_COLLECTION,
     ANALYSIS_EXECUTIONS_COLLECTION,
     ANALYSIS_TEMPLATES_COLLECTION,
+    RETENTION_POLICIES_COLLECTION,
     AUDIT_EVENTS_COLLECTION,
     CHART_SPECS_COLLECTION,
     COLLECTION_ROLES_COLLECTION,
@@ -38,6 +39,7 @@ from ..models import (
     AnalysisExecution,
     AnalysisTemplate,
     AuditEvent,
+    RetentionPolicy,
     ChartSpec,
     ConnectionProfile,
     GraphProfile,
@@ -83,6 +85,7 @@ class ProductArangoStorage:
     ANALYSIS_EPOCHS_COLLECTION = ANALYSIS_EPOCHS_COLLECTION
     USE_CASES_COLLECTION = USE_CASES_COLLECTION
     ANALYSIS_TEMPLATES_COLLECTION = ANALYSIS_TEMPLATES_COLLECTION
+    RETENTION_POLICIES_COLLECTION = RETENTION_POLICIES_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -158,6 +161,7 @@ class ProductArangoStorage:
                 ANALYSIS_EPOCHS_COLLECTION,
                 USE_CASES_COLLECTION,
                 ANALYSIS_TEMPLATES_COLLECTION,
+                RETENTION_POLICIES_COLLECTION,
             ]:
                 collection = self.db.collection(collection_name)
                 collection.add_hash_index(fields=["workspace_id"], unique=False)
@@ -851,6 +855,44 @@ class ProductArangoStorage:
             sort_field="created_at",
         )
         return [AnalysisTemplate.from_dict(doc) for doc in docs]
+
+    # --- Retention policy operations (FR-54) ---
+
+    def insert_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Insert a workspace retention policy."""
+
+        return self._insert_document(
+            RETENTION_POLICIES_COLLECTION, policy.to_dict()
+        )
+
+    def update_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Update a workspace retention policy."""
+
+        policy.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            RETENTION_POLICIES_COLLECTION, policy.to_dict()
+        )
+
+    def get_retention_policy(self, workspace_id: str) -> Optional[RetentionPolicy]:
+        """Return a workspace's retention policy, or None when unset."""
+
+        docs = self._list_workspace_documents(
+            RETENTION_POLICIES_COLLECTION, workspace_id
+        )
+        return RetentionPolicy.from_dict(docs[0]) if docs else None
+
+    def delete_document_by_key(self, collection_name: str, key: str) -> bool:
+        """Delete one document by key. Returns False when already absent.
+
+        Used by the FR-54 retention sweep; kept generic because the sweep
+        spans several collections and each already has a typed reader.
+        """
+
+        try:
+            self.db.collection(collection_name).delete(key)
+            return True
+        except Exception:  # noqa: BLE001 — already-gone is not an error
+            return False
 
     # --- Report operations ---
 
