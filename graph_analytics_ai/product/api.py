@@ -519,6 +519,18 @@ PRODUCT_API_ENDPOINTS = [
         request_model="ImportAnalysisTemplatesRequest",
         response_model="List[AnalysisTemplate]",
     ),
+    # FR-49 / FR-50. One documented bundle format with a `vertical`
+    # discriminator covers both requirements — they differ in domain
+    # vocabulary, not structure. Parsed with yaml.safe_load, never yaml.load.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/vertical-projects/import",
+        service_method="import_vertical_project",
+        summary="Import an AdTech / clinical-trials / OSINT project bundle",
+        tags=["analysis-templates", "use-cases"],
+        request_model="ImportVerticalProjectRequest",
+        response_model="VerticalProjectImportResult",
+    ),
     ProductAPIEndpoint(
         method="GET",
         path="/api/analysis-templates/{analysis_template_id}",

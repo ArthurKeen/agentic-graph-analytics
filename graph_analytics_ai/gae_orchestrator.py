@@ -654,6 +654,68 @@ class GAEOrchestrator:
         if result.edge_count:
             self._log(f"  Edges: {result.edge_count:,}")
 
+    def _materialize_projections(
+        self, projections: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """Run each projection's idempotent UPSERT and report its collections.
+
+        Returns ``None`` when nothing can be materialized (no AQL on the
+        projections, or no database handle), so the caller falls through to
+        the whole-collection load. ``reused`` lists collections that already
+        existed — a projection re-run over unchanged data is a no-op, which is
+        what makes these projections reusable across runs.
+        """
+
+        db = None
+        try:
+            db = self.gae.get_db()
+        except Exception:  # noqa: BLE001
+            db = None
+        if db is None:
+            return None
+
+        vertex_collections: List[str] = []
+        edge_collections: List[str] = []
+        reused: List[str] = []
+
+        for projection in projections:
+            if not isinstance(projection, dict):
+                continue
+            target = projection.get("materialization_collection")
+            aql = projection.get("materialization_aql")
+            if not target or not aql:
+                continue
+
+            is_edge = str(projection.get("kind", "node")).lower() == "edge"
+            try:
+                already = bool(db.has_collection(target))
+            except Exception:  # noqa: BLE001
+                already = False
+            if already:
+                reused.append(str(target))
+            else:
+                try:
+                    db.create_collection(str(target), edge=is_edge)
+                except Exception:  # noqa: BLE001 - racing creators are fine
+                    pass
+
+            try:
+                db.aql.execute(aql)
+            except Exception as exc:  # noqa: BLE001
+                self._log(f"⚠ Projection {target} could not be materialized: {exc}")
+                return None
+
+            (edge_collections if is_edge else vertex_collections).append(str(target))
+
+        if not vertex_collections and not edge_collections:
+            return None
+        return {
+            "vertex_collections": vertex_collections,
+            "edge_collections": edge_collections,
+            "all_collections": vertex_collections + edge_collections,
+            "reused": sorted(set(reused)),
+        }
+
     def _load_graph_data(self, result: AnalysisResult) -> Dict[str, Any]:
         """Load the graph into GAE, preferring inline-AQL typed projections.
 
@@ -709,9 +771,53 @@ class GAEOrchestrator:
         elif want_inline and not engine_supports_aql:
             self._log(
                 "⚠ Typed projections requested but this engine does not "
-                "support loaddataaql; loading whole collections (results "
-                "will span all logical types in the source collections)"
+                "support loaddataaql; trying a materialized projection"
             )
+
+        # FR-71 tier 2: materialize the typed projection into real collections
+        # and load those.
+        #
+        # The PRD calls this tier a "server-side view fallback", but GAE's
+        # loaddata takes collection NAMES — an ArangoSearch view cannot be
+        # loaded (see GAEConnectionBase.load_graph). A materialized projection
+        # delivers the same intent through a mechanism the engine supports: a
+        # pre-filtered server-side surface holding exactly one logical type.
+        #
+        # The materialization AQL is idempotent UPSERT (TemplateGenerator
+        # ._projection_aql) writing to a deterministic collection name, so the
+        # projection is inherently REUSABLE ACROSS RUNS — a later run over
+        # unchanged data re-runs the UPSERT as a no-op and loads the same
+        # collection, which is the other half of FR-71.
+        if projections and strategy in ("auto", "inline_aql", "materialized"):
+            materialized = self._materialize_projections(projections)
+            if materialized:
+                try:
+                    graph_info = self.gae.load_graph(
+                        database=config.database,
+                        vertex_collections=materialized["vertex_collections"],
+                        edge_collections=materialized["edge_collections"],
+                        vertex_attributes=config.vertex_attributes,
+                    )
+                    result.projection = {
+                        "strategy": "materialized",
+                        "projection_collections": materialized["all_collections"],
+                        "reused": materialized["reused"],
+                        "logical_types": [
+                            p.get("logical_type")
+                            for p in projections
+                            if isinstance(p, dict)
+                        ],
+                    }
+                    self._log(
+                        f"✓ Loaded materialized projection "
+                        f"({len(materialized['all_collections'])} collection(s))"
+                    )
+                    return graph_info
+                except Exception as exc:  # noqa: BLE001 - fall back, don't fail
+                    self._log(
+                        f"⚠ Materialized projection load failed ({exc}); "
+                        f"falling back to whole-collection load"
+                    )
 
         graph_info = self.gae.load_graph(
             database=config.database,

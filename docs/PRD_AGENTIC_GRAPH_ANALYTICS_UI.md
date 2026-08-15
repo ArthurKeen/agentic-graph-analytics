@@ -696,7 +696,16 @@ version without losing prior context, audit trail, or domain.
 
 - **FR-27:** Users can launch traditional, agentic, and parallel agentic workflows.
 - **FR-28:** The backend persists run state, step status, checkpoints, warnings, errors, and timestamps.
-- **FR-29:** Users can view run progress and GAE job IDs.
+- **FR-29:** Users can view run progress and GAE job IDs. *(Implemented: job ids
+  lived only on `ExecutionResult.job` inside the runner. `ExecutionAgent` now
+  reports `gae_job_ids` / `graph_ids` / `result_collections`
+  (`graph_analytics_ai/ai/agents/specialized.py:859`), and the orchestrator
+  forwards a whitelisted subset of agent response content onto `STEP_END`
+  (`graph_analytics_ai/ai/agents/orchestrator.py:361` and `:412`). The whitelist
+  is deliberate — responses can carry whole templates and rendered reports, and
+  every forwarded value is persisted on the WorkflowStep row.
+  `StepStatusReporter` already surfaced step outputs, so the existing step-detail
+  panel renders them with no UI change.)*
 - **FR-30:** Users can cancel, retry, or resume runs where supported. *(Implemented:
   cancel via `ProductService.cancel_workflow_run`; retry and resume both go through
   `update_workflow_step` (`graph_analytics_ai/product/service.py:1711`), which already
@@ -749,7 +758,27 @@ FR-31b/FR-31c and FR-34.
 
 - **FR-32:** The UI displays a run-level workflow DAG for every workflow run.
 - **FR-33:** The DAG shows workflow stages as nodes, including schema analysis, requirements extraction, use-case generation, template generation, GAE execution, catalog persistence, and report generation.
+  *(Implemented: a seventh canonical step, `catalog_persistence`, joins the six
+  runner phases in `AGENTIC_STEP_LAYOUT`. It runs in the product layer
+  (`record_workflow_analysis_executions`), not the agent runner, so no trace
+  event can carry it — rather than invent a fake runner phase, the supervisor
+  drives the row directly where the work happens
+  (`graph_analytics_ai/product/agentic_run_supervisor.py:599`). A catalog
+  failure fails only that step: the analysis itself succeeded, so the run stays
+  COMPLETED with a warning.)*
 - **FR-34:** The DAG supports parallel branches for parallel agentic workflows.
+  *(Implemented: `_run_parallel_workflow` was fully written and never reached —
+  the supervisor called the sync `runner.run()` and the service folded
+  `parallel_agentic` to `agentic` before dispatch. Both are fixed:
+  `AgenticRunSupervisor._execute_runner`
+  (`graph_analytics_ai/product/agentic_run_supervisor.py:555`) routes
+  PARALLEL_AGENTIC through `run_async` on a per-run event loop (worker threads
+  have none), degrading to the sequential path if a runner lacks `run_async`.
+  `_build_canonical_agentic_dag(parallel=True)`
+  (`graph_analytics_ai/product/service.py:1149`) emits the real shape — schema
+  analysis and requirements extraction as concurrent roots converging on
+  use-case generation, rather than a chain implying a dependency that does not
+  exist. Sequential AGENTIC mode is unchanged, pinned by a test.)*
 - **FR-35:** Each node displays status: pending, running, completed, failed, skipped, or paused.
 - **FR-36:** Selecting a node opens step details, including agent name, inputs, outputs, warnings, errors, timing, retry count, checkpoint ID, and cost metadata when available. *(Implemented: fixed a raw/camelCase field-name mismatch where the frontend read nonexistent `artifact_count`/`warning_count`/`error_count` fields instead of the backend's real `artifact_refs`/`warnings`/`errors` arrays — those counts were silently `undefined` in production. `mapWorkflowNode` in `frontend/src/lib/product-api/client.ts:987` now derives counts from the real arrays and passes through agent name, timing, retry count, checkpoint ID, inputs, outputs, and cost; rendered in `FloatingDetailPanel` via `frontend/src/components/workspace/WorkspaceCanvas.tsx:392`. Verified in a browser against demo data.)*
 - **FR-37:** Step details link to produced artifacts, including requirement versions, use cases, templates, executions, result collections, and reports. *(Partial: artifact refs are now listed with type + id in the detail panel (previously always showed a count of `undefined` due to the FR-36 field-name bug) — see `frontend/src/components/workspace/WorkspaceCanvas.tsx:392`. Remaining gap: entries are informative text, not clickable navigation — there is no generic asset-router by `(type, id)` in the frontend, and several referenced types (use cases, templates, executions) have no dedicated view yet per FR-19/20/23/25/26/45/46/47/48.)*
@@ -827,33 +856,57 @@ FR-31b/FR-31c and FR-34.
 
 ### Import and Export
 
-- **FR-49:** *(**DEFERRED — blocked pending specification.** Not scheduled; do not
-  audit as a gap.)* The product supports import from AdTech-style YAML/docs projects.
-  No concrete file format exists to import: this requirement refers to three historical
-  sibling repos (`dnb_er`, `matpriskollen`, `psi-graph-analytics`) that are not present
-  here, and no sample or schema for their format exists in this repo, its tests, or its
-  fixtures. The in-repo `scripts/seed_adtech_workspace.py` seeds *this* product's own
-  AdTech demo data and is unrelated to importing a third-party project. Reopen when a
-  real sample file or source repo is supplied — building a parser against a guessed
-  schema would be wasted work.
-- **FR-50:** *(**DEFERRED — blocked pending specification.** Not scheduled; do not
-  audit as a gap.)* The product supports import from clinical trials/CRO and open
-  source intelligence analysis template files. Same blocker as FR-49: no format,
-  sample, or schema for these template files exists anywhere in the repo.
+- **FR-49:** The product supports import from AdTech-style YAML/docs projects.
+  *(Implemented: `import_vertical_project`
+  (`graph_analytics_ai/product/service.py:2200`), exposed at
+  `POST /api/workspaces/{workspace_id}/vertical-projects/import`. No concrete
+  source format existed for this requirement — the sibling repos it referred to
+  are not present — so rather than guess at a third party's layout the product
+  **defines** one, documented in `docs/vertical_project_bundle.md`. A bundle
+  carries `use_cases` and `templates`, and templates resolve their use case by
+  title. See FR-50 for why one format covers both.)*
+- **FR-50:** The product supports import from clinical trials/CRO and open source intelligence analysis template files.
+  *(Implemented by the same importer. FR-49 and FR-50 differ in domain
+  vocabulary, not structure — both describe "here are the analytical questions
+  and the algorithm configurations that answer them" — so a `vertical`
+  discriminator (`adtech` | `clinical_trials` | `osint` | any) carries the
+  difference and a second parser would be duplication. If a real upstream
+  format later appears, the right move is a thin adapter that emits this bundle,
+  not a second importer.
+
+  Parsing uses `yaml.safe_load`, never `yaml.load`: the default PyYAML loader
+  constructs arbitrary Python objects from tags like `!!python/object/apply`,
+  which is exactly the arbitrary code execution FR-26/FR-49/FR-50 forbid. A
+  bundle carrying such a tag is rejected, asserted by
+  `tests/unit/product/test_vertical_import.py::test_yaml_python_object_tags_are_rejected_not_executed`.
+  YAML is a superset of JSON so `.json` bundles use the same reader, and
+  everything lands as DRAFT — importing is not approving. Malformed entries and
+  unknown enum values degrade with a reported warning rather than failing the
+  whole bundle, but never silently.)*
 - **FR-51:** The product can export a workspace bundle with metadata, documents, templates, and report snapshots.
 - **FR-52:** Exported bundles exclude secret values.
 
 ### Administration and Audit
 
 - **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions. *(Implemented: `approve_requirement_version`, `export_workspace_bundle`, and `import_workspace_bundle` audit events added in `graph_analytics_ai/product/service.py` alongside the pre-existing create/update/launch/publish/archive events. There is no hard-delete method in the product service — only the already-audited soft-delete `archive_workspace` — so no action in this list is unaudited.)*
-- **FR-54:** *(**DEFERRED — needs specification before it can be built.** Not
-  scheduled; do not audit as a gap.)* Admins can configure retention for drafts, runs,
-  documents, report snapshots, and audit logs. Genuinely unbuilt (no retention code
-  exists anywhere), but the requirement does not say what "configure retention" means:
-  per-collection ArangoDB TTL indexes, an admin settings screen, a scheduled sweep job,
-  or a policy object attached to each workspace — these imply very different designs,
-  data models, and operational stories. Needs a scoping decision, then reopen as a
-  concrete requirement.
+- **FR-54:** Admins can configure retention for drafts, runs, documents, report
+  snapshots, and audit logs. *(Implemented: a per-workspace `RetentionPolicy`
+  plus an on-demand sweep — `set_retention_policy`
+  (`graph_analytics_ai/product/service.py:1385`) and `apply_retention_policy`
+  (`:1451`). Deliberately NOT ArangoDB TTL indexes: retention has to be
+  selective, and a TTL index cannot express "delete drafts but never published
+  snapshots".
+
+  Safety properties, all tested: the sweep is **dry-run by default** (deleting
+  requires `dry_run=false` explicitly, and both modes return the same shape);
+  `0` means keep forever, so creating a policy never silently starts deleting;
+  negative windows are rejected rather than clamped, since a negative window is
+  most likely a caller bug and treating it as "delete everything" is
+  destructive. Never eligible at any age: approved requirement versions,
+  published report snapshots, runs behind a published report, and audit events
+  unless a window is set explicitly — they are the record of everything else
+  being deleted. Ephemeral quick-analysis runs sweep under the run window,
+  which is the concrete behaviour this PRD names elsewhere.)*
 - **FR-55:** Admins can validate product metadata collection health.
 
 ### Schema Kind Detection and Multi-Graph Support
@@ -996,9 +1049,7 @@ older requirement, this section wins.
   `shape_fingerprint`, `full_fingerprint`. `confidence < 0.7` flips the
   profile's `review_required` flag and the UI prompts the user to
   inspect.
-- **FR-65 (Multitenancy and sharding profile surfacing):** *(**DEFERRED —
-  blocked on an upstream dependency.** Not scheduled; do not audit as a gap.)*
-  When the upstream analyzer reports `metadata.multitenancy` and
+- **FR-65 (Multitenancy and sharding profile surfacing):** When the upstream analyzer reports `metadata.multitenancy` and
   `metadata.shardingProfile`, the product surfaces them on the graph
   profile and uses them to (a) choose appropriate GAE projection
   parameters (e.g., respect `OneShard`), (b) warn before running
@@ -1006,13 +1057,28 @@ older requirement, this section wins.
   to the Requirements Copilot so questions can be tenant-scoped
   automatically.
 
-  Blocked because the precondition never holds: the external
-  `arango-schema-analyzer` does not emit `metadata.multitenancy` or
-  `metadata.shardingProfile` today, and no sharding-profile detector
-  exists in this repo either — so there is nothing to surface. The
-  requirement also does not describe what the UI should concretely
-  display. Reopen when the analyzer emits those fields, and pair it with
-  a UI spec at that point.
+  *(Implemented — but NOT via the analyzer. The precondition in the sentence
+  above never holds: `arango-schema-analyzer` emits neither field, so waiting
+  for it would leave this permanently blocked. The information does not need
+  the analyzer — ArangoDB reports it directly on `collection.properties()`
+  (`numberOfShards`, `shardKeys`, `replicationFactor`, `smartGraphAttribute`)
+  and `db.properties()` (`sharding == "single"` for OneShard).
+  `detect_sharding_profile` (`graph_analytics_ai/ai/schema/sharding.py:101`)
+  reads those during discovery and stamps `sharding_profile`, `multitenancy`,
+  and `gae_projection_hints` onto the GraphProfile's `analyzer_metadata`.
+
+  (a) Projection guidance is advice, not configuration — `prefer_local_join`
+  for OneShard, plus satellite collections. (b) A cross-tenant analysis on a
+  sharded deployment produces an explicit warning. (c) The inferred tenant key
+  reaches the Requirements Copilot through `_schema_observations_from_graph_profile`
+  as a hint, never a filter.
+
+  Multitenancy is only inferred when the SAME tenant-looking shard key appears
+  on every sharded collection: a key on a subset is a partition strategy, not a
+  tenant boundary, and treating it as one would wrongly imply the whole graph is
+  tenant-scoped. The probe never raises — it degrades to
+  `deployment_kind: "unknown"` with the reason recorded, because a sharding
+  probe must not be able to break schema discovery.)*
 
 #### Multi-Graph Workspaces
 
@@ -1059,6 +1125,19 @@ older requirement, this section wins.
   user must confirm or reject each link before it can be used by the
   workflow runner.
 
+  *(Implemented: `_probe_cross_graph_edges`
+  (`graph_analytics_ai/product/service.py:4606`) samples each member profile's
+  edge collections and reads `_from`/`_to`. An edge whose endpoints land in
+  collections owned by two different member profiles is a hop that
+  demonstrably exists in the data, reported at confidence 0.95 — strictly above
+  any name match, which is only a guess that two same-named fields mean the
+  same thing — and deduped so an observed hop wins. A collection claimed by two
+  profiles is excluded rather than attributed to whichever was seen first, and
+  `min_overlap` keeps a single stray edge from looking structural. Probing needs
+  a live connection, so any failure degrades to name-matching alone: these are
+  advisory suggestions and must not turn a workbench hint into an error.
+  Confirmation stays with the user via `update_graph_set`, unchanged.)*
+
 #### LPG-Aware Agentic Workflow
 
 - **FR-70 (Conceptual-typed AQL generation):** The
@@ -1090,6 +1169,19 @@ older requirement, this section wins.
   - Fallback strategy: server-side AQL `view` collection or named-graph
     materialization that selects only the matching `typeField ==
     typeValue` rows; the projection's lifetime is the run.
+
+    *Implementation note:* the "view" wording is not achievable as written —
+    GAE's `loaddata` takes collection **names** and cannot load an
+    ArangoSearch view (see `GAEConnectionBase.load_graph`). The implemented
+    tier delivers the same intent through a mechanism the engine supports:
+    `_materialize_projections`
+    (`graph_analytics_ai/gae_orchestrator.py:657`) runs each projection's
+    idempotent UPSERT into a deterministic collection and loads that. Because
+    the target name is stable and the write is an UPSERT, a later run over
+    unchanged data re-runs it as a no-op and reuses the same collection —
+    which is also the "reusable across runs" half of this requirement. The
+    chain is `inline_aql` → `materialized` → whole collections, and a
+    materialization failure falls through rather than failing the run.
   - Fallback strategy (when permitted by deployment + dataset
     size): a lightweight GAE filter via per-projection vertex/edge
     collection `clone`s; the cost surfaces in the run cost estimate.

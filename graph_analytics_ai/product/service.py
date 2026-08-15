@@ -2183,6 +2183,194 @@ class ProductService:
         )
         return imported
 
+    # FR-49 / FR-50: vertical project import.
+    #
+    # The PRD names two source shapes — "AdTech-style YAML/docs projects" and
+    # "clinical trials/CRO and open source intelligence analysis template
+    # files" — but no such format exists in this repo or the historical sibling
+    # repos it refers to, so there was nothing to parse against. Rather than
+    # guess at a third party's schema, this defines ONE documented bundle
+    # format with a ``vertical`` discriminator: the two requirements differ in
+    # domain vocabulary, not in structure, so a second parser would be
+    # duplication. A project exported from any vertical maps onto this shape.
+    #
+    # See docs/vertical_project_bundle.md for the schema.
+    VERTICAL_IMPORT_SECTIONS = ("use_cases", "templates")
+
+    def import_vertical_project(
+        self,
+        workspace_id: str,
+        document: str,
+        document_format: str = "yaml",
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Import a vertical project bundle (FR-49 / FR-50).
+
+        ``document`` is the raw YAML or JSON text of a bundle. Parsing uses
+        ``yaml.safe_load``, never ``yaml.load``: the default PyYAML loader can
+        construct arbitrary Python objects from tags like
+        ``!!python/object/apply``, which would be exactly the arbitrary code
+        execution FR-26/FR-49/FR-50 forbid. YAML is a superset of JSON, so the
+        same parser reads both; ``document_format`` only affects the error
+        message a malformed file produces.
+
+        Everything lands as DRAFT for review — importing is not approving.
+        Templates reference their use case by ``use_case`` title; an
+        unresolvable reference imports the template unlinked and is reported in
+        ``warnings`` rather than failing the whole bundle, since a partially
+        linked import is more useful than none.
+        """
+
+        self.repository.get_workspace(workspace_id)
+
+        normalized_format = (document_format or "yaml").lower()
+        if normalized_format not in ("yaml", "yml", "json"):
+            raise ValidationError("document_format must be 'yaml' or 'json'")
+
+        try:
+            import yaml
+
+            bundle = yaml.safe_load(document or "")
+        except ImportError as exc:  # pragma: no cover - PyYAML is a dependency
+            raise ValidationError(f"YAML support unavailable: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001 - malformed input is user error
+            raise ValidationError(
+                f"Could not parse {normalized_format} bundle: {exc}"
+            ) from exc
+
+        if not isinstance(bundle, dict):
+            raise ValidationError(
+                "Bundle must be a mapping with at least a 'use_cases' or "
+                "'templates' section"
+            )
+        if not any(bundle.get(section) for section in self.VERTICAL_IMPORT_SECTIONS):
+            raise ValidationError(
+                "Bundle contains no 'use_cases' or 'templates' to import"
+            )
+
+        vertical = str(bundle.get("vertical") or "unspecified").strip()
+        project_name = str(bundle.get("name") or "").strip()
+        warnings: List[str] = []
+
+        imported_use_cases: List[UseCase] = []
+        use_case_ids_by_title: Dict[str, str] = {}
+        for index, raw in enumerate(bundle.get("use_cases") or []):
+            if not isinstance(raw, dict):
+                warnings.append(f"use_cases[{index}] is not a mapping; skipped")
+                continue
+            title = str(raw.get("title") or "").strip()
+            if not title:
+                warnings.append(f"use_cases[{index}] has no title; skipped")
+                continue
+
+            use_case_type = str(raw.get("type") or "pattern").strip()
+            if use_case_type not in self.USE_CASE_TYPES:
+                warnings.append(
+                    f"use_cases[{index}] has unknown type {use_case_type!r}; "
+                    "imported as 'pattern'"
+                )
+                use_case_type = "pattern"
+            priority = str(raw.get("priority") or "medium").strip()
+            if priority not in self.USE_CASE_PRIORITIES:
+                warnings.append(
+                    f"use_cases[{index}] has unknown priority {priority!r}; "
+                    "imported as 'medium'"
+                )
+                priority = "medium"
+
+            use_case = self.create_use_case(
+                workspace_id=workspace_id,
+                title=title,
+                description=str(raw.get("description") or ""),
+                use_case_type=use_case_type,
+                priority=priority,
+                graph_algorithms=[
+                    str(item) for item in (raw.get("algorithms") or [])
+                ],
+                data_needs=[str(item) for item in (raw.get("data_needs") or [])],
+                expected_outputs=[
+                    str(item) for item in (raw.get("expected_outputs") or [])
+                ],
+                success_metrics=[
+                    str(item) for item in (raw.get("success_metrics") or [])
+                ],
+                origin="generated",
+                actor=actor,
+            )
+            imported_use_cases.append(use_case)
+            use_case_ids_by_title[title.lower()] = use_case.use_case_id
+
+        imported_templates: List[AnalysisTemplate] = []
+        for index, raw in enumerate(bundle.get("templates") or []):
+            if not isinstance(raw, dict):
+                warnings.append(f"templates[{index}] is not a mapping; skipped")
+                continue
+            name = str(raw.get("name") or "").strip()
+            algorithm = str(raw.get("algorithm") or "").strip()
+            if not name or not algorithm:
+                warnings.append(
+                    f"templates[{index}] needs both 'name' and 'algorithm'; skipped"
+                )
+                continue
+
+            linked_title = str(raw.get("use_case") or "").strip().lower()
+            use_case_id = use_case_ids_by_title.get(linked_title) if linked_title else None
+            if linked_title and use_case_id is None:
+                warnings.append(
+                    f"templates[{index}] references unknown use case "
+                    f"{raw.get('use_case')!r}; imported unlinked"
+                )
+
+            parameters = raw.get("parameters") or {}
+            config = raw.get("config") or {}
+            if not isinstance(parameters, dict) or not isinstance(config, dict):
+                warnings.append(
+                    f"templates[{index}] has non-mapping parameters/config; skipped"
+                )
+                continue
+
+            template = self.create_analysis_template(
+                workspace_id=workspace_id,
+                name=name,
+                algorithm=algorithm,
+                description=str(raw.get("description") or ""),
+                parameters=dict(parameters),
+                config=dict(config),
+                use_case_id=use_case_id,
+                actor=actor,
+            )
+            imported_templates.append(template)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="import_vertical_project",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={
+                    "vertical": vertical,
+                    "project_name": project_name,
+                    "use_cases": len(imported_use_cases),
+                    "templates": len(imported_templates),
+                    "warnings": len(warnings),
+                },
+            )
+        )
+
+        return {
+            "workspace_id": workspace_id,
+            "vertical": vertical,
+            "project_name": project_name,
+            "use_cases": [item.to_dict() for item in imported_use_cases],
+            "templates": [item.to_dict() for item in imported_templates],
+            "counts": {
+                "use_cases": len(imported_use_cases),
+                "templates": len(imported_templates),
+            },
+            "warnings": warnings,
+        }
+
     def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
         """Get a single analysis template."""
 

@@ -25,6 +25,10 @@ setup(
         "requests>=2.28.0",
         "python-dotenv>=0.19.0",
         "click>=8.0.0",
+        # FR-49/FR-50 vertical project bundles are YAML (parsed with
+        # yaml.safe_load). Previously only available transitively, so a clean
+        # install could import graph_analytics_ai and fail at import time.
+        "PyYAML>=6.0",
     ],
     extras_require={
         "dev": [
