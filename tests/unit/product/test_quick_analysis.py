@@ -124,7 +124,7 @@ def test_quick_analysis_creates_ephemeral_requirement_and_starts_run():
 
     assert run.workflow_mode == WorkflowMode.AGENTIC
     assert run.status == WorkflowRunStatus.RUNNING
-    assert len(run.steps) == 6  # canonical agentic layout
+    assert len(run.steps) == 7  # canonical agentic layout + FR-33 catalog step
     assert run.graph_profile_id == profile.graph_profile_id
     assert run.requirement_version_id is not None
     assert run.metadata.get("origin") == "quick_prompt"

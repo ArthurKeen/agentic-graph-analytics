@@ -354,12 +354,31 @@ cost, and providing clear diagnostics on any failures."""
                 return step
         return None
 
+    # Response-content keys forwarded onto STEP_END events. Deliberately a
+    # whitelist: agent responses can carry large payloads (full templates,
+    # rendered reports) and every forwarded value is persisted on the
+    # WorkflowStep row, so an unfiltered copy would bloat run documents.
+    _STEP_OUTPUT_KEYS = (
+        "total",
+        "successful",
+        "failed",
+        # FR-29: GAE job IDs, so a user can correlate a run step with the
+        # engine-side job without reading server logs.
+        "gae_job_ids",
+        "graph_ids",
+        "result_collections",
+        "template_count",
+        "use_case_count",
+        "report_count",
+    )
+
     def _emit_step_event(
         self,
         event_type: TraceEventType,
         step: str,
         duration_ms: Optional[float] = None,
         error: Optional[str] = None,
+        outputs: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Emit a per-step trace event (STEP_START / STEP_END / AGENT_ERROR).
 
@@ -367,6 +386,9 @@ cost, and providing clear diagnostics on any failures."""
         what the product-layer ``StepStatusReporter`` maps to a canonical
         WorkflowStep row. Without these events the run DAG never leaves
         ``pending``. Best-effort: failures never break the workflow.
+
+        ``outputs`` carries whitelisted fields off the agent's response so
+        the product layer can surface them as step outputs (FR-29/FR-36).
         """
 
         collector = getattr(self, "trace_collector", None)
@@ -375,6 +397,8 @@ cost, and providing clear diagnostics on any failures."""
         data: Dict[str, Any] = {"step": step}
         if error is not None:
             data["error"] = str(error)
+        if outputs:
+            data.update(outputs)
         try:
             collector.record_event(
                 event_type,
@@ -384,6 +408,18 @@ cost, and providing clear diagnostics on any failures."""
             )
         except Exception:  # noqa: BLE001 - telemetry must not break the run
             pass
+
+    def _step_outputs_from_response(
+        self, response: AgentMessage
+    ) -> Dict[str, Any]:
+        """Pull the whitelisted output fields off an agent response (FR-29)."""
+
+        content = getattr(response, "content", None)
+        if not isinstance(content, dict):
+            return {}
+        return {
+            key: content[key] for key in self._STEP_OUTPUT_KEYS if key in content
+        }
 
     def _delegate_to_agent(
         self, step: str, original_message: AgentMessage, state: AgentState
@@ -461,7 +497,10 @@ cost, and providing clear diagnostics on any failures."""
             )
         else:
             self._emit_step_event(
-                TraceEventType.STEP_END, step, duration_ms=duration_ms
+                TraceEventType.STEP_END,
+                step,
+                duration_ms=duration_ms,
+                outputs=self._step_outputs_from_response(response),
             )
 
         state.add_message(response)
@@ -744,5 +783,10 @@ cost, and providing clear diagnostics on any failures."""
             self.log(f"Error in {step}: {error_msg}", "error")
             raise RuntimeError(f"Step {step} failed: {error_msg}")
 
-        self._emit_step_event(TraceEventType.STEP_END, step, duration_ms=duration_ms)
+        self._emit_step_event(
+            TraceEventType.STEP_END,
+            step,
+            duration_ms=duration_ms,
+            outputs=self._step_outputs_from_response(response),
+        )
         self.log(f"✓ Completed: {step}")

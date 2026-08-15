@@ -986,15 +986,17 @@ class ProductService:
         free-form there.
         """
 
-        if workflow_mode == WorkflowMode.AGENTIC:
-            steps, dag_edges = self._build_canonical_agentic_dag()
+        if self.is_supervised_agentic_mode(workflow_mode):
+            steps, dag_edges = self._build_canonical_agentic_dag(
+                parallel=workflow_mode is WorkflowMode.PARALLEL_AGENTIC
+            )
 
         self._validate_workflow_dag(steps, dag_edges)
         # Stamp executor_kind on agentic runs so we can distinguish
         # rows produced by the in-process supervisor from rows
         # produced by future durable executors (FR-31b).
         run_metadata = dict(metadata or {})
-        if workflow_mode == WorkflowMode.AGENTIC:
+        if self.is_supervised_agentic_mode(workflow_mode):
             execution_meta = dict(run_metadata.get("execution") or {})
             execution_meta.setdefault("executor_kind", "inprocess")
             execution_meta.setdefault("last_outcome", "pending")
@@ -1082,12 +1084,16 @@ class ProductService:
         )
         self.repository.create_requirement_version(requirement_version)
 
-        # parallel_agentic folds to agentic for now: start_workflow_run only
-        # dispatches AGENTIC to the supervisor (FR-31a); parallelism inside
-        # the runner is a later concern.
+        # FR-34: parallel_agentic is now dispatched as itself — the supervisor
+        # runs the async orchestrator path and the DAG shows the concurrent
+        # phase-1 branch.
         run = self.create_workflow_run_from_steps(
             workspace_id=workspace_id,
-            workflow_mode=WorkflowMode.AGENTIC,
+            workflow_mode=(
+                WorkflowMode.PARALLEL_AGENTIC
+                if str(requested_mode) == "parallel_agentic"
+                else WorkflowMode.AGENTIC
+            ),
             steps=[],
             dag_edges=[],
             requirement_version_id=requirement_version.requirement_version_id,
@@ -1120,13 +1126,29 @@ class ProductService:
 
         return self.start_workflow_run(run.run_id, actor=actor)
 
-    def _build_canonical_agentic_dag(self):
-        """Seed the canonical agentic six-step layout.
+    @staticmethod
+    def is_supervised_agentic_mode(workflow_mode: "WorkflowMode") -> bool:
+        """Whether this mode is executed by the AgenticRunSupervisor.
 
-        Lazily imports the supervisor module to avoid a circular
-        import (the supervisor imports product.models). Returns a
-        sequential DAG; parallelism inside the runner is its own
-        concern and isn't reflected here in Phase 1.
+        Both AGENTIC and PARALLEL_AGENTIC are supervisor-driven; they differ
+        only in whether the runner walks its phases sequentially or through
+        ``run_async``/``_run_parallel_workflow`` (FR-34).
+        """
+
+        return workflow_mode in (WorkflowMode.AGENTIC, WorkflowMode.PARALLEL_AGENTIC)
+
+    def _build_canonical_agentic_dag(self, parallel: bool = False):
+        """Seed the canonical agentic step layout.
+
+        Lazily imports the supervisor module to avoid a circular import (the
+        supervisor imports product.models).
+
+        FR-34: when ``parallel`` is set the edge list reflects what
+        ``OrchestratorAgent._run_parallel_workflow`` actually does — schema
+        analysis and requirements extraction are concurrent roots that both
+        feed use-case generation, rather than a straight chain. Everything
+        downstream stays sequential because those phases genuinely depend on
+        their predecessor's output.
         """
 
         from .agentic_run_supervisor import AGENTIC_STEP_LAYOUT
@@ -1135,13 +1157,40 @@ class ProductService:
             WorkflowStep(step_id=canonical.step_id, label=canonical.label)
             for canonical in AGENTIC_STEP_LAYOUT
         ]
-        edges: List[WorkflowDAGEdge] = []
-        for previous, current in zip(AGENTIC_STEP_LAYOUT, AGENTIC_STEP_LAYOUT[1:]):
-            edges.append(
-                WorkflowDAGEdge(
-                    from_step_id=previous.step_id,
-                    to_step_id=current.step_id,
+
+        if not parallel:
+            edges: List[WorkflowDAGEdge] = []
+            for previous, current in zip(AGENTIC_STEP_LAYOUT, AGENTIC_STEP_LAYOUT[1:]):
+                edges.append(
+                    WorkflowDAGEdge(
+                        from_step_id=previous.step_id,
+                        to_step_id=current.step_id,
+                    )
                 )
+            return steps, edges
+
+        # Concurrent phase 1: both roots converge on use_case_generation.
+        remaining = [
+            canonical.step_id
+            for canonical in AGENTIC_STEP_LAYOUT
+            if canonical.step_id
+            not in ("schema_analysis", "requirements_extraction")
+        ]
+        edges = [
+            WorkflowDAGEdge(
+                from_step_id="schema_analysis",
+                to_step_id="use_case_generation",
+                label="parallel",
+            ),
+            WorkflowDAGEdge(
+                from_step_id="requirements_extraction",
+                to_step_id="use_case_generation",
+                label="parallel",
+            ),
+        ]
+        for previous, current in zip(remaining, remaining[1:]):
+            edges.append(
+                WorkflowDAGEdge(from_step_id=previous, to_step_id=current)
             )
         return steps, edges
 
@@ -1170,7 +1219,7 @@ class ProductService:
 
         dispatched = False
         if (
-            run.workflow_mode == WorkflowMode.AGENTIC
+            self.is_supervised_agentic_mode(run.workflow_mode)
             and self._agentic_run_supervisor is not None
         ):
             # Submit to the supervisor. submit() is idempotent so a
@@ -2368,7 +2417,7 @@ class ProductService:
         """
 
         run = self.repository.get_workflow_run(run_id)
-        if not _internal and run.workflow_mode == WorkflowMode.AGENTIC:
+        if not _internal and self.is_supervised_agentic_mode(run.workflow_mode):
             raise ConflictError(
                 "Step transitions on agentic runs are managed by the "
                 "AgenticRunSupervisor. Use POST /api/runs/{id}/cancel to "

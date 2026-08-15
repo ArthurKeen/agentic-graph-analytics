@@ -34,6 +34,10 @@ setup(
             "black>=22.0.0",
             "flake8>=5.0.0",
             "mypy>=0.991",
+            # tests/test_async_agents.py is written with @pytest.mark.asyncio;
+            # without this plugin those tests are uncollectable under
+            # --strict-markers and the whole suite aborts.
+            "pytest-asyncio>=0.21",
         ],
         "mcp": [
             # mcp 2.x removed mcp.server.fastmcp, which this package imports.

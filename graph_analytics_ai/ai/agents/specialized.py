@@ -856,6 +856,40 @@ Your goal: Create optimized, executable analysis templates."""
             raise
 
 
+def _execution_result_outputs(results) -> dict:
+    """Summarise execution results for the run DAG (FR-29).
+
+    Surfaces the GAE job ids (and the collections results landed in) so a
+    user can correlate a run step with the engine-side job without reading
+    server logs. Defensive about shape: a job may be missing entirely on a
+    failed result.
+    """
+    job_ids = []
+    graph_ids = []
+    collections = []
+    for result in results or []:
+        job = getattr(result, "job", None)
+        job_id = getattr(job, "job_id", None)
+        if job_id:
+            job_ids.append(str(job_id))
+        graph_id = getattr(job, "graph_id", None)
+        if graph_id:
+            graph_ids.append(str(graph_id))
+        location = getattr(job, "results_location", None) or getattr(
+            job, "result_collection", None
+        )
+        if location:
+            collections.append(str(location))
+    outputs = {}
+    if job_ids:
+        outputs["gae_job_ids"] = job_ids
+    if graph_ids:
+        outputs["graph_ids"] = sorted(set(graph_ids))
+    if collections:
+        outputs["result_collections"] = sorted(set(collections))
+    return outputs
+
+
 class ExecutionAgent(SpecializedAgent):
     """
     Agent specialized in analysis execution.
@@ -933,6 +967,7 @@ Your goal: Execute analyses reliably and efficiently."""
                 "total": len(results),
                 "successful": successful,
                 "failed": len(results) - successful,
+                **_execution_result_outputs(results),
             },
             reply_to=message.message_id,
         )
@@ -995,6 +1030,7 @@ Your goal: Execute analyses reliably and efficiently."""
                 "total": len(results),
                 "successful": successful,
                 "failed": len(results) - successful,
+                **_execution_result_outputs(results),
             },
             reply_to=message.message_id,
         )
