@@ -34,6 +34,65 @@ def test_product_api_contract_includes_core_ui_routes():
     ) in route_keys
     assert ("GET", "/api/runs/{run_id}/workflow-dag") in route_keys
     assert (
+        "GET",
+        "/api/workspaces/{workspace_id}/analysis-catalog",
+    ) in route_keys
+    assert (
+        "GET",
+        "/api/workspaces/{workspace_id}/analysis-executions",
+    ) in route_keys
+    assert (
+        "POST",
+        "/api/workspaces/{workspace_id}/analysis-executions/compare",
+    ) in route_keys
+    assert (
+        "GET",
+        "/api/analysis-executions/{analysis_execution_id}/lineage",
+    ) in route_keys
+    assert (
+        "GET",
+        "/api/workspaces/{workspace_id}/analysis-epochs",
+    ) in route_keys
+    assert ("GET", "/api/catalog/stats") in route_keys
+    # FR-19..FR-26: use cases and analysis templates as product records.
+    assert ("POST", "/api/workspaces/{workspace_id}/use-cases") in route_keys
+    assert ("GET", "/api/workspaces/{workspace_id}/use-cases") in route_keys
+    assert ("PATCH", "/api/use-cases/{use_case_id}") in route_keys
+    assert ("POST", "/api/use-cases/{use_case_id}/status") in route_keys
+    assert ("POST", "/api/use-cases/{use_case_id}/priority") in route_keys
+    assert (
+        "POST",
+        "/api/workspaces/{workspace_id}/analysis-templates",
+    ) in route_keys
+    assert (
+        "POST",
+        "/api/workspaces/{workspace_id}/analysis-templates/import",
+    ) in route_keys
+    assert (
+        "PATCH",
+        "/api/analysis-templates/{analysis_template_id}",
+    ) in route_keys
+    assert (
+        "POST",
+        "/api/analysis-templates/{analysis_template_id}/approve",
+    ) in route_keys
+    assert (
+        "GET",
+        "/api/analysis-templates/{analysis_template_id}/versions",
+    ) in route_keys
+
+    # Exactly one public URL per catalog operation. The earlier draft also
+    # exposed /catalog/executions, /catalog/epochs, and
+    # /catalog/executions/{id}/lineage as "compatibility" aliases, but these
+    # were brand-new endpoints with no existing consumers — the duplicates
+    # only doubled the surface that has to stay backward-compatible.
+    for retired_alias in (
+        "/api/workspaces/{workspace_id}/catalog/executions",
+        "/api/workspaces/{workspace_id}/catalog/epochs",
+        "/api/catalog/executions/{execution_id}/lineage",
+    ):
+        assert ("GET", retired_alias) not in route_keys
+    assert (
         "POST",
         "/api/requirements-copilot/sessions/{requirement_interview_id}/generate-draft",
     ) in route_keys
@@ -54,6 +113,10 @@ def test_product_api_contract_maps_to_service_methods():
     assert "discover_graph_profile" in service_methods
     assert "start_requirements_copilot" in service_methods
     assert "update_workflow_step" in service_methods
+    assert "browse_analysis_catalog" in service_methods
+    assert "compare_analysis_executions" in service_methods
+    assert "get_analysis_lineage" in service_methods
+    assert "get_analysis_catalog_stats" in service_methods
     assert "publish_report" in service_methods
     assert all(endpoint.service_method for endpoint in PRODUCT_API_ENDPOINTS)
 

@@ -13,6 +13,14 @@ interface BuildPipelineStepContextMenuArgs {
    * runs continue to expose retry as before.
    */
   isAgenticRun?: boolean;
+  /**
+   * FR-30: a paused step is *resumed*, not retried — same backend
+   * transition (PAUSED -> RUNNING, no retry_count bump), but calling it
+   * "Retry" misrepresents what happens and is the reason FR-30 read as
+   * unimplemented. The backend already advertises "resume" for paused
+   * steps via supported_workflow_recovery_actions.
+   */
+  stepStatus?: string;
 }
 
 export function buildPipelineStepContextMenu({
@@ -20,7 +28,8 @@ export function buildPipelineStepContextMenu({
   onCopyError,
   onViewRunResults,
   onRetryRun,
-  isAgenticRun = false
+  isAgenticRun = false,
+  stepStatus
 }: BuildPipelineStepContextMenuArgs): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
     {
@@ -43,10 +52,11 @@ export function buildPipelineStepContextMenu({
     }
   ];
   if (!isAgenticRun) {
+    const isPaused = stepStatus === "paused";
     items.push({
-      id: "retry-run",
-      label: "Retry Run",
-      icon: "🔄",
+      id: isPaused ? "resume-run" : "retry-run",
+      label: isPaused ? "Resume Run" : "Retry Run",
+      icon: isPaused ? "▶️" : "🔄",
       onSelect: onRetryRun
     });
   }

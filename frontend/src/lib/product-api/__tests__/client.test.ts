@@ -191,6 +191,22 @@ describe("product API client mappers", () => {
         kind: "report",
         label: "Risk Report",
         description: "Report (draft)"
+      },
+      {
+        // FR-45..FR-48: always present, even with no executions — this row is
+        // the only entry point to the catalog.
+        id: "analysis-catalog:workspace-1",
+        kind: "analysis-catalog",
+        label: "Analysis Catalog",
+        description: "Executions, epochs, comparison, and lineage"
+      },
+      {
+        // FR-19..FR-26: likewise the only entry point for authoring and
+        // reviewing use cases and templates.
+        id: "use-cases:workspace-1",
+        kind: "use-cases",
+        label: "Use Cases & Templates",
+        description: "Author, review, and version analysis templates"
       }
     ]);
   });
@@ -261,6 +277,11 @@ describe("product API client mappers", () => {
   });
 
   it("maps workflow DAG payloads into canvas-friendly shape", () => {
+    // Regression test: the backend (ProductService._workflow_step_node)
+    // sends full artifact_refs/warnings/errors arrays plus timing/retry/
+    // checkpoint/cost detail — never artifact_count/warning_count/
+    // error_count. The mapper must derive counts from the arrays and
+    // pass the full detail through for the FloatingDetailPanel (FR-36/37).
     const dag = mapWorkflowDAGView({
       run_id: "run-1",
       workspace_id: "workspace-1",
@@ -272,9 +293,20 @@ describe("product API client mappers", () => {
           label: "Extract",
           status: "completed",
           agent_name: "extractor",
-          artifact_count: 2,
-          warning_count: 1,
-          error_count: 0
+          started_at: "2026-01-01T00:00:00Z",
+          completed_at: "2026-01-01T00:01:00Z",
+          duration_ms: 60000,
+          retry_count: 1,
+          checkpoint_id: "checkpoint-1",
+          inputs: { source: "graph-profile-1" },
+          outputs: { rows: 42 },
+          artifact_refs: [
+            { type: "requirement_version", id: "rv-1" },
+            { type: "report", id: "report-1" }
+          ],
+          warnings: ["Sample warning"],
+          errors: [],
+          cost: { tokens: 100 }
         }
       ],
       edges: [{ id: "edge-1", from: "step-1", to: "step-2" }],
@@ -286,9 +318,43 @@ describe("product API client mappers", () => {
     expect(dag.nodes[0]).toMatchObject({
       id: "step-1",
       agentName: "extractor",
-      artifactCount: 2
+      artifactCount: 2,
+      warningCount: 1,
+      errorCount: 0,
+      startedAt: "2026-01-01T00:00:00Z",
+      completedAt: "2026-01-01T00:01:00Z",
+      durationMs: 60000,
+      retryCount: 1,
+      checkpointId: "checkpoint-1",
+      inputs: { source: "graph-profile-1" },
+      outputs: { rows: 42 },
+      artifactRefs: [
+        { type: "requirement_version", id: "rv-1" },
+        { type: "report", id: "report-1" }
+      ],
+      warningMessages: ["Sample warning"],
+      cost: { tokens: 100 }
     });
     expect(dag.edges[0]).toEqual({ id: "edge-1", from: "step-1", to: "step-2" });
+  });
+
+  it("defaults workflow DAG node counts to zero when detail arrays are omitted", () => {
+    const dag = mapWorkflowDAGView({
+      run_id: "run-1",
+      workspace_id: "workspace-1",
+      status: "queued",
+      workflow_mode: "traditional",
+      nodes: [{ id: "step-1", label: "Extract", status: "pending" }],
+      edges: [],
+      warnings: [],
+      errors: []
+    });
+
+    expect(dag.nodes[0]).toMatchObject({
+      artifactCount: 0,
+      warningCount: 0,
+      errorCount: 0
+    });
   });
 
   it("maps workspace health payloads into explorer-ready shape", () => {
@@ -1139,9 +1205,9 @@ describe("product API client mappers", () => {
               id: "step-1",
               label: "Retry",
               status: "running",
-              artifact_count: 0,
-              warning_count: 0,
-              error_count: 0
+              artifact_refs: [],
+              warnings: [],
+              errors: []
             }
           ],
           edges: [],
@@ -1355,6 +1421,386 @@ describe("product API client mappers", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://api.example/api/runs/run-1/status",
       expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps use case payloads and posts status changes (FR-19/FR-20)", async () => {
+    // Fixture mirrors UseCase.to_dict, captured by running the service.
+    const rawUseCase = {
+      _key: "use-case-1",
+      use_case_id: "use-case-1",
+      workspace_id: "workspace-1",
+      title: "Find fraud rings",
+      description: "Detect rings across linked accounts",
+      use_case_type: "community",
+      priority: "high",
+      status: "draft",
+      origin: "manual",
+      requirement_version_id: null,
+      related_requirements: [],
+      graph_algorithms: ["wcc"],
+      data_needs: ["Account"],
+      expected_outputs: ["ring clusters"],
+      success_metrics: ["precision > 0.8"],
+      reviewed_by: null,
+      reviewed_at: null,
+      review_note: "",
+      created_at: "2026-08-14T00:00:00+00:00",
+      updated_at: "2026-08-14T00:00:00+00:00",
+      created_by: "analyst@example.com",
+      metadata: {}
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ...rawUseCase, status: "approved" })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const useCase = await createProductAPIClient(
+      "http://api.example"
+    ).setUseCaseStatus("use-case-1", "approved", "Looks good");
+
+    expect(useCase).toMatchObject({
+      useCaseId: "use-case-1",
+      title: "Find fraud rings",
+      status: "approved",
+      origin: "manual",
+      graphAlgorithms: ["wcc"]
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/use-cases/use-case-1/status",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ status: "approved", review_note: "Looks good" })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps analysis template payloads including version lineage (FR-23/FR-25)", async () => {
+    // Fixture mirrors AnalysisTemplate.to_dict. Editing an approved template
+    // returns a DIFFERENT row (the next version) sharing the lineage id — the
+    // mapper must carry both ids through or the UI would show the stale row.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _key: "analysis-template-2",
+        analysis_template_id: "analysis-template-2",
+        workspace_id: "workspace-1",
+        name: "PageRank on Person",
+        lineage_id: "analysis-template-1",
+        description: "Rank people by influence",
+        algorithm: "pagerank",
+        parameters: { damping_factor: 0.5 },
+        config: { graph_name: "kg" },
+        version: 2,
+        status: "draft",
+        use_case_id: "use-case-1",
+        estimated_runtime_seconds: 45.0,
+        superseded_by: null,
+        approved_by: null,
+        approved_at: null,
+        created_at: "2026-08-14T00:00:00+00:00",
+        updated_at: "2026-08-14T00:00:00+00:00",
+        created_by: null,
+        metadata: { supersedes: "analysis-template-1" }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const template = await createProductAPIClient(
+      "http://api.example"
+    ).updateAnalysisTemplate("analysis-template-1", {
+      parameters: { damping_factor: 0.5 }
+    });
+
+    expect(template).toMatchObject({
+      analysisTemplateId: "analysis-template-2",
+      lineageId: "analysis-template-1",
+      version: 2,
+      status: "draft",
+      parameters: { damping_factor: 0.5 }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/analysis-templates/analysis-template-1",
+      expect.objectContaining({ method: "PATCH" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("posts template dictionaries to the import route (FR-26)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProductAPIClient("http://api.example").importAnalysisTemplates(
+      "workspace-1",
+      [{ name: "WCC", algorithm: "wcc", cmd: "rm -rf /" }]
+    );
+
+    // The client forwards the payload verbatim; the *server* is what decides
+    // which keys are read, so hostile keys never need special-casing here.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/analysis-templates/import",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          templates: [{ name: "WCC", algorithm: "wcc", cmd: "rm -rf /" }]
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps the analysis catalog browse payload (FR-45)", async () => {
+    // Fixture mirrors the exact dicts ProductService.browse_analysis_catalog /
+    // AnalysisExecution.to_dict / AnalysisEpoch.to_dict return — captured by
+    // running the Python service, not inferred from the TypeScript types, so
+    // this cannot pass while the wire format drifts.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        epochs: [
+          {
+            _key: "analysis-epoch-1",
+            analysis_epoch_id: "analysis-epoch-1",
+            workspace_id: "workspace-1",
+            name: "2026-Q3",
+            description: "Q3 snapshot",
+            timestamp: "2026-07-01T00:00:00+00:00",
+            status: "active",
+            tags: ["quarterly"],
+            parent_epoch_id: null,
+            analysis_count: 1,
+            analysis_execution_ids: ["analysis-execution-1"],
+            catalog_epoch_id: null,
+            created_at: "2026-07-01T00:00:00+00:00",
+            updated_at: "2026-07-01T00:00:00+00:00",
+            metadata: {}
+          }
+        ],
+        executions: [
+          {
+            _key: "analysis-execution-1",
+            analysis_execution_id: "analysis-execution-1",
+            workspace_id: "workspace-1",
+            run_id: "run-1",
+            algorithm: "pagerank",
+            status: "completed",
+            graph_profile_id: null,
+            requirement_version_id: null,
+            use_case_id: "uc-1",
+            template_id: "tpl-1",
+            template_name: "PageRank on Person",
+            epoch_id: "analysis-epoch-1",
+            algorithm_version: "",
+            parameters: {},
+            graph_config: {},
+            results_location: "pagerank_results",
+            result_count: 1200,
+            performance_metrics: { duration_ms: 4200 },
+            result_sample: null,
+            error_message: null,
+            workflow_mode: "agentic",
+            catalog_execution_id: null,
+            started_at: "2026-07-01T09:00:00+00:00",
+            completed_at: null,
+            created_at: "2026-07-01T09:00:00+00:00",
+            updated_at: "2026-07-01T09:00:00+00:00",
+            metadata: {}
+          }
+        ],
+        templates: [{ template_id: "tpl-1" }],
+        use_cases: [],
+        requirements: []
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const view =
+      await createProductAPIClient("http://api.example").browseAnalysisCatalog(
+        "workspace-1"
+      );
+
+    expect(view.workspaceId).toBe("workspace-1");
+    expect(view.epochs[0]).toMatchObject({
+      analysisEpochId: "analysis-epoch-1",
+      name: "2026-Q3",
+      analysisCount: 1
+    });
+    expect(view.executions[0]).toMatchObject({
+      analysisExecutionId: "analysis-execution-1",
+      algorithm: "pagerank",
+      status: "completed",
+      templateName: "PageRank on Person",
+      resultCount: 1200,
+      performanceMetrics: { duration_ms: 4200 }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/analysis-catalog",
+      expect.objectContaining({ method: "GET" })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("sends only the filters that are set when searching executions (FR-46)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createProductAPIClient("http://api.example").listAnalysisExecutions(
+      "workspace-1",
+      { algorithm: "pagerank", status: undefined, epochId: "" }
+    );
+
+    // A present-but-empty filter would be a real constraint server-side and
+    // would match nothing, so blank values must never be sent.
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      "http://api.example/api/workspaces/workspace-1/analysis-executions?algorithm=pagerank"
+    );
+    expect(url).not.toContain("status=");
+    expect(url).not.toContain("epoch_id=");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps execution comparison deltas (FR-48)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        baseline_execution_id: "analysis-execution-1",
+        executions: [],
+        deltas: [
+          {
+            analysis_execution_id: "analysis-execution-1",
+            result_count: 0,
+            performance_metrics: { duration_ms: 0 }
+          },
+          {
+            analysis_execution_id: "analysis-execution-2",
+            result_count: -400,
+            performance_metrics: { duration_ms: -2100 }
+          }
+        ]
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const comparison = await createProductAPIClient(
+      "http://api.example"
+    ).compareAnalysisExecutions("workspace-1", [
+      "analysis-execution-1",
+      "analysis-execution-2"
+    ]);
+
+    expect(comparison.baselineExecutionId).toBe("analysis-execution-1");
+    expect(comparison.deltas[1]).toEqual({
+      analysisExecutionId: "analysis-execution-2",
+      resultCount: -400,
+      performanceMetrics: { duration_ms: -2100 }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/analysis-executions/compare",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          analysis_execution_ids: ["analysis-execution-1", "analysis-execution-2"]
+        })
+      })
+    );
+
+    vi.unstubAllGlobals();
+  });
+
+  it("maps execution lineage (FR-47)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        workspace_id: "workspace-1",
+        reports: [],
+        execution: {
+          analysis_execution_id: "analysis-execution-1",
+          workspace_id: "workspace-1",
+          algorithm: "pagerank",
+          status: "completed"
+        },
+        template_id: "tpl-1",
+        use_case_id: "uc-1",
+        requirement_version_id: "rv-1"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const lineage = await createProductAPIClient(
+      "http://api.example"
+    ).getAnalysisLineage("analysis-execution-1");
+
+    expect(lineage.execution?.algorithm).toBe("pagerank");
+    // Fields the backend omits must default rather than land as undefined.
+    expect(lineage.execution?.resultCount).toBe(0);
+    expect(lineage.execution?.templateName).toBe("");
+    expect(lineage).toMatchObject({
+      templateId: "tpl-1",
+      useCaseId: "uc-1",
+      requirementVersionId: "rv-1"
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("uploads source documents through the product API (FR-13)", async () => {
+    // Fixture mirrors the exact dict ProductService.upload_source_document
+    // returns (verified against the Python service, not assumed from the
+    // TypeScript types) so this cannot pass while the wire format drifts.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _key: "document-1",
+        document_id: "document-1",
+        workspace_id: "workspace-1",
+        filename: "requirements.md",
+        mime_type: "text/markdown",
+        sha256: "19812277b04a5a988e4dc361617bcb927d4297c47353da93aa992ac007f1f3cf",
+        storage_mode: "extract_only",
+        storage_uri: null,
+        extracted_text: "# Hi\n",
+        uploaded_at: "2026-08-02T04:40:49.228704+00:00",
+        metadata: { byte_size: 5, uploaded_by: "analyst@example.com" }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const document = await createProductAPIClient(
+      "http://api.example"
+    ).uploadSourceDocument("workspace-1", {
+      filename: "requirements.md",
+      mimeType: "text/markdown",
+      contentBase64: "IyBIaQo="
+    });
+
+    expect(document).toMatchObject({
+      documentId: "document-1",
+      filename: "requirements.md",
+      storageMode: "extract_only",
+      extractedText: "# Hi\n"
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.example/api/workspaces/workspace-1/documents",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          filename: "requirements.md",
+          mime_type: "text/markdown",
+          content_base64: "IyBIaQo="
+        })
+      })
     );
 
     vi.unstubAllGlobals();

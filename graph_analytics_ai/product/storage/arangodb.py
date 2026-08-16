@@ -9,6 +9,11 @@ from arango.database import StandardDatabase
 from arango.exceptions import DocumentGetError, DocumentInsertError, DocumentUpdateError
 
 from ..constants import (
+    ANALYSIS_EPOCHS_COLLECTION,
+    USE_CASES_COLLECTION,
+    ANALYSIS_EXECUTIONS_COLLECTION,
+    ANALYSIS_TEMPLATES_COLLECTION,
+    RETENTION_POLICIES_COLLECTION,
     AUDIT_EVENTS_COLLECTION,
     CHART_SPECS_COLLECTION,
     COLLECTION_ROLES_COLLECTION,
@@ -30,7 +35,11 @@ from ..constants import (
 )
 from ..exceptions import DuplicateError, NotFoundError, StorageError
 from ..models import (
+    AnalysisEpoch,
+    AnalysisExecution,
+    AnalysisTemplate,
     AuditEvent,
+    RetentionPolicy,
     ChartSpec,
     ConnectionProfile,
     GraphProfile,
@@ -42,6 +51,7 @@ from ..models import (
     RequirementVersion,
     SchemaSnapshot,
     SourceDocument,
+    UseCase,
     Workspace,
     WorkflowRun,
 )
@@ -71,6 +81,11 @@ class ProductArangoStorage:
     AUDIT_EVENTS_COLLECTION = AUDIT_EVENTS_COLLECTION
     SCHEMA_SNAPSHOTS_COLLECTION = SCHEMA_SNAPSHOTS_COLLECTION
     GRAPH_SETS_COLLECTION = GRAPH_SETS_COLLECTION
+    ANALYSIS_EXECUTIONS_COLLECTION = ANALYSIS_EXECUTIONS_COLLECTION
+    ANALYSIS_EPOCHS_COLLECTION = ANALYSIS_EPOCHS_COLLECTION
+    USE_CASES_COLLECTION = USE_CASES_COLLECTION
+    ANALYSIS_TEMPLATES_COLLECTION = ANALYSIS_TEMPLATES_COLLECTION
+    RETENTION_POLICIES_COLLECTION = RETENTION_POLICIES_COLLECTION
 
     def __init__(self, db: StandardDatabase, auto_initialize: bool = True):
         """Initialize product storage."""
@@ -142,6 +157,11 @@ class ProductArangoStorage:
                 CHART_SPECS_COLLECTION,
                 PUBLISHED_SNAPSHOTS_COLLECTION,
                 AUDIT_EVENTS_COLLECTION,
+                ANALYSIS_EXECUTIONS_COLLECTION,
+                ANALYSIS_EPOCHS_COLLECTION,
+                USE_CASES_COLLECTION,
+                ANALYSIS_TEMPLATES_COLLECTION,
+                RETENTION_POLICIES_COLLECTION,
             ]:
                 collection = self.db.collection(collection_name)
                 collection.add_hash_index(fields=["workspace_id"], unique=False)
@@ -176,6 +196,17 @@ class ProductArangoStorage:
             self.db.collection(AUDIT_EVENTS_COLLECTION).add_skiplist_index(
                 fields=["timestamp"], unique=False
             )
+            # FR-25: template version chains are resolved by lineage_id, and
+            # use cases are filtered by status in the review queue.
+            self.db.collection(ANALYSIS_TEMPLATES_COLLECTION).add_hash_index(
+                fields=["lineage_id"], unique=False
+            )
+            self.db.collection(ANALYSIS_TEMPLATES_COLLECTION).add_hash_index(
+                fields=["use_case_id"], unique=False
+            )
+            self.db.collection(USE_CASES_COLLECTION).add_hash_index(
+                fields=["workspace_id", "status"], unique=False
+            )
             # PRD v0.6: cache_key is the SchemaCache lookup field used
             # by every acquire_schema call. Hash index is non-unique
             # because (workspace_id, database, graph_name) → cache_key
@@ -196,6 +227,23 @@ class ProductArangoStorage:
             graph_sets = self.db.collection(GRAPH_SETS_COLLECTION)
             graph_sets.add_hash_index(fields=["workspace_id"], unique=False)
             graph_sets.add_hash_index(fields=["workspace_id", "name"], unique=False)
+
+            executions = self.db.collection(ANALYSIS_EXECUTIONS_COLLECTION)
+            executions.add_hash_index(fields=["run_id"], unique=False)
+            executions.add_hash_index(fields=["epoch_id"], unique=False)
+            executions.add_hash_index(
+                fields=["workspace_id", "algorithm"], unique=False
+            )
+            executions.add_hash_index(
+                fields=["workspace_id", "status"], unique=False
+            )
+            executions.add_hash_index(fields=["graph_profile_id"], unique=False)
+            executions.add_skiplist_index(fields=["started_at"], unique=False)
+
+            epochs = self.db.collection(ANALYSIS_EPOCHS_COLLECTION)
+            epochs.add_hash_index(fields=["workspace_id", "name"], unique=False)
+            epochs.add_hash_index(fields=["workspace_id", "status"], unique=False)
+            epochs.add_skiplist_index(fields=["timestamp"], unique=False)
         except Exception as exc:
             logger.warning("Failed to create some product indexes: %s", exc)
 
@@ -685,6 +733,166 @@ class ProductArangoStorage:
 
         docs = self._list_workspace_documents(WORKFLOW_RUNS_COLLECTION, workspace_id)
         return [WorkflowRun.from_dict(doc) for doc in docs]
+
+    # --- Product Analysis Catalog operations (FR-31 / FR-45..FR-48) ---
+
+    def insert_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Insert a workspace-scoped analysis execution."""
+
+        return self._insert_document(
+            ANALYSIS_EXECUTIONS_COLLECTION, execution.to_dict()
+        )
+
+    def get_analysis_execution(self, analysis_execution_id: str) -> AnalysisExecution:
+        """Get an analysis execution by ID."""
+
+        return AnalysisExecution.from_dict(
+            self._get_document(ANALYSIS_EXECUTIONS_COLLECTION, analysis_execution_id)
+        )
+
+    def update_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Update an analysis execution."""
+
+        execution.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            ANALYSIS_EXECUTIONS_COLLECTION, execution.to_dict()
+        )
+
+    def list_analysis_executions(self, workspace_id: str) -> List[AnalysisExecution]:
+        """List a workspace's executions, newest first."""
+
+        docs = self._list_workspace_documents(
+            ANALYSIS_EXECUTIONS_COLLECTION,
+            workspace_id,
+            sort_field="started_at",
+        )
+        return [AnalysisExecution.from_dict(doc) for doc in docs]
+
+    def insert_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Insert a workspace-scoped analysis epoch."""
+
+        return self._insert_document(ANALYSIS_EPOCHS_COLLECTION, epoch.to_dict())
+
+    def get_analysis_epoch(self, analysis_epoch_id: str) -> AnalysisEpoch:
+        """Get an analysis epoch by ID."""
+
+        return AnalysisEpoch.from_dict(
+            self._get_document(ANALYSIS_EPOCHS_COLLECTION, analysis_epoch_id)
+        )
+
+    def update_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Update an analysis epoch."""
+
+        epoch.updated_at = datetime.now(timezone.utc)
+        return self._update_document(ANALYSIS_EPOCHS_COLLECTION, epoch.to_dict())
+
+    def list_analysis_epochs(self, workspace_id: str) -> List[AnalysisEpoch]:
+        """List a workspace's epochs, newest first."""
+
+        docs = self._list_workspace_documents(
+            ANALYSIS_EPOCHS_COLLECTION,
+            workspace_id,
+            sort_field="timestamp",
+        )
+        return [AnalysisEpoch.from_dict(doc) for doc in docs]
+
+    # --- Use case and analysis template operations (FR-19..FR-26) ---
+
+    def insert_use_case(self, use_case: UseCase) -> str:
+        """Insert a workspace-scoped use case."""
+
+        return self._insert_document(USE_CASES_COLLECTION, use_case.to_dict())
+
+    def get_use_case(self, use_case_id: str) -> UseCase:
+        """Get a use case by ID."""
+
+        return UseCase.from_dict(self._get_document(USE_CASES_COLLECTION, use_case_id))
+
+    def update_use_case(self, use_case: UseCase) -> str:
+        """Update a use case."""
+
+        use_case.updated_at = datetime.now(timezone.utc)
+        return self._update_document(USE_CASES_COLLECTION, use_case.to_dict())
+
+    def list_use_cases(self, workspace_id: str) -> List[UseCase]:
+        """List a workspace's use cases, newest first."""
+
+        docs = self._list_workspace_documents(
+            USE_CASES_COLLECTION,
+            workspace_id,
+            sort_field="created_at",
+        )
+        return [UseCase.from_dict(doc) for doc in docs]
+
+    def insert_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Insert a workspace-scoped analysis template."""
+
+        return self._insert_document(
+            ANALYSIS_TEMPLATES_COLLECTION, template.to_dict()
+        )
+
+    def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
+        """Get an analysis template by ID."""
+
+        return AnalysisTemplate.from_dict(
+            self._get_document(ANALYSIS_TEMPLATES_COLLECTION, analysis_template_id)
+        )
+
+    def update_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Update an analysis template."""
+
+        template.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            ANALYSIS_TEMPLATES_COLLECTION, template.to_dict()
+        )
+
+    def list_analysis_templates(self, workspace_id: str) -> List[AnalysisTemplate]:
+        """List a workspace's analysis templates, newest first."""
+
+        docs = self._list_workspace_documents(
+            ANALYSIS_TEMPLATES_COLLECTION,
+            workspace_id,
+            sort_field="created_at",
+        )
+        return [AnalysisTemplate.from_dict(doc) for doc in docs]
+
+    # --- Retention policy operations (FR-54) ---
+
+    def insert_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Insert a workspace retention policy."""
+
+        return self._insert_document(
+            RETENTION_POLICIES_COLLECTION, policy.to_dict()
+        )
+
+    def update_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Update a workspace retention policy."""
+
+        policy.updated_at = datetime.now(timezone.utc)
+        return self._update_document(
+            RETENTION_POLICIES_COLLECTION, policy.to_dict()
+        )
+
+    def get_retention_policy(self, workspace_id: str) -> Optional[RetentionPolicy]:
+        """Return a workspace's retention policy, or None when unset."""
+
+        docs = self._list_workspace_documents(
+            RETENTION_POLICIES_COLLECTION, workspace_id
+        )
+        return RetentionPolicy.from_dict(docs[0]) if docs else None
+
+    def delete_document_by_key(self, collection_name: str, key: str) -> bool:
+        """Delete one document by key. Returns False when already absent.
+
+        Used by the FR-54 retention sweep; kept generic because the sweep
+        spans several collections and each already has a typed reader.
+        """
+
+        try:
+            self.db.collection(collection_name).delete(key)
+            return True
+        except Exception:  # noqa: BLE001 — already-gone is not an error
+            return False
 
     # --- Report operations ---
 

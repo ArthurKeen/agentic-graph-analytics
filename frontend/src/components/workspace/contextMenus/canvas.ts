@@ -12,6 +12,9 @@ interface BuildCanvasContextMenuArgs {
   onCreateWorkflowRun: () => void;
   onExportWorkspace: () => void;
   onImportWorkspace: () => void;
+  /** FR-13: when provided, surfaces an "Upload Document" item. Omitted
+   * when no workspace is loaded so we don't expose a dead action. */
+  onUploadDocument?: () => void;
   onFitAll: () => void;
   onCenterView: () => void;
   onViewAsOperational: () => void;
@@ -26,6 +29,7 @@ export function buildCanvasContextMenu({
   onCreateWorkflowRun,
   onExportWorkspace,
   onImportWorkspace,
+  onUploadDocument,
   onFitAll,
   onCenterView,
   onViewAsOperational,
@@ -81,7 +85,19 @@ export function buildCanvasContextMenu({
       label: "Import Workspace Bundle",
       icon: "JSON",
       onSelect: onImportWorkspace
-    },
+    }
+  );
+
+  if (onUploadDocument) {
+    items.push({
+      id: "upload-document",
+      label: "Upload Document",
+      icon: "📄",
+      onSelect: onUploadDocument
+    });
+  }
+
+  items.push(
     {
       id: "view-operational",
       label: "View As Operational DAG",

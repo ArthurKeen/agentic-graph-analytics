@@ -500,23 +500,80 @@ version without losing prior context, audit trail, or domain.
 
 - **FR-5:** Users can create connection profiles for ArangoDB databases.
 - **FR-6:** Connection profiles store non-secret descriptors and secret references.
-- **FR-7:** The backend can test database, graph inventory, and GAE access.
+- **FR-7:** The backend can test database, graph inventory, and GAE access. *(Implemented:
+  DB verification + named-graph inventory as before, plus a best-effort GAE reachability
+  probe — `ProductService._check_gae_access` in `graph_analytics_ai/product/service.py:2237`,
+  surfaced as `ConnectionVerificationResult.gae_status` and rendered in
+  `frontend/src/components/workspace/ConnectionProfileCanvas.tsx:116`. The probe never
+  raises and never blocks the DB result. Note GAE credentials are deployment-wide env
+  vars (`config.GAEConfig`), not per-profile fields, so this reports deployment
+  reachability rather than anything scoped to the profile being verified.)*
 - **FR-8:** The UI displays connection status, last verification time, and diagnostic errors.
+- **FR-8a:** The connection-profile creation form prefills from the deployment
+  environment's non-secret connection settings (endpoint, username, database,
+  SSL verification, deployment mode) plus the password env-var *name*. The
+  password value is never returned by the API or shown in the UI; unset
+  variables degrade to empty strings so the form falls back to its own
+  placeholders. *(Implemented: `GET /api/connections/defaults` in
+  `graph_analytics_ai/product/api.py:132`; `ProductService.get_connection_defaults`
+  in `graph_analytics_ai/product/service.py:2140`; prefill effect in
+  `frontend/src/components/workspace/CreateConnectionProfileOverlay.tsx:55`;
+  tested in `tests/unit/product/test_get_connection_defaults.py`.)*
 
 ### Graph Profiles
 
 - **FR-9:** The system can discover named graphs, collections, edge definitions, counts, and sample schema.
-- **FR-10:** Users can assign collection roles.
-- **FR-11:** Graph profiles are versioned.
+- **FR-10:** Users can assign collection roles. *(Implemented:
+  `PATCH /api/graph-profiles/{graph_profile_id}/collection-roles` →
+  `ProductService.assign_graph_profile_collection_roles` in
+  `graph_analytics_ai/product/service.py:3078`. Validates every referenced
+  collection is already on the profile's discovered inventory, persists an
+  audit event, and survives re-discovery via FR-11.)*
+- **FR-11:** Graph profiles are versioned. *(Implemented: re-discovering an
+  already-profiled `(connection_profile_id, graph_name)` bumps `version` in
+  place and preserves `graph_profile_id` — see
+  `graph_analytics_ai/product/service.py:2531` in
+  `ProductService.discover_graph_profile` — so `workspace.active_graph_profile_id`,
+  `GraphSet` membership, and `WorkflowRun.graph_profile_id` all keep
+  resolving across re-discoveries. Manually assigned collection roles are
+  preserved too.)*
 - **FR-12:** Graph profile snapshots can be linked to workflow runs.
 
 ### Requirements Documents
 
-- **FR-13:** Users can upload Markdown, PDF, DOCX, and TXT documents.
+- **FR-13:** Users can upload Markdown, PDF, DOCX, and TXT documents. *(Implemented:
+  `POST /api/workspaces/{workspace_id}/documents` →
+  `ProductService.upload_source_document` in
+  `graph_analytics_ai/product/service.py:3457`. Content is base64-encoded in a JSON body
+  rather than multipart — every other route in this API is JSON-only
+  (`fastapi_app._request_json`), so multipart would fork the dispatcher for one endpoint.
+  UI: `frontend/src/components/workspace/UploadSourceDocumentOverlay.tsx`, reached via the
+  canvas right-click "Upload Document" action. Verified end-to-end in a browser: file
+  picker → base64 → persisted document → Assets panel → audit event.)*
 - **FR-14:** The system stores document metadata, hash, extracted text, and source location.
+  *(Implemented: the upload path populates `filename`, `mime_type`, `sha256` (of the raw
+  bytes), and `extracted_text` via the existing `DocumentParser`
+  (`graph_analytics_ai/ai/documents/parser.py`). `storage_mode` is `EXTRACT_ONLY` — only
+  the extracted text is persisted; the raw upload is staged in a temp file for parsing and
+  deleted immediately, since ArangoDB is product-metadata storage, not a blob store. Parse
+  failures are recorded on `metadata.extraction_errors` rather than losing the row.)*
 - **FR-15:** The system extracts structured requirements using existing document extraction logic.
+  *(Partial: `ProductService._extract_requirements_summary`
+  (`graph_analytics_ai/product/service.py:3590`) invokes the existing
+  `RequirementsExtractor` (`graph_analytics_ai/ai/documents/extractor.py`) on upload and
+  stores its `to_summary_dict()` under `metadata.extracted_requirements`. Extraction is
+  best-effort — it needs an LLM provider, so it degrades to text-only when unavailable and
+  never fails the upload. Remaining gap: the extracted requirements are stored for review
+  but cannot yet be promoted into an approvable `RequirementVersion`; that approval flow is
+  owned by the Requirements Copilot today and joining the two paths is a separate feature.)*
 - **FR-16:** Users can approve requirement versions.
-- **FR-17:** Approved requirement versions are immutable.
+- **FR-17:** Approved requirement versions are immutable. *(Implemented:
+  `ProductRepository.update_requirement_version` in
+  `graph_analytics_ai/product/repository.py:211` rejects any content change
+  (summary/objectives/requirements/constraints) to a stored `APPROVED`
+  version with `ConflictError`. The one sanctioned mutation — the
+  system-driven supersede transition to `SUPERSEDED` on the next approval —
+  only touches status/metadata and passes the guard.)*
 - **FR-17a:** Version numbers are auto-assigned per workspace as
   `max(existing.version) + 1`. The system rejects any explicit version that
   would collide with an existing version in the same workspace.
@@ -570,72 +627,161 @@ version without losing prior context, audit trail, or domain.
 ### Use Cases
 
 - **FR-18:** The system can generate use cases from requirement versions and graph profiles.
-- **FR-19:** Users can manually create and edit draft use cases.
+- **FR-19:** Users can manually create and edit draft use cases. *(Implemented:
+  `ProductService.create_use_case` / `update_use_case`
+  (`graph_analytics_ai/product/service.py:1305`) back the authoring form in
+  `UseCaseTemplateCanvas`
+  (`frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:143`), reached
+  from the "Use Cases & Templates" row in the Assets panel. Editing is allowed
+  while DRAFT or REJECTED — a rejected use case can be revised and resubmitted —
+  but an APPROVED one is frozen: it is the input to template generation, so
+  mutating it would change what downstream templates claim to derive from.
+  `origin` distinguishes user-authored rows from agent-generated ones.)*
 - **FR-20:** Users can approve, reject, prioritize, and archive use cases.
+  *(Implemented: `set_use_case_status`
+  (`graph_analytics_ai/product/service.py:1454`) and `set_use_case_priority`
+  (`:1509`), surfaced as per-row actions in
+  `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:210`. Priority is
+  deliberately a separate action from status so a reviewer can re-rank an
+  already-approved backlog without reopening it for edits. ARCHIVED is terminal —
+  re-approving would resurrect a use case that templates may already have been
+  retired against, so the UI drops the action and the service rejects it. Every
+  transition emits an audit event. Verified in a browser: authored a use case,
+  approved it, and re-prioritised an approved one.)*
 - **FR-21:** Use cases link back to requirements and forward to templates.
 
 ### Templates
 
 - **FR-22:** The system can generate analysis templates from use cases.
 - **FR-23:** Users can view and edit algorithm parameters before approval.
+  *(Implemented: parameters are stored flat on the product `AnalysisTemplate`
+  (rather than the AI layer's nested `AlgorithmParameters`) so a single field
+  can be patched without round-tripping a nested structure.
+  `ProductService.update_analysis_template`
+  (`graph_analytics_ai/product/service.py:1640`) backs the per-row parameter
+  editor in `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:333`,
+  which validates JSON client-side before submitting. Editing a DRAFT mutates it
+  in place; editing an APPROVED template versions it instead — see FR-25.)*
 - **FR-24:** The system validates graph, algorithm, parameter, and result storage compatibility.
 - **FR-25:** Approved templates are versioned and immutable for completed runs.
+  *(Implemented: `approve_analysis_template`
+  (`graph_analytics_ai/product/service.py:1752`) freezes a template, and editing
+  an approved one creates the next version in the same lineage while the
+  original flips to SUPERSEDED with a `superseded_by` pointer — so a completed
+  run still resolves the exact row it executed, with the parameters it ran.
+  `lineage_id` is stable across the chain, so "this template" is identifiable
+  independent of version. Superseded rows are hidden from the default listing
+  but reachable via `.../versions`, rendered as a version trail at
+  `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:533`. Verified in
+  a browser: editing an approved template produced v2 as a draft and left v1
+  superseded with its original `damping_factor` intact.)*
 - **FR-26:** The system can import supported template dictionaries from existing projects without executing arbitrary code.
+  *(Implemented: `import_analysis_templates`
+  (`graph_analytics_ai/product/service.py:1783`) reads **only** the whitelisted
+  fields in `IMPORTABLE_TEMPLATE_FIELDS` off each dict. Nothing in the payload
+  is eval'd, exec'd, imported by name, or used to construct a caller-named type,
+  so a dictionary carrying `__class__`, `cmd`, or `eval` keys is inert data —
+  those keys are recorded under `metadata.ignored_keys` and never resolved
+  (asserted by
+  `tests/unit/product/test_service.py::test_import_template_dictionary_ignores_unknown_keys_and_executes_nothing`).
+  Unknown keys are ignored rather than rejected so a dictionary exported from a
+  richer project still imports. Every imported row lands as DRAFT — importing is
+  not approving. The UI exposes it as "Import Dictionary" in
+  `frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:333`.
+  Note this covers the generic JSON template-dictionary format; the
+  vertical-specific importers in FR-49/FR-50 remain deferred for lack of a
+  concrete source format.)*
 
 ### Workflow Runs
 
 - **FR-27:** Users can launch traditional, agentic, and parallel agentic workflows.
 - **FR-28:** The backend persists run state, step status, checkpoints, warnings, errors, and timestamps.
-- **FR-29:** Users can view run progress and GAE job IDs.
-- **FR-30:** Users can cancel, retry, or resume runs where supported.
+- **FR-29:** Users can view run progress and GAE job IDs. *(Implemented: job ids
+  lived only on `ExecutionResult.job` inside the runner. `ExecutionAgent` now
+  reports `gae_job_ids` / `graph_ids` / `result_collections`
+  (`graph_analytics_ai/ai/agents/specialized.py:859`), and the orchestrator
+  forwards a whitelisted subset of agent response content onto `STEP_END`
+  (`graph_analytics_ai/ai/agents/orchestrator.py:361` and `:412`). The whitelist
+  is deliberate — responses can carry whole templates and rendered reports, and
+  every forwarded value is persisted on the WorkflowStep row.
+  `StepStatusReporter` already surfaced step outputs, so the existing step-detail
+  panel renders them with no UI change.)*
+- **FR-30:** Users can cancel, retry, or resume runs where supported. *(Implemented:
+  cancel via `ProductService.cancel_workflow_run`; retry and resume both go through
+  `update_workflow_step` (`graph_analytics_ai/product/service.py:1711`), which already
+  handled `PAUSED → RUNNING` identically to `FAILED → RUNNING` (without the retry_count
+  bump). The gap was purely presentational — the UI labelled every action "Retry Run"
+  regardless of step status, so resume looked unimplemented.
+  `buildPipelineStepContextMenu`
+  (`frontend/src/components/workspace/contextMenus/pipelineStep.ts`) now renders
+  "Resume Run" for paused steps and "Retry Run" for failed ones, matching what
+  `supported_workflow_recovery_actions` already advertised. Per-step retry stays hidden on
+  agentic runs pending FR-31c checkpointing.)*
 - **FR-31:** Completed executions are recorded in the Analysis Catalog.
+  *(Implemented: `AgenticRunSupervisor` captures the runner's returned
+  `AgentState` and calls `ProductService.record_workflow_analysis_executions`
+  (`graph_analytics_ai/product/agentic_run_supervisor.py:597`). The service
+  mirrors each GAE result into the workspace-scoped product catalog and
+  appends its ID to `WorkflowRun.analysis_execution_ids`
+  (`graph_analytics_ai/product/service.py:1430` and `:1405`). Recording is
+  idempotent by GAE job ID; catalog-write failures become run warnings rather
+  than changing a successful analysis into a failed run.)*
 
-#### Known limitation: workflow runs are currently deterministic state, not executed agents
+#### Current execution status
 
-**Status as of v0.2:** `WorkflowMode.AGENTIC` is descriptive metadata only.
-The product workflow API (`POST /api/runs`, `POST /api/runs/{id}/start`,
-`PATCH /api/runs/{id}/steps/{step_id}`) is a **persisted DAG plus state
-machine**, not an executor:
+`WorkflowMode.AGENTIC` now executes through the in-process
+`AgenticRunSupervisor`:
 
-- Step labels and the linear DAG are built client-side in
-  `frontend/src/lib/product-api/client.ts:createWorkflowRunPayload` from
-  whatever text the user types in the Create Workflow Run overlay.
-- `ProductService.start_workflow_run` only flips run status to `RUNNING`
-  and stamps `started_at`; it does **not** invoke
-  `AgenticWorkflowRunner` or any agent.
-- Step transitions to `succeeded`/`failed` are driven by the UI calling
-  `PATCH .../steps/{id}`. There is no execution callback that produces
-  these transitions today, so the visualizer reflects user actions
-  rather than real agent progress.
+- `ProductService.start_workflow_run` persists `RUNNING` and dispatches the
+  run to the supervisor when `workflow_mode == AGENTIC`.
+- The supervisor constructs `AgenticWorkflowRunner`, executes it on a bounded
+  thread pool, and subscribes `StepStatusReporter` to trace events.
+- `TraceEventType.STEP_START` / `STEP_END` / `AGENT_ERROR` events persist
+  real step transitions through `update_workflow_step`; polling therefore
+  reflects live agent progress rather than UI-authored transitions.
+- Successful algorithm results are mirrored into the product Analysis
+  Catalog before the run is finalized (FR-31).
+- Cancellation is cooperative and orphaned in-process runs are swept on API
+  startup. A future durable executor remains the production-hardening path.
+- `PARALLEL_AGENTIC` still requires the supervisor/async-runner integration
+  described by FR-34; it is not yet a distinct live product execution mode.
 - `RequirementsCopilot` questions are a hardcoded list and the draft is
   template-rendered (`graph_analytics_ai/product/service.py:_requirements_copilot_questions`,
   `_build_requirements_draft`). It is intentionally deterministic for
   MVP; LLM-backed question generation and draft synthesis are not wired.
-- Real LLM-backed reasoning **does** exist in
-  `graph_analytics_ai/ai/agents/runner.AgenticWorkflowRunner` and the
-  specialized agents (`SchemaAnalysisAgent`, `RequirementsAgent` doc
-  extraction path, `ReportingAgent` insights). It is reachable today
-  only via MCP (`graph_analytics_ai/mcp/tools/workflow.start_workflow`)
-  and CLI/example entry points — not from the product workflow API.
 
-**FR-31a (planned, see "Planned: Live Agentic Execution" below):** Wire
-`POST /api/runs/{id}/start` (when `workflow_mode == AGENTIC`) to
-`AgenticWorkflowRunner.run_async`, derive step transitions from the
-runner's `TraceEventType.STEP_START` / `STEP_END` events, and persist
-them via the existing `update_workflow_step` path so the visualizer
-reflects real agent progress without UI involvement. Until FR-31a
-ships, the visualizer accurately reflects **persisted state**, not
-**live execution**, and `WorkflowMode.AGENTIC` should be read as
-"intended to run agentically" rather than "currently runs agents."
+**FR-31a status:** shipped for the synchronous agentic runner path. The
+remaining async/parallel and durable-executor work is tracked separately by
+FR-31b/FR-31c and FR-34.
 
 ### Agentic Workflow Visualizer
 
 - **FR-32:** The UI displays a run-level workflow DAG for every workflow run.
 - **FR-33:** The DAG shows workflow stages as nodes, including schema analysis, requirements extraction, use-case generation, template generation, GAE execution, catalog persistence, and report generation.
+  *(Implemented: a seventh canonical step, `catalog_persistence`, joins the six
+  runner phases in `AGENTIC_STEP_LAYOUT`. It runs in the product layer
+  (`record_workflow_analysis_executions`), not the agent runner, so no trace
+  event can carry it — rather than invent a fake runner phase, the supervisor
+  drives the row directly where the work happens
+  (`graph_analytics_ai/product/agentic_run_supervisor.py:599`). A catalog
+  failure fails only that step: the analysis itself succeeded, so the run stays
+  COMPLETED with a warning.)*
 - **FR-34:** The DAG supports parallel branches for parallel agentic workflows.
+  *(Implemented: `_run_parallel_workflow` was fully written and never reached —
+  the supervisor called the sync `runner.run()` and the service folded
+  `parallel_agentic` to `agentic` before dispatch. Both are fixed:
+  `AgenticRunSupervisor._execute_runner`
+  (`graph_analytics_ai/product/agentic_run_supervisor.py:555`) routes
+  PARALLEL_AGENTIC through `run_async` on a per-run event loop (worker threads
+  have none), degrading to the sequential path if a runner lacks `run_async`.
+  `_build_canonical_agentic_dag(parallel=True)`
+  (`graph_analytics_ai/product/service.py:1149`) emits the real shape — schema
+  analysis and requirements extraction as concurrent roots converging on
+  use-case generation, rather than a chain implying a dependency that does not
+  exist. Sequential AGENTIC mode is unchanged, pinned by a test.)*
 - **FR-35:** Each node displays status: pending, running, completed, failed, skipped, or paused.
-- **FR-36:** Selecting a node opens step details, including agent name, inputs, outputs, warnings, errors, timing, retry count, checkpoint ID, and cost metadata when available.
-- **FR-37:** Step details link to produced artifacts, including requirement versions, use cases, templates, executions, result collections, and reports.
+- **FR-36:** Selecting a node opens step details, including agent name, inputs, outputs, warnings, errors, timing, retry count, checkpoint ID, and cost metadata when available. *(Implemented: fixed a raw/camelCase field-name mismatch where the frontend read nonexistent `artifact_count`/`warning_count`/`error_count` fields instead of the backend's real `artifact_refs`/`warnings`/`errors` arrays — those counts were silently `undefined` in production. `mapWorkflowNode` in `frontend/src/lib/product-api/client.ts:987` now derives counts from the real arrays and passes through agent name, timing, retry count, checkpoint ID, inputs, outputs, and cost; rendered in `FloatingDetailPanel` via `frontend/src/components/workspace/WorkspaceCanvas.tsx:392`. Verified in a browser against demo data.)*
+- **FR-37:** Step details link to produced artifacts, including requirement versions, use cases, templates, executions, result collections, and reports. *(Partial: artifact refs are now listed with type + id in the detail panel (previously always showed a count of `undefined` due to the FR-36 field-name bug) — see `frontend/src/components/workspace/WorkspaceCanvas.tsx:392`. Remaining gap: entries are informative text, not clickable navigation — there is no generic asset-router by `(type, id)` in the frontend, and several referenced types (use cases, templates, executions) have no dedicated view yet per FR-19/20/23/25/26/45/46/47/48.)*
 - **FR-38:** Failed or paused nodes expose supported recovery actions such as retry, resume, cancel, or open logs.
 - **FR-39:** The visualizer can be implemented with polling for MVP and must not require WebSocket/SSE delivery.
 
@@ -649,22 +795,133 @@ ships, the visualizer accurately reflects **persisted state**, not
 
 ### Catalog and Lineage
 
-- **FR-45:** Users can browse epochs, executions, templates, use cases, and requirements.
-- **FR-46:** Users can search executions by algorithm, status, epoch, date, graph, and workspace.
-- **FR-47:** Users can view lineage from report to execution to template to use case to requirement.
-- **FR-48:** Users can compare executions across epochs.
+> **Scope note for FR-45..FR-48.** These four are reachable end-to-end from the
+> product: the Assets panel carries an always-present "Analysis Catalog" row
+> (`frontend/src/lib/product-api/client.ts:1017`) that opens
+> `AnalysisCatalogCanvas`
+> (`frontend/src/components/workspace/AnalysisCatalogCanvas.tsx:25`), which
+> browses epochs/executions, filters them server-side, compares a selection, and
+> traces lineage. They were held at **Partial** for one cycle while only the
+> backend existed — each is written "**Users can** …", and an endpoint no screen
+> calls does not satisfy that. Verified in a real browser against a live API
+> with seeded data: the algorithm filter narrowed 3 rows to 1, comparison
+> returned real deltas against the baseline, and lineage resolved template and
+> use-case IDs, with no console errors.
+>
+> As of FR-19..FR-26 shipping, templates and use cases are real product records
+> rather than bare IDs, so FR-45 is now satisfied in full — see its note below.
+
+- **FR-45:** Users can browse epochs, executions, templates, use cases, and
+  requirements. *(Implemented: `ProductService.browse_analysis_catalog`
+  (`graph_analytics_ai/product/service.py:2204`) returns all five as records —
+  templates and use cases became real entities with FR-19..FR-26, replacing the
+  bare ID strings this requirement was previously held Partial for. Epochs and
+  executions render in `AnalysisCatalogCanvas`
+  (`frontend/src/components/workspace/AnalysisCatalogCanvas.tsx:148` and `:166`);
+  templates and use cases in `UseCaseTemplateCanvas`
+  (`frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:210` and `:333`);
+  requirement versions in the existing Requirements canvas. Execution references
+  with no product record — from runs that predate these entities — are returned
+  as `unresolved_template_ids` / `unresolved_use_case_ids` rather than dropped,
+  so a lineage gap stays visible instead of looking complete.)*
+- **FR-46:** Users can search executions by algorithm, status, epoch, date,
+  graph, and workspace. *(Implemented:
+  `ProductService.list_analysis_executions`
+  (`graph_analytics_ai/product/service.py:1546`) applies all six filters to
+  workspace-scoped rows, backed by the workspace/status/algorithm/epoch/graph/
+  date index (`graph_analytics_ai/product/storage/arangodb.py:208`). The filter
+  bar in `AnalysisCatalogCanvas.tsx:166` drives it server-side via
+  `listAnalysisExecutions` (`frontend/src/lib/product-api/client.ts:205`), which
+  omits blank filters — a present-but-empty filter is a real constraint
+  server-side and would match nothing. Filter options are derived from the
+  workspace's own executions rather than hard-coded. Verified in a browser:
+  selecting an algorithm narrowed the table from 3 rows to 1.)*
+- **FR-47:** Users can view lineage from report to execution to template to use
+  case to requirement. *(Implemented: `ProductService.get_analysis_lineage`
+  (`graph_analytics_ai/product/service.py:1685`) returns the ID chain plus the
+  matching report and execution records; the "Trace" action per execution row
+  renders it as an ordered trail in `AnalysisCatalogCanvas.tsx:380` via
+  `getAnalysisLineage` (`frontend/src/lib/product-api/client.ts:243`). Template
+  and use case render as IDs — the trail states this inline — until their
+  product entities ship.)*
+- **FR-48:** Users can compare executions across epochs. *(Implemented:
+  `ProductService.compare_analysis_executions`
+  (`graph_analytics_ai/product/service.py:1642`) validates workspace scope and
+  returns result-count and numeric performance-metric deltas against the first
+  selected execution. Users pick executions with per-row checkboxes and compare
+  from `AnalysisCatalogCanvas.tsx:331`; the action requires at least two
+  selections, since deltas are relative to the first. Verified in a browser:
+  comparing two executions produced −400 results and −2,100 ms against the
+  baseline.)*
 
 ### Import and Export
 
 - **FR-49:** The product supports import from AdTech-style YAML/docs projects.
+  *(**Partial — backend and API only, no import UI.** FR-26's generic template
+  dictionary import has an "Import Dictionary" button; this vertical importer
+  has no equivalent, so a user cannot reach it from the product. Held Partial
+  for consistency with how FR-26 was judged. Remaining work: a file picker that
+  posts the bundle, reusing the FR-26 control.
+
+  Backend complete: `import_vertical_project`
+  (`graph_analytics_ai/product/service.py:2200`), exposed at
+  `POST /api/workspaces/{workspace_id}/vertical-projects/import`. No concrete
+  source format existed for this requirement — the sibling repos it referred to
+  are not present — so rather than guess at a third party's layout the product
+  **defines** one, documented in `docs/vertical_project_bundle.md`. A bundle
+  carries `use_cases` and `templates`, and templates resolve their use case by
+  title. See FR-50 for why one format covers both.)*
 - **FR-50:** The product supports import from clinical trials/CRO and open source intelligence analysis template files.
+  *(**Partial — same UI gap as FR-49.** Implemented by the same importer.
+  FR-49 and FR-50 differ in domain
+  vocabulary, not structure — both describe "here are the analytical questions
+  and the algorithm configurations that answer them" — so a `vertical`
+  discriminator (`adtech` | `clinical_trials` | `osint` | any) carries the
+  difference and a second parser would be duplication. If a real upstream
+  format later appears, the right move is a thin adapter that emits this bundle,
+  not a second importer.
+
+  Parsing uses `yaml.safe_load`, never `yaml.load`: the default PyYAML loader
+  constructs arbitrary Python objects from tags like `!!python/object/apply`,
+  which is exactly the arbitrary code execution FR-26/FR-49/FR-50 forbid. A
+  bundle carrying such a tag is rejected, asserted by
+  `tests/unit/product/test_vertical_import.py::test_yaml_python_object_tags_are_rejected_not_executed`.
+  YAML is a superset of JSON so `.json` bundles use the same reader, and
+  everything lands as DRAFT — importing is not approving. Malformed entries and
+  unknown enum values degrade with a reported warning rather than failing the
+  whole bundle, but never silently.)*
 - **FR-51:** The product can export a workspace bundle with metadata, documents, templates, and report snapshots.
 - **FR-52:** Exported bundles exclude secret values.
 
 ### Administration and Audit
 
-- **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions.
-- **FR-54:** Admins can configure retention for drafts, runs, documents, report snapshots, and audit logs.
+- **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions. *(Implemented: `approve_requirement_version`, `export_workspace_bundle`, and `import_workspace_bundle` audit events added in `graph_analytics_ai/product/service.py` alongside the pre-existing create/update/launch/publish/archive events. There is no hard-delete method in the product service — only the already-audited soft-delete `archive_workspace` — so no action in this list is unaudited.)*
+- **FR-54:** Admins can configure retention for drafts, runs, documents, report
+  snapshots, and audit logs. *(**Partial — backend and API only, no admin UI.**
+  This requirement reads "**Admins can configure**", and nothing under
+  `frontend/src` calls the retention endpoints, so an admin cannot actually
+  configure retention from the product — only by calling the API directly.
+  Held Partial deliberately rather than claiming a user-facing capability no
+  user can reach. Remaining work: an admin screen for the windows plus a
+  dry-run preview of what a sweep would remove.
+
+  Backend complete: a per-workspace `RetentionPolicy`
+  plus an on-demand sweep — `set_retention_policy`
+  (`graph_analytics_ai/product/service.py:1385`) and `apply_retention_policy`
+  (`:1451`). Deliberately NOT ArangoDB TTL indexes: retention has to be
+  selective, and a TTL index cannot express "delete drafts but never published
+  snapshots".
+
+  Safety properties, all tested: the sweep is **dry-run by default** (deleting
+  requires `dry_run=false` explicitly, and both modes return the same shape);
+  `0` means keep forever, so creating a policy never silently starts deleting;
+  negative windows are rejected rather than clamped, since a negative window is
+  most likely a caller bug and treating it as "delete everything" is
+  destructive. Never eligible at any age: approved requirement versions,
+  published report snapshots, runs behind a published report, and audit events
+  unless a window is set explicitly — they are the record of everything else
+  being deleted. Ephemeral quick-analysis runs sweep under the run window,
+  which is the concrete behaviour this PRD names elsewhere.)*
 - **FR-55:** Admins can validate product metadata collection health.
 
 ### Schema Kind Detection and Multi-Graph Support
@@ -722,6 +979,19 @@ older requirement, this section wins.
   baseline (`schema_analyzer.reconcile.reconcile_physical_mapping`) so
   no collection is dropped silently; reconciliation deltas are surfaced
   in the UI.
+
+  *(Partial: the `?force_llm=true` opt-in is now exposed end-to-end —
+  `discover_graph_profile` / `discover_graph_profiles` accept `force_llm`
+  and thread it through `_acquire_and_persist_bundle`
+  (`graph_analytics_ai/product/service.py:2834`) into `acquire_schema`, which
+  owns the escalation decision. The deterministic-baseline-first ordering and
+  the confidence-threshold trigger are implemented in
+  `graph_analytics_ai/ai/schema/acquire.py`. Remaining gap: the other three
+  triggers (rejected tier-2 candidate, unresolved `GENERIC_WITH_TYPE`
+  endpoints, competing tier-1 candidates) and
+  `reconcile_physical_mapping` live in the external `arango-schema-analyzer`
+  package and are not invoked from this repo, so reconciliation deltas are
+  not surfaced in the UI yet.)*
 - **FR-59 (Two-tier caching with shape/full fingerprints):** The
   product caches schema acquisition results keyed by
   `(workspace_id, connection_profile_id, database, graph_name)`. Two
@@ -794,14 +1064,43 @@ older requirement, this section wins.
   `shape_fingerprint`, `full_fingerprint`. `confidence < 0.7` flips the
   profile's `review_required` flag and the UI prompts the user to
   inspect.
-- **FR-65 (Multitenancy and sharding profile surfacing):** When the
-  upstream analyzer reports `metadata.multitenancy` and
+- **FR-65 (Multitenancy and sharding profile surfacing):** When the upstream analyzer reports `metadata.multitenancy` and
   `metadata.shardingProfile`, the product surfaces them on the graph
   profile and uses them to (a) choose appropriate GAE projection
   parameters (e.g., respect `OneShard`), (b) warn before running
   cross-tenant analyses, and (c) expose the inferred `tenantKey` field
   to the Requirements Copilot so questions can be tenant-scoped
   automatically.
+
+  *(**Partial — backend only, no UI.** This requirement says the product
+  "surfaces them on the graph profile" and "(b) warns before running
+  cross-tenant analyses"; both are display behaviours, and no frontend file
+  reads `sharding_profile`. The profile is detected and persisted, and the
+  tenant hint does reach the Requirements Copilot's observations (c), but
+  nothing renders the sharding badge or the cross-tenant warning yet.
+
+  Backend complete — and notably NOT via the analyzer. The precondition in the sentence
+  above never holds: `arango-schema-analyzer` emits neither field, so waiting
+  for it would leave this permanently blocked. The information does not need
+  the analyzer — ArangoDB reports it directly on `collection.properties()`
+  (`numberOfShards`, `shardKeys`, `replicationFactor`, `smartGraphAttribute`)
+  and `db.properties()` (`sharding == "single"` for OneShard).
+  `detect_sharding_profile` (`graph_analytics_ai/ai/schema/sharding.py:101`)
+  reads those during discovery and stamps `sharding_profile`, `multitenancy`,
+  and `gae_projection_hints` onto the GraphProfile's `analyzer_metadata`.
+
+  (a) Projection guidance is advice, not configuration — `prefer_local_join`
+  for OneShard, plus satellite collections. (b) A cross-tenant analysis on a
+  sharded deployment produces an explicit warning. (c) The inferred tenant key
+  reaches the Requirements Copilot through `_schema_observations_from_graph_profile`
+  as a hint, never a filter.
+
+  Multitenancy is only inferred when the SAME tenant-looking shard key appears
+  on every sharded collection: a key on a subset is a partition strategy, not a
+  tenant boundary, and treating it as one would wrongly imply the whole graph is
+  tenant-scoped. The probe never raises — it degrades to
+  `deployment_kind: "unknown"` with the reason recorded, because a sharding
+  probe must not be able to break schema discovery.)*
 
 #### Multi-Graph Workspaces
 
@@ -848,6 +1147,19 @@ older requirement, this section wins.
   user must confirm or reject each link before it can be used by the
   workflow runner.
 
+  *(Implemented: `_probe_cross_graph_edges`
+  (`graph_analytics_ai/product/service.py:4606`) samples each member profile's
+  edge collections and reads `_from`/`_to`. An edge whose endpoints land in
+  collections owned by two different member profiles is a hop that
+  demonstrably exists in the data, reported at confidence 0.95 — strictly above
+  any name match, which is only a guess that two same-named fields mean the
+  same thing — and deduped so an observed hop wins. A collection claimed by two
+  profiles is excluded rather than attributed to whichever was seen first, and
+  `min_overlap` keeps a single stray edge from looking structural. Probing needs
+  a live connection, so any failure degrades to name-matching alone: these are
+  advisory suggestions and must not turn a workbench hint into an error.
+  Confirmation stays with the user via `update_graph_set`, unchanged.)*
+
 #### LPG-Aware Agentic Workflow
 
 - **FR-70 (Conceptual-typed AQL generation):** The
@@ -879,6 +1191,19 @@ older requirement, this section wins.
   - Fallback strategy: server-side AQL `view` collection or named-graph
     materialization that selects only the matching `typeField ==
     typeValue` rows; the projection's lifetime is the run.
+
+    *Implementation note:* the "view" wording is not achievable as written —
+    GAE's `loaddata` takes collection **names** and cannot load an
+    ArangoSearch view (see `GAEConnectionBase.load_graph`). The implemented
+    tier delivers the same intent through a mechanism the engine supports:
+    `_materialize_projections`
+    (`graph_analytics_ai/gae_orchestrator.py:657`) runs each projection's
+    idempotent UPSERT into a deterministic collection and loads that. Because
+    the target name is stable and the write is an UPSERT, a later run over
+    unchanged data re-runs it as a no-op and reuses the same collection —
+    which is also the "reusable across runs" half of this requirement. The
+    chain is `inline_aql` → `materialized` → whole collections, and a
+    materialization failure falls through rather than failing the run.
   - Fallback strategy (when permitted by deployment + dataset
     size): a lightweight GAE filter via per-projection vertex/edge
     collection `clone`s; the cost surfaces in the run cost estimate.
@@ -911,6 +1236,21 @@ older requirement, this section wins.
   `observed_from_schema`, `inferred_from_schema`,
   `analyzer_assumption`, `user_provided`, or `assumption_requires_
   confirmation`.
+
+  *(Partial: `_schema_observations_from_graph_profile`
+  (`graph_analytics_ai/product/service.py:4464`) now reads the conceptual
+  schema rather than only raw collection lists — it surfaces entity types,
+  relationship types with from→to entities, `graph_purpose`, and cross-graph
+  links from any GraphSet containing the profile, and `_build_requirements_draft`
+  renders them in the BRD. This matters most on LPG graphs, where the raw
+  collection names (`Entities`/`Relationships`) tell a business reviewer
+  nothing. Raw collections remain as a fallback for profiles discovered before
+  v0.6. Remaining gaps: per-entity-type and per-relationship-type *counts*
+  (the `metadata.statistics.entities` block is not populated by the in-repo
+  heuristic path), per-entity-type algorithm suggestions, the multi-graph
+  workspace summary, and the `inferred_from_schema` /
+  `analyzer_assumption` / `assumption_requires_confirmation` provenance
+  labels — only `observed_from_schema` and `user_provided` are emitted today.)*
 
 #### Ad-hoc Prompt Analysis (v0.7)
 

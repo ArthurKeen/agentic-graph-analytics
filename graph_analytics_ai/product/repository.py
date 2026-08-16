@@ -3,7 +3,11 @@
 import logging
 from typing import List, Optional
 
+from .exceptions import ConflictError
 from .models import (
+    AnalysisEpoch,
+    AnalysisExecution,
+    AnalysisTemplate,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
@@ -14,8 +18,11 @@ from .models import (
     ReportSection,
     RequirementInterview,
     RequirementVersion,
+    RequirementVersionStatus,
+    RetentionPolicy,
     SchemaSnapshot,
     SourceDocument,
+    UseCase,
     Workspace,
     WorkflowRun,
     create_schema_snapshot,
@@ -209,7 +216,27 @@ class ProductRepository:
         return self.storage.get_requirement_version(requirement_version_id)
 
     def update_requirement_version(self, version: RequirementVersion) -> str:
-        """Update a requirement version."""
+        """Update a requirement version.
+
+        PRD FR-17: once a version's *stored* status is APPROVED, its
+        content (summary/objectives/requirements/constraints) is
+        immutable. The one sanctioned mutation of an approved version is
+        the system-driven supersede transition to SUPERSEDED performed by
+        ``ProductService.approve_requirements_copilot_draft`` when a newer
+        version is approved — content is untouched there, only
+        status/metadata change, so it passes this guard.
+        """
+
+        existing = self.storage.get_requirement_version(version.requirement_version_id)
+        content_fields = ("summary", "objectives", "requirements", "constraints")
+        if existing.status == RequirementVersionStatus.APPROVED and any(
+            getattr(existing, field) != getattr(version, field)
+            for field in content_fields
+        ):
+            raise ConflictError(
+                f"RequirementVersion {version.requirement_version_id} is "
+                "approved and its content is immutable"
+            )
 
         return self.storage.update_requirement_version(version)
 
@@ -237,6 +264,110 @@ class ProductRepository:
         """List workflow runs for a workspace."""
 
         return self.storage.list_workflow_runs(workspace_id)
+
+    # --- Product Analysis Catalog operations (FR-31 / FR-45..FR-48) ---
+
+    def create_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Create a workspace-scoped analysis execution."""
+
+        return self.storage.insert_analysis_execution(execution)
+
+    def get_analysis_execution(
+        self, analysis_execution_id: str
+    ) -> AnalysisExecution:
+        """Get an analysis execution."""
+
+        return self.storage.get_analysis_execution(analysis_execution_id)
+
+    def update_analysis_execution(self, execution: AnalysisExecution) -> str:
+        """Update an analysis execution."""
+
+        return self.storage.update_analysis_execution(execution)
+
+    def list_analysis_executions(self, workspace_id: str) -> List[AnalysisExecution]:
+        """List analysis executions for a workspace."""
+
+        return self.storage.list_analysis_executions(workspace_id)
+
+    def create_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Create a workspace-scoped analysis epoch."""
+
+        return self.storage.insert_analysis_epoch(epoch)
+
+    def get_analysis_epoch(self, analysis_epoch_id: str) -> AnalysisEpoch:
+        """Get an analysis epoch."""
+
+        return self.storage.get_analysis_epoch(analysis_epoch_id)
+
+    def update_analysis_epoch(self, epoch: AnalysisEpoch) -> str:
+        """Update an analysis epoch."""
+
+        return self.storage.update_analysis_epoch(epoch)
+
+    def list_analysis_epochs(self, workspace_id: str) -> List[AnalysisEpoch]:
+        """List analysis epochs for a workspace."""
+
+        return self.storage.list_analysis_epochs(workspace_id)
+
+    def create_use_case(self, use_case: UseCase) -> str:
+        """Create a use case."""
+
+        return self.storage.insert_use_case(use_case)
+
+    def get_use_case(self, use_case_id: str) -> UseCase:
+        """Get a use case."""
+
+        return self.storage.get_use_case(use_case_id)
+
+    def update_use_case(self, use_case: UseCase) -> str:
+        """Update a use case."""
+
+        return self.storage.update_use_case(use_case)
+
+    def list_use_cases(self, workspace_id: str) -> List[UseCase]:
+        """List use cases for a workspace."""
+
+        return self.storage.list_use_cases(workspace_id)
+
+    def create_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Create an analysis template."""
+
+        return self.storage.insert_analysis_template(template)
+
+    def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
+        """Get an analysis template."""
+
+        return self.storage.get_analysis_template(analysis_template_id)
+
+    def update_analysis_template(self, template: AnalysisTemplate) -> str:
+        """Update an analysis template."""
+
+        return self.storage.update_analysis_template(template)
+
+    def list_analysis_templates(self, workspace_id: str) -> List[AnalysisTemplate]:
+        """List analysis templates for a workspace."""
+
+        return self.storage.list_analysis_templates(workspace_id)
+
+    def get_retention_policy(self, workspace_id: str) -> Optional[RetentionPolicy]:
+        """Get a workspace's retention policy, or None."""
+
+        return self.storage.get_retention_policy(workspace_id)
+
+    def create_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Create a retention policy."""
+
+        return self.storage.insert_retention_policy(policy)
+
+    def update_retention_policy(self, policy: RetentionPolicy) -> str:
+        """Update a retention policy."""
+
+        return self.storage.update_retention_policy(policy)
+
+    def delete_document_by_key(self, collection_name: str, key: str) -> bool:
+        """Delete one document by key (FR-54 retention sweep)."""
+
+        return self.storage.delete_document_by_key(collection_name, key)
 
     def create_report_manifest(self, manifest: ReportManifest) -> str:
         """Create a report manifest."""

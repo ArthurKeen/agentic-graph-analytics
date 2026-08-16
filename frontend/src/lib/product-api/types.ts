@@ -23,6 +23,14 @@ export type WorkspaceAssetKind =
   // version. This avoids the v1/v2/v3/… clutter the per-version model
   // produced and matches how users think about "the Requirements doc."
   | "requirements"
+  // FR-45..FR-48: ONE consolidated "Analysis Catalog" row per workspace,
+  // synthetic id `analysis-catalog:<workspaceId>`, same consolidation trick
+  // as "requirements" above. Unlike Requirements this row is shown even when
+  // empty — it is the only entry point to the catalog, so hiding it when no
+  // analyses have run yet would make the feature undiscoverable.
+  | "analysis-catalog"
+  // FR-19..FR-26: one consolidated "Use Cases & Templates" row per workspace.
+  | "use-cases"
   | "run"
   | "report";
 
@@ -98,6 +106,285 @@ export interface SourceDocumentSummary {
   metadata: Record<string, unknown>;
 }
 
+/* --------------------------------------------------------------------------
+ * Analysis Catalog (FR-45..FR-48)
+ *
+ * Field names below mirror the exact dicts ProductService returns
+ * (AnalysisExecution.to_dict / AnalysisEpoch.to_dict and the browse /
+ * compare / lineage projections), captured by running the service rather
+ * than read off the Python type hints.
+ * ----------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------
+ * Use Cases and Analysis Templates (FR-19..FR-26)
+ * Field names mirror UseCase.to_dict / AnalysisTemplate.to_dict, captured by
+ * running the service rather than read off its type hints.
+ * ----------------------------------------------------------------------- */
+
+export type UseCaseStatus = "draft" | "approved" | "rejected" | "archived";
+export type AnalysisTemplateStatus =
+  | "draft"
+  | "approved"
+  | "superseded"
+  | "archived";
+
+export interface UseCase {
+  useCaseId: string;
+  workspaceId: string;
+  title: string;
+  description: string;
+  useCaseType: string;
+  priority: string;
+  status: UseCaseStatus;
+  origin: string;
+  requirementVersionId?: string | null;
+  relatedRequirements: string[];
+  graphAlgorithms: string[];
+  dataNeeds: string[];
+  expectedOutputs: string[];
+  successMetrics: string[];
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote: string;
+  createdAt?: string;
+  createdBy?: string | null;
+}
+
+export interface AnalysisTemplate {
+  analysisTemplateId: string;
+  workspaceId: string;
+  name: string;
+  lineageId: string;
+  description: string;
+  algorithm: string;
+  parameters: Record<string, unknown>;
+  config: Record<string, unknown>;
+  version: number;
+  status: AnalysisTemplateStatus;
+  useCaseId?: string | null;
+  estimatedRuntimeSeconds?: number | null;
+  supersededBy?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  createdAt?: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface CreateUseCaseInput {
+  title: string;
+  description?: string;
+  useCaseType?: string;
+  priority?: string;
+}
+
+export interface CreateAnalysisTemplateInput {
+  name: string;
+  algorithm: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  useCaseId?: string | null;
+}
+
+export interface RawUseCase {
+  use_case_id: string;
+  workspace_id: string;
+  title: string;
+  description?: string;
+  use_case_type?: string;
+  priority?: string;
+  status: UseCaseStatus;
+  origin?: string;
+  requirement_version_id?: string | null;
+  related_requirements?: string[];
+  graph_algorithms?: string[];
+  data_needs?: string[];
+  expected_outputs?: string[];
+  success_metrics?: string[];
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_note?: string;
+  created_at?: string;
+  created_by?: string | null;
+}
+
+export interface RawAnalysisTemplate {
+  analysis_template_id: string;
+  workspace_id: string;
+  name: string;
+  lineage_id?: string;
+  description?: string;
+  algorithm?: string;
+  parameters?: Record<string, unknown>;
+  config?: Record<string, unknown>;
+  version?: number;
+  status: AnalysisTemplateStatus;
+  use_case_id?: string | null;
+  estimated_runtime_seconds?: number | null;
+  superseded_by?: string | null;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AnalysisExecution {
+  analysisExecutionId: string;
+  workspaceId: string;
+  runId?: string | null;
+  algorithm: string;
+  status: string;
+  graphProfileId?: string | null;
+  requirementVersionId?: string | null;
+  useCaseId?: string | null;
+  templateId?: string | null;
+  templateName: string;
+  epochId?: string | null;
+  algorithmVersion: string;
+  parameters: Record<string, unknown>;
+  resultsLocation?: string | null;
+  resultCount: number;
+  performanceMetrics: Record<string, number>;
+  errorMessage?: string | null;
+  workflowMode?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface AnalysisEpoch {
+  analysisEpochId: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  timestamp?: string | null;
+  status: string;
+  tags: string[];
+  analysisCount: number;
+  analysisExecutionIds: string[];
+}
+
+export interface AnalysisCatalogView {
+  workspaceId: string;
+  epochs: AnalysisEpoch[];
+  executions: AnalysisExecution[];
+  templates: AnalysisTemplate[];
+  useCases: UseCase[];
+  requirements: Array<Record<string, unknown>>;
+  /** Execution references with no product record (runs that predate
+   * FR-19..FR-26). Surfaced rather than dropped so lineage gaps stay visible. */
+  unresolvedTemplateIds: string[];
+  unresolvedUseCaseIds: string[];
+}
+
+/** FR-46 filters. All optional; omitted keys are not sent. */
+export interface AnalysisExecutionFilters {
+  algorithm?: string;
+  status?: string;
+  epochId?: string;
+  graphProfileId?: string;
+  startedAfter?: string;
+  startedBefore?: string;
+}
+
+export interface AnalysisExecutionDelta {
+  analysisExecutionId: string;
+  resultCount: number;
+  performanceMetrics: Record<string, number>;
+}
+
+export interface AnalysisExecutionComparison {
+  workspaceId: string;
+  /** Deltas are relative to this execution (the first one selected). */
+  baselineExecutionId: string;
+  executions: AnalysisExecution[];
+  deltas: AnalysisExecutionDelta[];
+}
+
+export interface AnalysisLineage {
+  workspaceId: string;
+  execution: AnalysisExecution | null;
+  reports: Array<Record<string, unknown>>;
+  templateId?: string | null;
+  useCaseId?: string | null;
+  requirementVersionId?: string | null;
+}
+
+export interface RawAnalysisExecution {
+  analysis_execution_id: string;
+  workspace_id: string;
+  run_id?: string | null;
+  algorithm: string;
+  status: string;
+  graph_profile_id?: string | null;
+  requirement_version_id?: string | null;
+  use_case_id?: string | null;
+  template_id?: string | null;
+  template_name?: string;
+  epoch_id?: string | null;
+  algorithm_version?: string;
+  parameters?: Record<string, unknown>;
+  results_location?: string | null;
+  result_count?: number;
+  performance_metrics?: Record<string, number>;
+  error_message?: string | null;
+  workflow_mode?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RawAnalysisEpoch {
+  analysis_epoch_id: string;
+  workspace_id: string;
+  name: string;
+  description?: string;
+  timestamp?: string | null;
+  status: string;
+  tags?: string[];
+  analysis_count?: number;
+  analysis_execution_ids?: string[];
+}
+
+export interface RawAnalysisCatalogView {
+  workspace_id: string;
+  epochs?: RawAnalysisEpoch[];
+  executions?: RawAnalysisExecution[];
+  templates?: RawAnalysisTemplate[];
+  use_cases?: RawUseCase[];
+  requirements?: Array<Record<string, unknown>>;
+  unresolved_template_ids?: string[];
+  unresolved_use_case_ids?: string[];
+}
+
+export interface RawAnalysisExecutionComparison {
+  workspace_id: string;
+  baseline_execution_id: string;
+  executions?: RawAnalysisExecution[];
+  deltas?: Array<{
+    analysis_execution_id: string;
+    result_count?: number;
+    performance_metrics?: Record<string, number>;
+  }>;
+}
+
+export interface RawAnalysisLineage {
+  workspace_id: string;
+  execution?: RawAnalysisExecution | null;
+  reports?: Array<Record<string, unknown>>;
+  template_id?: string | null;
+  use_case_id?: string | null;
+  requirement_version_id?: string | null;
+}
+
+/** FR-13: document content is sent base64-encoded in a JSON body — this
+ * product API is JSON-only and has no multipart handling. */
+export interface UploadSourceDocumentInput {
+  filename: string;
+  mimeType: string;
+  contentBase64: string;
+}
+
 export interface ConnectionProfileSummary {
   connectionProfileId: string;
   workspaceId: string;
@@ -139,6 +426,18 @@ export interface ClusterDatabasesResult {
   databases: string[];
 }
 
+/** Non-secret connection defaults from the deployment environment, used to
+ * prefill the connection-profile form. `passwordSecretEnvVar` is the env-var
+ * *name* the password is referenced by — never the password value. */
+export interface ConnectionDefaults {
+  endpoint: string;
+  username: string;
+  database: string;
+  verifySsl: boolean;
+  deploymentMode: string;
+  passwordSecretEnvVar: string;
+}
+
 export interface ConnectionVerificationResult {
   connectionProfileId: string;
   workspaceId: string;
@@ -147,6 +446,9 @@ export interface ConnectionVerificationResult {
   endpoint: string;
   database: string;
   errorMessage?: string | null;
+  /** FR-7: best-effort deployment-wide GAE reachability, independent of
+   * this profile's DB verification result above. */
+  gaeStatus?: { status: string; message?: string } | null;
 }
 
 export interface DiscoverGraphProfileInput {
@@ -228,6 +530,12 @@ export interface RequirementVersion {
   metadata: Record<string, unknown>;
 }
 
+export interface WorkflowArtifactRef {
+  type: string;
+  id: string;
+  label?: string;
+}
+
 export interface WorkflowDAGNode {
   id: string;
   label: string;
@@ -236,6 +544,20 @@ export interface WorkflowDAGNode {
   artifactCount: number;
   warningCount: number;
   errorCount: number;
+  /** FR-36: full step detail for the FloatingDetailPanel, beyond the
+   * summary counts above. Optional so demo-mode nodes (which only
+   * synthesize the summary fields) still satisfy the type. */
+  startedAt?: string | null;
+  completedAt?: string | null;
+  durationMs?: number | null;
+  retryCount?: number;
+  checkpointId?: string | null;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  artifactRefs?: WorkflowArtifactRef[];
+  warningMessages?: string[];
+  errorMessages?: string[];
+  cost?: Record<string, unknown>;
 }
 
 export interface WorkflowDAGEdge {
@@ -465,6 +787,58 @@ export interface ProductAPIClient {
   listClusterDatabases(
     input: ListClusterDatabasesInput
   ): Promise<ClusterDatabasesResult>;
+  /** Non-secret connection defaults from the environment, for form prefill. */
+  getConnectionDefaults(): Promise<ConnectionDefaults>;
+  /** FR-13: upload a source document; only extracted text is persisted. */
+  uploadSourceDocument(
+    workspaceId: string,
+    input: UploadSourceDocumentInput
+  ): Promise<SourceDocumentSummary>;
+  /** FR-19: author a use case by hand. */
+  createUseCase(workspaceId: string, input: CreateUseCaseInput): Promise<UseCase>;
+  /** FR-20: approve / reject / archive a use case. */
+  setUseCaseStatus(
+    useCaseId: string,
+    status: UseCaseStatus,
+    reviewNote?: string
+  ): Promise<UseCase>;
+  /** FR-20: re-prioritise a use case at any non-archived status. */
+  setUseCasePriority(useCaseId: string, priority: string): Promise<UseCase>;
+  /** FR-22: create a draft analysis template. */
+  createAnalysisTemplate(
+    workspaceId: string,
+    input: CreateAnalysisTemplateInput
+  ): Promise<AnalysisTemplate>;
+  /** FR-23: edit algorithm parameters; versions an approved template (FR-25). */
+  updateAnalysisTemplate(
+    analysisTemplateId: string,
+    patch: { parameters?: Record<string, unknown>; config?: Record<string, unknown> }
+  ): Promise<AnalysisTemplate>;
+  /** FR-25: approve a draft template, making it immutable. */
+  approveAnalysisTemplate(analysisTemplateId: string): Promise<AnalysisTemplate>;
+  /** FR-25: every version in a template's lineage, oldest first. */
+  getAnalysisTemplateVersions(
+    analysisTemplateId: string
+  ): Promise<AnalysisTemplate[]>;
+  /** FR-26: import template dictionaries; nothing in the payload is executed. */
+  importAnalysisTemplates(
+    workspaceId: string,
+    templates: Array<Record<string, unknown>>
+  ): Promise<AnalysisTemplate[]>;
+  /** FR-45: browse epochs + executions for a workspace. */
+  browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView>;
+  /** FR-46: server-side filtered execution search. */
+  listAnalysisExecutions(
+    workspaceId: string,
+    filters?: AnalysisExecutionFilters
+  ): Promise<AnalysisExecution[]>;
+  /** FR-48: compare executions; deltas are relative to the first id. */
+  compareAnalysisExecutions(
+    workspaceId: string,
+    analysisExecutionIds: string[]
+  ): Promise<AnalysisExecutionComparison>;
+  /** FR-47: trace report -> execution -> template -> use case -> requirement. */
+  getAnalysisLineage(analysisExecutionId: string): Promise<AnalysisLineage>;
   listConnectionProfileGraphs(
     connectionProfileId: string
   ): Promise<ConnectionGraphsResult>;
@@ -572,6 +946,7 @@ export interface RawConnectionVerificationResult {
   endpoint: string;
   database: string;
   error_message?: string | null;
+  gae_status?: { status: string; message?: string } | null;
 }
 
 export interface RawGraphDiscoveryResult {
@@ -642,20 +1017,30 @@ export interface RawGraphProfileSummary {
   counts?: Record<string, number>;
 }
 
+export interface RawWorkflowDAGNode {
+  id: string;
+  label: string;
+  status: WorkflowStepStatus;
+  agent_name?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  retry_count?: number;
+  checkpoint_id?: string | null;
+  inputs?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+  artifact_refs?: Array<{ type: string; id: string; label?: string }>;
+  warnings?: string[];
+  errors?: string[];
+  cost?: Record<string, unknown>;
+}
+
 export interface RawWorkflowDAGView {
   run_id: string;
   workspace_id: string;
   status: string;
   workflow_mode: string;
-  nodes: Array<{
-    id: string;
-    label: string;
-    status: WorkflowStepStatus;
-    agent_name?: string;
-    artifact_count: number;
-    warning_count: number;
-    error_count: number;
-  }>;
+  nodes: RawWorkflowDAGNode[];
   edges: Array<{
     id: string;
     from: string;
@@ -678,9 +1063,17 @@ export interface RawWorkflowRunSummary {
     label: string;
     status: WorkflowStepStatus;
     agent_name?: string;
-    artifact_refs?: Array<Record<string, string>>;
+    started_at?: string | null;
+    completed_at?: string | null;
+    duration_ms?: number | null;
+    retry_count?: number;
+    checkpoint_id?: string | null;
+    inputs?: Record<string, unknown>;
+    outputs?: Record<string, unknown>;
+    artifact_refs?: Array<{ type: string; id: string; label?: string }>;
     warnings?: string[];
     errors?: string[];
+    cost?: Record<string, unknown>;
   }>;
   dag_edges?: Array<{
     from_step_id: string;

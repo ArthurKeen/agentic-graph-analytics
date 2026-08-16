@@ -65,25 +65,44 @@ export const demoDag: WorkflowDAGView = {
       id: "requirements",
       label: "Requirements",
       status: "completed",
+      agentName: "RequirementsAgent",
       artifactCount: 1,
       warningCount: 0,
-      errorCount: 0
+      errorCount: 0,
+      startedAt: "2026-01-01T00:00:00Z",
+      completedAt: "2026-01-01T00:00:45Z",
+      durationMs: 45000,
+      retryCount: 0,
+      artifactRefs: [{ type: "requirement_version", id: "requirement-version-demo" }]
     },
     {
       id: "schema",
       label: "Schema Discovery",
       status: "completed",
+      agentName: "SchemaAgent",
       artifactCount: 2,
       warningCount: 0,
-      errorCount: 0
+      errorCount: 0,
+      startedAt: "2026-01-01T00:00:45Z",
+      completedAt: "2026-01-01T00:01:30Z",
+      durationMs: 45000,
+      retryCount: 0,
+      artifactRefs: [
+        { type: "graph_profile", id: "graph-profile-demo" },
+        { type: "schema_snapshot", id: "schema-snapshot-demo" }
+      ]
     },
     {
       id: "analysis",
       label: "Agent Analysis",
       status: "running",
+      agentName: "AnalysisAgent",
       artifactCount: 0,
       warningCount: 1,
-      errorCount: 0
+      errorCount: 0,
+      startedAt: "2026-01-01T00:01:30Z",
+      retryCount: 0,
+      warningMessages: ["Awaiting user confirmation on ambiguous entity mapping"]
     },
     {
       id: "report",

@@ -276,7 +276,7 @@ class ReportGenerator:
         elif format == ReportFormat.JSON:
             import json
 
-            return json.dumps(report.to_dict(), indent=2)
+            return json.dumps(report.to_dict(), indent=2, default=str)
         elif format == ReportFormat.HTML:
             return self._format_html(report)
         elif format == ReportFormat.TEXT:

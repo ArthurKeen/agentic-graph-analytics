@@ -33,6 +33,7 @@ Naming notes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import threading
@@ -92,7 +93,18 @@ AGENTIC_STEP_LAYOUT: List[CanonicalStep] = [
     ),
     CanonicalStep("execution", "Execution", WorkflowSteps.EXECUTION),
     CanonicalStep("reporting", "Reporting", WorkflowSteps.REPORTING),
+    # FR-33: the PRD lists catalog persistence as a workflow stage, and it
+    # genuinely is one — but it runs in the *product* layer
+    # (record_workflow_analysis_executions), not inside the agent runner, so
+    # no trace event will ever carry this phase. CATALOG_PERSISTENCE_PHASE is
+    # a product-owned sentinel and the supervisor drives this row directly.
+    CanonicalStep(
+        "catalog_persistence", "Catalog Persistence", "catalog_persistence"
+    ),
 ]
+
+# The step the supervisor updates itself rather than via a runner trace event.
+CATALOG_PERSISTENCE_STEP_ID = "catalog_persistence"
 
 # Reverse lookup: runner phase name → canonical step_id. The reporter
 # uses this to route STEP_START / STEP_END events to the right
@@ -540,6 +552,80 @@ class AgenticRunSupervisor:
     # Internals
     # ------------------------------------------------------------------
 
+    def _execute_runner(
+        self,
+        runner: Any,
+        run: Any,
+        handle: "_RunHandle",
+        max_executions: int,
+    ) -> Any:
+        """Run the workflow, choosing the sequential or parallel path (FR-34).
+
+        PARALLEL_AGENTIC runs go through ``runner.run_async``, which walks
+        ``OrchestratorAgent._run_parallel_workflow`` (schema + requirements
+        concurrently, then templates and reports fanned out). Worker threads
+        have no running event loop, so ``asyncio.run`` creates and tears down
+        one per run — the loop is confined to this thread, which is what makes
+        it safe to have several runs in flight on the pool at once.
+
+        Falls back to the sequential path when the runner predates
+        ``run_async`` (the test doubles do), so a missing async surface
+        degrades to a working sequential run instead of failing the run.
+        """
+
+        from .models import WorkflowMode  # cycle-safe local import
+
+        kwargs = {
+            "input_documents": self._build_input_documents(run),
+            "database_config": None,
+            "max_executions": max_executions,
+            "cancel_token": handle.cancel_event,
+        }
+
+        wants_parallel = run.workflow_mode is WorkflowMode.PARALLEL_AGENTIC
+        run_async = getattr(runner, "run_async", None)
+        if wants_parallel and callable(run_async):
+            logger.info("Running %s through the parallel async path", run.run_id)
+            return asyncio.run(run_async(enable_parallelism=True, **kwargs))
+
+        if wants_parallel:
+            logger.warning(
+                "Runner for %s has no run_async; falling back to the "
+                "sequential path",
+                run.run_id,
+            )
+        return runner.run(**kwargs)
+
+    def _update_catalog_step(
+        self,
+        run_id: str,
+        status: str,
+        outputs: Optional[Dict[str, Any]] = None,
+        errors: Optional[List[str]] = None,
+    ) -> None:
+        """Drive the FR-33 catalog-persistence step. Never raises.
+
+        A failure to *report* catalog persistence must not change the run's
+        outcome — the same reasoning that makes the catalog write itself a
+        warning rather than a run failure.
+        """
+
+        from .models import WorkflowStepStatus
+
+        try:
+            self._service.update_workflow_step(
+                run_id=run_id,
+                step_id=CATALOG_PERSISTENCE_STEP_ID,
+                status=WorkflowStepStatus(status),
+                outputs=outputs,
+                errors=errors,
+                _internal=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to update catalog-persistence step for run %s", run_id
+            )
+
     def _run_workflow(self, handle: _RunHandle, max_executions: int) -> None:
         """Body executed inside the worker thread."""
 
@@ -581,12 +667,39 @@ class AgenticRunSupervisor:
             if trace_collector is not None and hasattr(trace_collector, "add_listener"):
                 trace_collector.add_listener(reporter)
 
-            runner.run(
-                input_documents=self._build_input_documents(run),
-                database_config=None,
-                max_executions=max_executions,
-                cancel_token=handle.cancel_event,
-            )
+            state = self._execute_runner(runner, run, handle, max_executions)
+
+            # FR-31: mirror each algorithm result into the workspace-scoped
+            # product Analysis Catalog before marking the run complete. Catalog
+            # persistence is observability/lineage, not the analysis critical
+            # path, so a metadata write failure becomes a warning rather than
+            # converting a successful graph analysis into a failed run.
+            # FR-33: bracket the catalog write with its own DAG step so the
+            # visualizer shows the stage the PRD describes. The supervisor
+            # drives it directly because this work happens here, not in the
+            # runner — there is no trace event to translate.
+            self._update_catalog_step(run_id, "running")
+            try:
+                recorded = self._service.record_workflow_analysis_executions(
+                    run_id, state
+                )
+                self._update_catalog_step(
+                    run_id,
+                    "completed",
+                    outputs={"analysis_executions_recorded": len(recorded or [])},
+                )
+            except Exception as catalog_exc:  # noqa: BLE001
+                logger.exception(
+                    "Failed to record Analysis Catalog rows for run %s", run_id
+                )
+                self._update_catalog_step(
+                    run_id, "failed", errors=[str(catalog_exc)]
+                )
+                current = self._service.repository.get_workflow_run(run_id)
+                current.warnings = list(current.warnings or []) + [
+                    f"Analysis Catalog persistence failed: {catalog_exc}"
+                ]
+                self._service.repository.update_workflow_run(current)
 
             self._finalize_run(
                 run_id, RUN_OUTCOME_COMPLETED, status=WorkflowRunStatus.COMPLETED

@@ -1,9 +1,10 @@
 """Constants for Agentic Graph Analytics product metadata."""
 
-# Bumped to 1.2.0 in Phase 6c: aga_graph_sets joins aga_schema_snapshots
-# as the second additive v0.6 collection. The bundle import path accepts
-# the open set 1.0.0 / 1.1.0 / 1.2.0 so older callers can still round-trip.
-PRODUCT_SCHEMA_VERSION = "1.2.0"
+# Bumped to 1.5.0 for FR-54 (aga_retention_policies). 1.4.0 added the
+# FR-19..FR-26 pair (aga_use_cases, aga_analysis_templates); 1.3.0 added the
+# Analysis Catalog pair. All are additive collections, and the bundle import
+# path accepts the open set 1.0.0 .. 1.5.0 so older exports still round-trip.
+PRODUCT_SCHEMA_VERSION = "1.5.0"
 
 META_COLLECTION = "aga_product_meta"
 WORKSPACES_COLLECTION = "aga_workspaces"
@@ -31,6 +32,24 @@ SCHEMA_SNAPSHOTS_COLLECTION = "aga_schema_snapshots"
 # bridges" relationship so GAE projections + Requirements Copilot
 # can target the right combination.
 GRAPH_SETS_COLLECTION = "aga_graph_sets"
+# FR-31 / FR-45..FR-48: the product-layer Analysis Catalog. These MIRROR
+# the AI-layer catalog (graph_analytics_ai/catalog/), which is global and
+# has no workspace scoping — product rows carry workspace_id, own their
+# own ids/lifecycle, and keep a soft `catalog_execution_id` /
+# `catalog_epoch_id` back-pointer to the AI-layer row when one exists.
+# Mirroring rather than proxying keeps the product API off catalog/
+# internals.
+ANALYSIS_EXECUTIONS_COLLECTION = "aga_analysis_executions"
+ANALYSIS_EPOCHS_COLLECTION = "aga_analysis_epochs"
+# FR-19..FR-26: product-layer Use Cases and Analysis Templates. The AI layer
+# (ai/generation/use_cases.py, ai/templates/models.py) has dataclasses for both
+# but no ids, no to_dict/from_dict, and no persistence — they exist only inside
+# a running agent pipeline. These are first-class workspace-scoped records with
+# their own lifecycle, so users can author and approve them directly.
+USE_CASES_COLLECTION = "aga_use_cases"
+ANALYSIS_TEMPLATES_COLLECTION = "aga_analysis_templates"
+# FR-54: one retention policy row per workspace.
+RETENTION_POLICIES_COLLECTION = "aga_retention_policies"
 
 PRODUCT_COLLECTIONS = [
     META_COLLECTION,
@@ -49,4 +68,9 @@ PRODUCT_COLLECTIONS = [
     AUDIT_EVENTS_COLLECTION,
     SCHEMA_SNAPSHOTS_COLLECTION,
     GRAPH_SETS_COLLECTION,
+    ANALYSIS_EXECUTIONS_COLLECTION,
+    ANALYSIS_EPOCHS_COLLECTION,
+    USE_CASES_COLLECTION,
+    ANALYSIS_TEMPLATES_COLLECTION,
+    RETENTION_POLICIES_COLLECTION,
 ]

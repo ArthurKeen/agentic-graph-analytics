@@ -4,12 +4,18 @@ The service layer exposes UI-ready read models and workflow operations without
 coupling the core package to a web framework.
 """
 
+import base64
+import binascii
 import hashlib
 import html
 import json
 import logging
+import os
 import re
+import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from ..ai.schema.acquire import (
@@ -19,6 +25,7 @@ from ..ai.schema.acquire import (
     describe_schema_change,
 )
 from ..ai.schema.graph_purpose import classify_graph_purpose
+from ..ai.schema.sharding import detect_sharding_profile
 from ..ai.schema.sensitivity import (
     classify_conceptual_schema,
     classify_schema_sensitivity,
@@ -26,16 +33,30 @@ from ..ai.schema.sensitivity import (
 from ..ai.schema.arango_products import detect_arango_products
 from ..ai.schema.extractor import SchemaExtractor
 from ..ai.schema.models import GraphSchema
+from ..config import parse_ssl_verify
 from ..db_connection import connect_arango_database
-from .constants import PRODUCT_SCHEMA_VERSION
+from .constants import (
+    AUDIT_EVENTS_COLLECTION,
+    DOCUMENTS_COLLECTION,
+    PRODUCT_SCHEMA_VERSION,
+    REPORT_MANIFESTS_COLLECTION,
+    REQUIREMENT_VERSIONS_COLLECTION,
+    WORKFLOW_RUNS_COLLECTION,
+)
 from .exceptions import ConflictError, ValidationError
 from .models import (
+    AnalysisEpoch,
+    AnalysisExecution,
+    AnalysisExecutionStatus,
+    AnalysisTemplate,
+    AnalysisTemplateStatus,
     AuditEvent,
     ChartSpec,
     ConnectionProfile,
     ConnectionVerificationStatus,
     CrossGraphLink,
     DeploymentMode,
+    DocumentStorageMode,
     GraphProfile,
     GraphSet,
     PublishedSnapshot,
@@ -47,6 +68,9 @@ from .models import (
     RequirementVersion,
     RequirementVersionStatus,
     SourceDocument,
+    UseCase,
+    UseCaseOrigin,
+    UseCaseStatus,
     Workspace,
     WorkspaceStatus,
     WorkflowDAGEdge,
@@ -56,12 +80,18 @@ from .models import (
     WorkflowStep,
     WorkflowStepStatus,
     create_audit_event,
+    create_analysis_epoch,
+    create_analysis_execution,
+    create_analysis_template,
     create_connection_profile,
     create_graph_profile,
     create_graph_set,
     create_published_snapshot,
     create_requirement_interview,
     create_requirement_version,
+    create_retention_policy,
+    create_source_document,
+    create_use_case,
     create_workspace,
     create_workflow_run,
     current_timestamp,
@@ -71,14 +101,11 @@ from .secrets import EnvironmentSecretResolver, SecretResolver
 
 logger = logging.getLogger(__name__)
 
-# PRD v0.6: bundles produced under PRODUCT_SCHEMA_VERSION 1.0.0 / 1.1.0
-# must still import cleanly under the current (1.2.0) version. The
-# only deltas are the additive aga_schema_snapshots (1.1.0) and
-# aga_graph_sets (1.2.0) collections — pre-existing collections are
-# unchanged. Keep this set explicit — adding a future version is a
-# one-line append, not a regex change.
+# Product schema additions are backward-compatible collections. Keep the
+# accepted bundle set explicit so an older workspace export remains importable
+# after additive catalog/schema features land.
 _SUPPORTED_BUNDLE_SCHEMA_VERSIONS = frozenset(
-    {"1.0.0", "1.1.0", PRODUCT_SCHEMA_VERSION}
+    {"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", PRODUCT_SCHEMA_VERSION}
 )
 
 
@@ -193,6 +220,8 @@ class WorkspaceBundle:
     workflow_runs: List[Dict[str, Any]]
     reports: List[Dict[str, Any]]
     audit_events: List[Dict[str, Any]] = field(default_factory=list)
+    analysis_epochs: List[Dict[str, Any]] = field(default_factory=list)
+    analysis_executions: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert bundle to an API-friendly dictionary."""
@@ -208,6 +237,8 @@ class WorkspaceBundle:
             "workflow_runs": self.workflow_runs,
             "reports": self.reports,
             "audit_events": self.audit_events,
+            "analysis_epochs": self.analysis_epochs,
+            "analysis_executions": self.analysis_executions,
         }
 
 
@@ -238,6 +269,12 @@ class ConnectionVerificationResult:
     endpoint: str
     database: str
     error_message: Optional[str] = None
+    # FR-7: best-effort GAE deployment reachability, e.g.
+    # {"status": "success"} or {"status": "failed", "message": "..."}.
+    # GAE credentials are deployment-wide env vars, not per-profile fields,
+    # so this reports the deployment's GAE reachability rather than
+    # anything specific to this connection profile.
+    gae_status: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert verification result to an API-friendly dictionary."""
@@ -250,6 +287,7 @@ class ConnectionVerificationResult:
             "endpoint": self.endpoint,
             "database": self.database,
             "error_message": self.error_message,
+            "gae_status": self.gae_status,
         }
 
 
@@ -957,15 +995,17 @@ class ProductService:
         free-form there.
         """
 
-        if workflow_mode == WorkflowMode.AGENTIC:
-            steps, dag_edges = self._build_canonical_agentic_dag()
+        if self.is_supervised_agentic_mode(workflow_mode):
+            steps, dag_edges = self._build_canonical_agentic_dag(
+                parallel=workflow_mode is WorkflowMode.PARALLEL_AGENTIC
+            )
 
         self._validate_workflow_dag(steps, dag_edges)
         # Stamp executor_kind on agentic runs so we can distinguish
         # rows produced by the in-process supervisor from rows
         # produced by future durable executors (FR-31b).
         run_metadata = dict(metadata or {})
-        if workflow_mode == WorkflowMode.AGENTIC:
+        if self.is_supervised_agentic_mode(workflow_mode):
             execution_meta = dict(run_metadata.get("execution") or {})
             execution_meta.setdefault("executor_kind", "inprocess")
             execution_meta.setdefault("last_outcome", "pending")
@@ -1053,12 +1093,16 @@ class ProductService:
         )
         self.repository.create_requirement_version(requirement_version)
 
-        # parallel_agentic folds to agentic for now: start_workflow_run only
-        # dispatches AGENTIC to the supervisor (FR-31a); parallelism inside
-        # the runner is a later concern.
+        # FR-34: parallel_agentic is now dispatched as itself — the supervisor
+        # runs the async orchestrator path and the DAG shows the concurrent
+        # phase-1 branch.
         run = self.create_workflow_run_from_steps(
             workspace_id=workspace_id,
-            workflow_mode=WorkflowMode.AGENTIC,
+            workflow_mode=(
+                WorkflowMode.PARALLEL_AGENTIC
+                if str(requested_mode) == "parallel_agentic"
+                else WorkflowMode.AGENTIC
+            ),
             steps=[],
             dag_edges=[],
             requirement_version_id=requirement_version.requirement_version_id,
@@ -1091,13 +1135,29 @@ class ProductService:
 
         return self.start_workflow_run(run.run_id, actor=actor)
 
-    def _build_canonical_agentic_dag(self):
-        """Seed the canonical agentic six-step layout.
+    @staticmethod
+    def is_supervised_agentic_mode(workflow_mode: "WorkflowMode") -> bool:
+        """Whether this mode is executed by the AgenticRunSupervisor.
 
-        Lazily imports the supervisor module to avoid a circular
-        import (the supervisor imports product.models). Returns a
-        sequential DAG; parallelism inside the runner is its own
-        concern and isn't reflected here in Phase 1.
+        Both AGENTIC and PARALLEL_AGENTIC are supervisor-driven; they differ
+        only in whether the runner walks its phases sequentially or through
+        ``run_async``/``_run_parallel_workflow`` (FR-34).
+        """
+
+        return workflow_mode in (WorkflowMode.AGENTIC, WorkflowMode.PARALLEL_AGENTIC)
+
+    def _build_canonical_agentic_dag(self, parallel: bool = False):
+        """Seed the canonical agentic step layout.
+
+        Lazily imports the supervisor module to avoid a circular import (the
+        supervisor imports product.models).
+
+        FR-34: when ``parallel`` is set the edge list reflects what
+        ``OrchestratorAgent._run_parallel_workflow`` actually does — schema
+        analysis and requirements extraction are concurrent roots that both
+        feed use-case generation, rather than a straight chain. Everything
+        downstream stays sequential because those phases genuinely depend on
+        their predecessor's output.
         """
 
         from .agentic_run_supervisor import AGENTIC_STEP_LAYOUT
@@ -1106,13 +1166,40 @@ class ProductService:
             WorkflowStep(step_id=canonical.step_id, label=canonical.label)
             for canonical in AGENTIC_STEP_LAYOUT
         ]
-        edges: List[WorkflowDAGEdge] = []
-        for previous, current in zip(AGENTIC_STEP_LAYOUT, AGENTIC_STEP_LAYOUT[1:]):
-            edges.append(
-                WorkflowDAGEdge(
-                    from_step_id=previous.step_id,
-                    to_step_id=current.step_id,
+
+        if not parallel:
+            edges: List[WorkflowDAGEdge] = []
+            for previous, current in zip(AGENTIC_STEP_LAYOUT, AGENTIC_STEP_LAYOUT[1:]):
+                edges.append(
+                    WorkflowDAGEdge(
+                        from_step_id=previous.step_id,
+                        to_step_id=current.step_id,
+                    )
                 )
+            return steps, edges
+
+        # Concurrent phase 1: both roots converge on use_case_generation.
+        remaining = [
+            canonical.step_id
+            for canonical in AGENTIC_STEP_LAYOUT
+            if canonical.step_id
+            not in ("schema_analysis", "requirements_extraction")
+        ]
+        edges = [
+            WorkflowDAGEdge(
+                from_step_id="schema_analysis",
+                to_step_id="use_case_generation",
+                label="parallel",
+            ),
+            WorkflowDAGEdge(
+                from_step_id="requirements_extraction",
+                to_step_id="use_case_generation",
+                label="parallel",
+            ),
+        ]
+        for previous, current in zip(remaining, remaining[1:]):
+            edges.append(
+                WorkflowDAGEdge(from_step_id=previous, to_step_id=current)
             )
         return steps, edges
 
@@ -1141,7 +1228,7 @@ class ProductService:
 
         dispatched = False
         if (
-            run.workflow_mode == WorkflowMode.AGENTIC
+            self.is_supervised_agentic_mode(run.workflow_mode)
             and self._agentic_run_supervisor is not None
         ):
             # Submit to the supervisor. submit() is idempotent so a
@@ -1260,6 +1347,1513 @@ class ProductService:
             "supervisor": supervisor_status,
         }
 
+    # --- Retention (FR-54) ---
+
+    RETENTION_CATEGORIES = (
+        "drafts",
+        "runs",
+        "documents",
+        "report_snapshots",
+        "audit_logs",
+    )
+
+    def get_retention_policy(self, workspace_id: str) -> Dict[str, Any]:
+        """Return the workspace's retention policy, defaulted when unset.
+
+        An unset workspace reports ``enabled: false`` with zero windows —
+        "keep everything" — so callers never have to distinguish "no policy"
+        from "policy that deletes nothing".
+        """
+
+        self.repository.get_workspace(workspace_id)
+        policy = self.repository.get_retention_policy(workspace_id)
+        if policy is None:
+            return {
+                "workspace_id": workspace_id,
+                "enabled": False,
+                "draft_retention_days": 0,
+                "run_retention_days": 0,
+                "document_retention_days": 0,
+                "report_snapshot_retention_days": 0,
+                "audit_log_retention_days": 0,
+                "configured": False,
+            }
+        result = policy.to_dict()
+        result["configured"] = True
+        return result
+
+    def set_retention_policy(
+        self,
+        workspace_id: str,
+        enabled: Optional[bool] = None,
+        draft_retention_days: Optional[int] = None,
+        run_retention_days: Optional[int] = None,
+        document_retention_days: Optional[int] = None,
+        report_snapshot_retention_days: Optional[int] = None,
+        audit_log_retention_days: Optional[int] = None,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Configure retention windows for a workspace (FR-54).
+
+        Windows are whole days; ``0`` means keep forever. Negative values are
+        rejected rather than clamped — a negative window most likely means a
+        caller computed it wrong, and silently treating it as "delete
+        everything" would be destructive.
+        """
+
+        self.repository.get_workspace(workspace_id)
+        windows = {
+            "draft_retention_days": draft_retention_days,
+            "run_retention_days": run_retention_days,
+            "document_retention_days": document_retention_days,
+            "report_snapshot_retention_days": report_snapshot_retention_days,
+            "audit_log_retention_days": audit_log_retention_days,
+        }
+        for name, value in windows.items():
+            if value is not None and int(value) < 0:
+                raise ValidationError(f"{name} must be >= 0 (0 means keep forever)")
+
+        policy = self.repository.get_retention_policy(workspace_id)
+        created = policy is None
+        if policy is None:
+            policy = create_retention_policy(workspace_id=workspace_id)
+
+        if enabled is not None:
+            policy.enabled = bool(enabled)
+        for name, value in windows.items():
+            if value is not None:
+                setattr(policy, name, int(value))
+        policy.updated_by = actor
+        policy.updated_at = current_timestamp()
+
+        if created:
+            self.repository.create_retention_policy(policy)
+        else:
+            self.repository.update_retention_policy(policy)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="set_retention_policy",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={
+                    "enabled": policy.enabled,
+                    **{name: getattr(policy, name) for name in windows},
+                },
+            )
+        )
+        result = policy.to_dict()
+        result["configured"] = True
+        return result
+
+    def apply_retention_policy(
+        self,
+        workspace_id: str,
+        dry_run: bool = True,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Sweep expired records for a workspace (FR-54).
+
+        **Dry run by default.** This deletes data, so a caller must pass
+        ``dry_run=False`` explicitly; the default returns exactly what *would*
+        be removed. Returns the same shape either way, with ``deleted`` telling
+        the caller which mode ran.
+
+        Deliberately excluded from every category, regardless of age, because
+        these are the records an audit would ask for:
+
+        * APPROVED requirement versions (only DRAFT / REJECTED are eligible)
+        * published report snapshots and any report manifest that has one
+        * runs that produced a published report
+        * audit events, unless ``audit_log_retention_days`` is set explicitly —
+          they are the record of everything else being deleted
+
+        Ephemeral quick-analysis runs (``metadata.ephemeral``) are swept under
+        the ``runs`` window, which is the concrete behaviour the PRD names.
+        """
+
+        from datetime import timedelta
+
+        self.repository.get_workspace(workspace_id)
+        policy = self.repository.get_retention_policy(workspace_id)
+        now = current_timestamp()
+
+        result: Dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "deleted": not dry_run,
+            "enabled": bool(policy and policy.enabled),
+            "candidates": {category: [] for category in self.RETENTION_CATEGORIES},
+            "protected": {},
+            # Always present so callers get one response shape regardless of
+            # whether a policy exists, is disabled, or actually swept.
+            "counts": {category: 0 for category in self.RETENTION_CATEGORIES},
+        }
+        if policy is None or not policy.enabled:
+            result["reason"] = (
+                "No retention policy configured"
+                if policy is None
+                else "Retention policy is disabled"
+            )
+            return result
+
+        def _expired(timestamp, days: int) -> bool:
+            if not days or timestamp is None:
+                return False
+            return timestamp < now - timedelta(days=days)
+
+        protected_report_ids = set()
+        protected_run_ids = set()
+        for manifest in self.repository.list_report_manifests(workspace_id):
+            if manifest.published_snapshot_id:
+                protected_report_ids.add(manifest.report_id)
+                if manifest.run_id:
+                    protected_run_ids.add(manifest.run_id)
+
+        # Drafts: only unapproved requirement versions.
+        draft_days = policy.draft_retention_days
+        for version in self.repository.list_requirement_versions(workspace_id):
+            if version.status in (
+                RequirementVersionStatus.APPROVED,
+                RequirementVersionStatus.SUPERSEDED,
+            ):
+                continue
+            if _expired(version.created_at, draft_days):
+                result["candidates"]["drafts"].append(
+                    {
+                        "id": version.requirement_version_id,
+                        "collection": REQUIREMENT_VERSIONS_COLLECTION,
+                        "label": f"v{version.version} ({version.status.value})",
+                    }
+                )
+
+        # Runs: skip anything that produced a published report.
+        run_days = policy.run_retention_days
+        for run in self.repository.list_workflow_runs(workspace_id):
+            if run.run_id in protected_run_ids:
+                continue
+            if _expired(run.created_at, run_days):
+                result["candidates"]["runs"].append(
+                    {
+                        "id": run.run_id,
+                        "collection": WORKFLOW_RUNS_COLLECTION,
+                        "label": run.workflow_mode.value,
+                        "ephemeral": bool((run.metadata or {}).get("ephemeral")),
+                    }
+                )
+
+        document_days = policy.document_retention_days
+        for document in self.repository.list_source_documents(workspace_id):
+            if _expired(document.uploaded_at, document_days):
+                result["candidates"]["documents"].append(
+                    {
+                        "id": document.document_id,
+                        "collection": DOCUMENTS_COLLECTION,
+                        "label": document.filename,
+                    }
+                )
+
+        snapshot_days = policy.report_snapshot_retention_days
+        for manifest in self.repository.list_report_manifests(workspace_id):
+            if manifest.report_id in protected_report_ids:
+                continue
+            if _expired(manifest.created_at, snapshot_days):
+                result["candidates"]["report_snapshots"].append(
+                    {
+                        "id": manifest.report_id,
+                        "collection": REPORT_MANIFESTS_COLLECTION,
+                        "label": manifest.title,
+                    }
+                )
+
+        audit_days = policy.audit_log_retention_days
+        if audit_days:
+            for event in self.repository.list_audit_events(workspace_id, limit=10_000):
+                if _expired(event.timestamp, audit_days):
+                    result["candidates"]["audit_logs"].append(
+                        {
+                            "id": event.audit_event_id,
+                            "collection": AUDIT_EVENTS_COLLECTION,
+                            "label": event.action,
+                        }
+                    )
+
+        result["protected"] = {
+            "published_report_ids": sorted(protected_report_ids),
+            "runs_with_published_reports": sorted(protected_run_ids),
+        }
+        result["counts"] = {
+            category: len(items) for category, items in result["candidates"].items()
+        }
+
+        if dry_run:
+            return result
+
+        removed = 0
+        for items in result["candidates"].values():
+            for item in items:
+                if self.repository.delete_document_by_key(
+                    item["collection"], item["id"]
+                ):
+                    removed += 1
+        result["removed"] = removed
+
+        policy.last_applied_at = now
+        self.repository.update_retention_policy(policy)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="apply_retention_policy",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={"removed": removed, "counts": result["counts"]},
+            )
+        )
+        return result
+
+    # --- Use cases (FR-19..FR-21) ---
+
+    USE_CASE_TYPES = (
+        "centrality",
+        "community",
+        "pathfinding",
+        "pattern",
+        "anomaly",
+        "recommendation",
+        "similarity",
+    )
+    USE_CASE_PRIORITIES = ("critical", "high", "medium", "low", "unknown")
+
+    def create_use_case(
+        self,
+        workspace_id: str,
+        title: str,
+        description: str = "",
+        use_case_type: str = "pattern",
+        priority: str = "medium",
+        requirement_version_id: Optional[str] = None,
+        related_requirements: Optional[List[str]] = None,
+        graph_algorithms: Optional[List[str]] = None,
+        data_needs: Optional[List[str]] = None,
+        expected_outputs: Optional[List[str]] = None,
+        success_metrics: Optional[List[str]] = None,
+        origin: str = "manual",
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Author a use case by hand (FR-19).
+
+        Created as a DRAFT — approval is a separate, audited decision
+        (FR-20). ``origin`` distinguishes user-authored rows from ones an
+        agentic run generated, so provenance is visible in the UI.
+        """
+
+        if not title.strip():
+            raise ValidationError("Use case title is required")
+        self._validate_use_case_type(use_case_type)
+        self._validate_use_case_priority(priority)
+        if origin not in {item.value for item in UseCaseOrigin}:
+            raise ValidationError(
+                f"origin must be one of {[i.value for i in UseCaseOrigin]}"
+            )
+        self.repository.get_workspace(workspace_id)
+
+        if requirement_version_id:
+            version = self.repository.get_requirement_version(requirement_version_id)
+            if version.workspace_id != workspace_id:
+                raise ValidationError(
+                    "requirement_version_id must belong to this workspace"
+                )
+
+        use_case = create_use_case(
+            workspace_id=workspace_id,
+            title=title.strip(),
+            description=description.strip(),
+            use_case_type=use_case_type,
+            priority=priority,
+            origin=UseCaseOrigin(origin),
+            requirement_version_id=requirement_version_id,
+            related_requirements=list(related_requirements or []),
+            graph_algorithms=list(graph_algorithms or []),
+            data_needs=list(data_needs or []),
+            expected_outputs=list(expected_outputs or []),
+            success_metrics=list(success_metrics or []),
+            created_by=actor,
+        )
+        self.repository.create_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="create_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"title": use_case.title, "origin": origin},
+            )
+        )
+        return use_case
+
+    def update_use_case(
+        self,
+        use_case_id: str,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        use_case_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        related_requirements: Optional[List[str]] = None,
+        graph_algorithms: Optional[List[str]] = None,
+        data_needs: Optional[List[str]] = None,
+        expected_outputs: Optional[List[str]] = None,
+        success_metrics: Optional[List[str]] = None,
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Edit a draft use case (FR-19).
+
+        Only DRAFT and REJECTED rows are editable. An APPROVED use case is
+        the input to template generation, so silently mutating one would
+        change what downstream templates claim to be derived from; a
+        rejected one can be revised and re-submitted.
+        """
+
+        use_case = self.repository.get_use_case(use_case_id)
+        if use_case.status in {UseCaseStatus.APPROVED, UseCaseStatus.ARCHIVED}:
+            raise ConflictError(
+                f"Use case {use_case_id} is {use_case.status.value} and cannot be "
+                "edited. Approved use cases are inputs to template generation; "
+                "archive and clone instead."
+            )
+
+        changes: Dict[str, Any] = {}
+        if title is not None:
+            stripped = title.strip()
+            if not stripped:
+                raise ValidationError("Use case title cannot be empty")
+            if stripped != use_case.title:
+                changes["title"] = {"from": use_case.title, "to": stripped}
+                use_case.title = stripped
+        if description is not None and description.strip() != use_case.description:
+            changes["description"] = True
+            use_case.description = description.strip()
+        if use_case_type is not None and use_case_type != use_case.use_case_type:
+            self._validate_use_case_type(use_case_type)
+            changes["use_case_type"] = {
+                "from": use_case.use_case_type,
+                "to": use_case_type,
+            }
+            use_case.use_case_type = use_case_type
+        if priority is not None and priority != use_case.priority:
+            self._validate_use_case_priority(priority)
+            changes["priority"] = {"from": use_case.priority, "to": priority}
+            use_case.priority = priority
+
+        for field_name, value in (
+            ("related_requirements", related_requirements),
+            ("graph_algorithms", graph_algorithms),
+            ("data_needs", data_needs),
+            ("expected_outputs", expected_outputs),
+            ("success_metrics", success_metrics),
+        ):
+            if value is not None and list(value) != getattr(use_case, field_name):
+                changes[field_name] = {"count": len(value)}
+                setattr(use_case, field_name, list(value))
+
+        if not changes:
+            return use_case
+
+        use_case.updated_at = current_timestamp()
+        self.repository.update_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=use_case.workspace_id,
+                actor=actor or "system",
+                action="update_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"changes": changes},
+            )
+        )
+        return use_case
+
+    def set_use_case_status(
+        self,
+        use_case_id: str,
+        status: str,
+        review_note: str = "",
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Approve, reject, or archive a use case (FR-20).
+
+        Prioritisation is a separate concern handled by
+        :meth:`update_use_case` (draft) and
+        :meth:`set_use_case_priority` (any non-archived state), because a
+        reviewer often needs to re-rank an already-approved backlog without
+        reopening it for edits.
+
+        ARCHIVED is terminal: an archived row is history, and re-approving
+        it would silently resurrect a use case that downstream templates may
+        already have been retired against.
+        """
+
+        try:
+            target = UseCaseStatus(status)
+        except ValueError:
+            raise ValidationError(
+                f"status must be one of {[s.value for s in UseCaseStatus]}"
+            ) from None
+
+        use_case = self.repository.get_use_case(use_case_id)
+        if use_case.status is UseCaseStatus.ARCHIVED:
+            raise ConflictError(
+                f"Use case {use_case_id} is archived; archived use cases are "
+                "terminal and cannot be re-opened."
+            )
+        if use_case.status is target:
+            return use_case
+
+        previous = use_case.status.value
+        use_case.status = target
+        use_case.reviewed_by = actor
+        use_case.reviewed_at = current_timestamp()
+        use_case.review_note = review_note.strip()
+        use_case.updated_at = current_timestamp()
+        self.repository.update_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=use_case.workspace_id,
+                actor=actor or "system",
+                action=f"{target.value}_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"from": previous, "to": target.value, "note": review_note},
+            )
+        )
+        return use_case
+
+    def set_use_case_priority(
+        self,
+        use_case_id: str,
+        priority: str,
+        actor: Optional[str] = None,
+    ) -> UseCase:
+        """Re-prioritise a use case at any non-archived status (FR-20)."""
+
+        self._validate_use_case_priority(priority)
+        use_case = self.repository.get_use_case(use_case_id)
+        if use_case.status is UseCaseStatus.ARCHIVED:
+            raise ConflictError("Archived use cases cannot be re-prioritised")
+        if use_case.priority == priority:
+            return use_case
+
+        previous = use_case.priority
+        use_case.priority = priority
+        use_case.updated_at = current_timestamp()
+        self.repository.update_use_case(use_case)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=use_case.workspace_id,
+                actor=actor or "system",
+                action="prioritize_use_case",
+                target_type="use_case",
+                target_id=use_case.use_case_id,
+                details={"from": previous, "to": priority},
+            )
+        )
+        return use_case
+
+    def get_use_case(self, use_case_id: str) -> UseCase:
+        """Get a single use case."""
+
+        return self.repository.get_use_case(use_case_id)
+
+    def list_use_cases(
+        self,
+        workspace_id: str,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+    ) -> List[UseCase]:
+        """List a workspace's use cases, optionally filtered (FR-45)."""
+
+        self.repository.get_workspace(workspace_id)
+        rows = self.repository.list_use_cases(workspace_id)
+        if status:
+            normalized = UseCaseStatus(status)
+            rows = [row for row in rows if row.status is normalized]
+        if priority:
+            rows = [row for row in rows if row.priority == priority]
+        return rows
+
+    def _validate_use_case_type(self, use_case_type: str) -> None:
+        if use_case_type not in self.USE_CASE_TYPES:
+            raise ValidationError(
+                f"use_case_type must be one of {list(self.USE_CASE_TYPES)}, "
+                f"got {use_case_type!r}"
+            )
+
+    def _validate_use_case_priority(self, priority: str) -> None:
+        if priority not in self.USE_CASE_PRIORITIES:
+            raise ValidationError(
+                f"priority must be one of {list(self.USE_CASE_PRIORITIES)}, "
+                f"got {priority!r}"
+            )
+
+    # --- Analysis templates (FR-22..FR-26) ---
+
+    # FR-26: the import path reads ONLY these keys off an incoming dict and
+    # ignores everything else. Nothing is eval'd, exec'd, imported by name, or
+    # instantiated from a caller-supplied type — an imported template is inert
+    # data until a user approves and runs it.
+    IMPORTABLE_TEMPLATE_FIELDS = (
+        "name",
+        "description",
+        "algorithm",
+        "parameters",
+        "config",
+        "estimated_runtime_seconds",
+    )
+
+    def create_analysis_template(
+        self,
+        workspace_id: str,
+        name: str,
+        algorithm: str,
+        description: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        use_case_id: Optional[str] = None,
+        estimated_runtime_seconds: Optional[float] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisTemplate:
+        """Create a draft analysis template (FR-22)."""
+
+        if not name.strip():
+            raise ValidationError("Template name is required")
+        if not algorithm.strip():
+            raise ValidationError("Template algorithm is required")
+        self.repository.get_workspace(workspace_id)
+
+        if use_case_id:
+            use_case = self.repository.get_use_case(use_case_id)
+            if use_case.workspace_id != workspace_id:
+                raise ValidationError("use_case_id must belong to this workspace")
+
+        template = create_analysis_template(
+            workspace_id=workspace_id,
+            name=name.strip(),
+            algorithm=algorithm.strip(),
+            description=description.strip(),
+            parameters=dict(parameters or {}),
+            config=dict(config or {}),
+            use_case_id=use_case_id,
+            estimated_runtime_seconds=estimated_runtime_seconds,
+            created_by=actor,
+        )
+        self.repository.create_analysis_template(template)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="create_analysis_template",
+                target_type="analysis_template",
+                target_id=template.analysis_template_id,
+                details={"name": template.name, "algorithm": template.algorithm},
+            )
+        )
+        return template
+
+    def update_analysis_template(
+        self,
+        analysis_template_id: str,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        algorithm: Optional[str] = None,
+        parameters: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        estimated_runtime_seconds: Optional[float] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisTemplate:
+        """Edit algorithm parameters and config (FR-23), honouring FR-25.
+
+        A DRAFT template is edited in place. An APPROVED template is
+        immutable, so editing one instead creates the next version in the
+        same lineage and flips the original to SUPERSEDED — any completed
+        run still resolves the exact template row it executed. The returned
+        template is whichever row the caller should now be looking at.
+        """
+
+        template = self.repository.get_analysis_template(analysis_template_id)
+        if template.status in {
+            AnalysisTemplateStatus.SUPERSEDED,
+            AnalysisTemplateStatus.ARCHIVED,
+        }:
+            raise ConflictError(
+                f"Template {analysis_template_id} is {template.status.value} and "
+                "cannot be edited; edit its current version instead."
+            )
+
+        patch: Dict[str, Any] = {}
+        if name is not None and name.strip() != template.name:
+            if not name.strip():
+                raise ValidationError("Template name cannot be empty")
+            patch["name"] = name.strip()
+        if description is not None and description.strip() != template.description:
+            patch["description"] = description.strip()
+        if algorithm is not None and algorithm.strip() != template.algorithm:
+            if not algorithm.strip():
+                raise ValidationError("Template algorithm cannot be empty")
+            patch["algorithm"] = algorithm.strip()
+        if parameters is not None and dict(parameters) != template.parameters:
+            patch["parameters"] = dict(parameters)
+        if config is not None and dict(config) != template.config:
+            patch["config"] = dict(config)
+        if (
+            estimated_runtime_seconds is not None
+            and estimated_runtime_seconds != template.estimated_runtime_seconds
+        ):
+            patch["estimated_runtime_seconds"] = estimated_runtime_seconds
+
+        if not patch:
+            return template
+
+        if template.status is AnalysisTemplateStatus.DRAFT:
+            for key, value in patch.items():
+                setattr(template, key, value)
+            template.updated_at = current_timestamp()
+            self.repository.update_analysis_template(template)
+            self.repository.create_audit_event(
+                create_audit_event(
+                    workspace_id=template.workspace_id,
+                    actor=actor or "system",
+                    action="update_analysis_template",
+                    target_type="analysis_template",
+                    target_id=template.analysis_template_id,
+                    details={"changed_fields": sorted(patch.keys())},
+                )
+            )
+            return template
+
+        # APPROVED -> new version in the same lineage (FR-25).
+        successor = create_analysis_template(
+            workspace_id=template.workspace_id,
+            name=patch.get("name", template.name),
+            lineage_id=template.lineage_id,
+            description=patch.get("description", template.description),
+            algorithm=patch.get("algorithm", template.algorithm),
+            parameters=patch.get("parameters", dict(template.parameters)),
+            config=patch.get("config", dict(template.config)),
+            version=template.version + 1,
+            status=AnalysisTemplateStatus.DRAFT,
+            use_case_id=template.use_case_id,
+            estimated_runtime_seconds=patch.get(
+                "estimated_runtime_seconds", template.estimated_runtime_seconds
+            ),
+            created_by=actor,
+            metadata={"supersedes": template.analysis_template_id},
+        )
+        self.repository.create_analysis_template(successor)
+
+        template.status = AnalysisTemplateStatus.SUPERSEDED
+        template.superseded_by = successor.analysis_template_id
+        template.updated_at = current_timestamp()
+        self.repository.update_analysis_template(template)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=template.workspace_id,
+                actor=actor or "system",
+                action="version_analysis_template",
+                target_type="analysis_template",
+                target_id=successor.analysis_template_id,
+                details={
+                    "supersedes": template.analysis_template_id,
+                    "version": successor.version,
+                    "changed_fields": sorted(patch.keys()),
+                },
+            )
+        )
+        return successor
+
+    def approve_analysis_template(
+        self,
+        analysis_template_id: str,
+        actor: Optional[str] = None,
+    ) -> AnalysisTemplate:
+        """Approve a draft template, making it immutable (FR-25)."""
+
+        template = self.repository.get_analysis_template(analysis_template_id)
+        if template.status is not AnalysisTemplateStatus.DRAFT:
+            raise ConflictError(
+                f"Only draft templates can be approved; {analysis_template_id} is "
+                f"{template.status.value}."
+            )
+
+        template.status = AnalysisTemplateStatus.APPROVED
+        template.approved_by = actor
+        template.approved_at = current_timestamp()
+        template.updated_at = current_timestamp()
+        self.repository.update_analysis_template(template)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=template.workspace_id,
+                actor=actor or "system",
+                action="approve_analysis_template",
+                target_type="analysis_template",
+                target_id=template.analysis_template_id,
+                details={"version": template.version},
+            )
+        )
+        return template
+
+    def import_analysis_templates(
+        self,
+        workspace_id: str,
+        templates: List[Dict[str, Any]],
+        actor: Optional[str] = None,
+    ) -> List[AnalysisTemplate]:
+        """Import template dictionaries without executing anything (FR-26).
+
+        Accepts plain JSON objects and reads only
+        :data:`IMPORTABLE_TEMPLATE_FIELDS` off each. Unknown keys are
+        ignored rather than rejected, so a dictionary exported from a
+        richer project still imports; nothing in the payload can name a
+        Python type, module, or callable to construct, so a hostile
+        dictionary is inert.
+
+        Every imported row lands as a DRAFT for review — importing is not
+        approving.
+        """
+
+        if not isinstance(templates, list):
+            raise ValidationError("templates must be a list of template objects")
+        self.repository.get_workspace(workspace_id)
+
+        imported: List[AnalysisTemplate] = []
+        for index, raw in enumerate(templates):
+            if not isinstance(raw, dict):
+                raise ValidationError(f"templates[{index}] must be an object")
+
+            fields = {
+                key: raw[key] for key in self.IMPORTABLE_TEMPLATE_FIELDS if key in raw
+            }
+            name = str(fields.get("name", "")).strip()
+            algorithm = str(fields.get("algorithm", "")).strip()
+            if not name:
+                raise ValidationError(f"templates[{index}] is missing 'name'")
+            if not algorithm:
+                raise ValidationError(f"templates[{index}] is missing 'algorithm'")
+
+            parameters = fields.get("parameters") or {}
+            config = fields.get("config") or {}
+            if not isinstance(parameters, dict):
+                raise ValidationError(f"templates[{index}].parameters must be an object")
+            if not isinstance(config, dict):
+                raise ValidationError(f"templates[{index}].config must be an object")
+
+            runtime = fields.get("estimated_runtime_seconds")
+            template = create_analysis_template(
+                workspace_id=workspace_id,
+                name=name,
+                algorithm=algorithm,
+                description=str(fields.get("description", "")).strip(),
+                parameters=dict(parameters),
+                config=dict(config),
+                estimated_runtime_seconds=(
+                    float(runtime) if isinstance(runtime, (int, float)) else None
+                ),
+                created_by=actor,
+                metadata={
+                    "import_source": "template_dictionary",
+                    "ignored_keys": sorted(
+                        set(raw.keys()) - set(self.IMPORTABLE_TEMPLATE_FIELDS)
+                    ),
+                },
+            )
+            self.repository.create_analysis_template(template)
+            imported.append(template)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="import_analysis_templates",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={"imported": len(imported)},
+            )
+        )
+        return imported
+
+    # FR-49 / FR-50: vertical project import.
+    #
+    # The PRD names two source shapes — "AdTech-style YAML/docs projects" and
+    # "clinical trials/CRO and open source intelligence analysis template
+    # files" — but no such format exists in this repo or the historical sibling
+    # repos it refers to, so there was nothing to parse against. Rather than
+    # guess at a third party's schema, this defines ONE documented bundle
+    # format with a ``vertical`` discriminator: the two requirements differ in
+    # domain vocabulary, not in structure, so a second parser would be
+    # duplication. A project exported from any vertical maps onto this shape.
+    #
+    # See docs/vertical_project_bundle.md for the schema.
+    VERTICAL_IMPORT_SECTIONS = ("use_cases", "templates")
+
+    def import_vertical_project(
+        self,
+        workspace_id: str,
+        document: str,
+        document_format: str = "yaml",
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Import a vertical project bundle (FR-49 / FR-50).
+
+        ``document`` is the raw YAML or JSON text of a bundle. Parsing uses
+        ``yaml.safe_load``, never ``yaml.load``: the default PyYAML loader can
+        construct arbitrary Python objects from tags like
+        ``!!python/object/apply``, which would be exactly the arbitrary code
+        execution FR-26/FR-49/FR-50 forbid. YAML is a superset of JSON, so the
+        same parser reads both; ``document_format`` only affects the error
+        message a malformed file produces.
+
+        Everything lands as DRAFT for review — importing is not approving.
+        Templates reference their use case by ``use_case`` title; an
+        unresolvable reference imports the template unlinked and is reported in
+        ``warnings`` rather than failing the whole bundle, since a partially
+        linked import is more useful than none.
+        """
+
+        self.repository.get_workspace(workspace_id)
+
+        normalized_format = (document_format or "yaml").lower()
+        if normalized_format not in ("yaml", "yml", "json"):
+            raise ValidationError("document_format must be 'yaml' or 'json'")
+
+        try:
+            import yaml
+
+            bundle = yaml.safe_load(document or "")
+        except ImportError as exc:  # pragma: no cover - PyYAML is a dependency
+            raise ValidationError(f"YAML support unavailable: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001 - malformed input is user error
+            raise ValidationError(
+                f"Could not parse {normalized_format} bundle: {exc}"
+            ) from exc
+
+        if not isinstance(bundle, dict):
+            raise ValidationError(
+                "Bundle must be a mapping with at least a 'use_cases' or "
+                "'templates' section"
+            )
+        if not any(bundle.get(section) for section in self.VERTICAL_IMPORT_SECTIONS):
+            raise ValidationError(
+                "Bundle contains no 'use_cases' or 'templates' to import"
+            )
+
+        vertical = str(bundle.get("vertical") or "unspecified").strip()
+        project_name = str(bundle.get("name") or "").strip()
+        warnings: List[str] = []
+
+        imported_use_cases: List[UseCase] = []
+        use_case_ids_by_title: Dict[str, str] = {}
+        for index, raw in enumerate(bundle.get("use_cases") or []):
+            if not isinstance(raw, dict):
+                warnings.append(f"use_cases[{index}] is not a mapping; skipped")
+                continue
+            title = str(raw.get("title") or "").strip()
+            if not title:
+                warnings.append(f"use_cases[{index}] has no title; skipped")
+                continue
+
+            use_case_type = str(raw.get("type") or "pattern").strip()
+            if use_case_type not in self.USE_CASE_TYPES:
+                warnings.append(
+                    f"use_cases[{index}] has unknown type {use_case_type!r}; "
+                    "imported as 'pattern'"
+                )
+                use_case_type = "pattern"
+            priority = str(raw.get("priority") or "medium").strip()
+            if priority not in self.USE_CASE_PRIORITIES:
+                warnings.append(
+                    f"use_cases[{index}] has unknown priority {priority!r}; "
+                    "imported as 'medium'"
+                )
+                priority = "medium"
+
+            use_case = self.create_use_case(
+                workspace_id=workspace_id,
+                title=title,
+                description=str(raw.get("description") or ""),
+                use_case_type=use_case_type,
+                priority=priority,
+                graph_algorithms=[
+                    str(item) for item in (raw.get("algorithms") or [])
+                ],
+                data_needs=[str(item) for item in (raw.get("data_needs") or [])],
+                expected_outputs=[
+                    str(item) for item in (raw.get("expected_outputs") or [])
+                ],
+                success_metrics=[
+                    str(item) for item in (raw.get("success_metrics") or [])
+                ],
+                origin="generated",
+                actor=actor,
+            )
+            imported_use_cases.append(use_case)
+            use_case_ids_by_title[title.lower()] = use_case.use_case_id
+
+        imported_templates: List[AnalysisTemplate] = []
+        for index, raw in enumerate(bundle.get("templates") or []):
+            if not isinstance(raw, dict):
+                warnings.append(f"templates[{index}] is not a mapping; skipped")
+                continue
+            name = str(raw.get("name") or "").strip()
+            algorithm = str(raw.get("algorithm") or "").strip()
+            if not name or not algorithm:
+                warnings.append(
+                    f"templates[{index}] needs both 'name' and 'algorithm'; skipped"
+                )
+                continue
+
+            linked_title = str(raw.get("use_case") or "").strip().lower()
+            use_case_id = use_case_ids_by_title.get(linked_title) if linked_title else None
+            if linked_title and use_case_id is None:
+                warnings.append(
+                    f"templates[{index}] references unknown use case "
+                    f"{raw.get('use_case')!r}; imported unlinked"
+                )
+
+            parameters = raw.get("parameters") or {}
+            config = raw.get("config") or {}
+            if not isinstance(parameters, dict) or not isinstance(config, dict):
+                warnings.append(
+                    f"templates[{index}] has non-mapping parameters/config; skipped"
+                )
+                continue
+
+            template = self.create_analysis_template(
+                workspace_id=workspace_id,
+                name=name,
+                algorithm=algorithm,
+                description=str(raw.get("description") or ""),
+                parameters=dict(parameters),
+                config=dict(config),
+                use_case_id=use_case_id,
+                actor=actor,
+            )
+            imported_templates.append(template)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="import_vertical_project",
+                target_type="workspace",
+                target_id=workspace_id,
+                details={
+                    "vertical": vertical,
+                    "project_name": project_name,
+                    "use_cases": len(imported_use_cases),
+                    "templates": len(imported_templates),
+                    "warnings": len(warnings),
+                },
+            )
+        )
+
+        return {
+            "workspace_id": workspace_id,
+            "vertical": vertical,
+            "project_name": project_name,
+            "use_cases": [item.to_dict() for item in imported_use_cases],
+            "templates": [item.to_dict() for item in imported_templates],
+            "counts": {
+                "use_cases": len(imported_use_cases),
+                "templates": len(imported_templates),
+            },
+            "warnings": warnings,
+        }
+
+    def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
+        """Get a single analysis template."""
+
+        return self.repository.get_analysis_template(analysis_template_id)
+
+    def list_analysis_templates(
+        self,
+        workspace_id: str,
+        status: Optional[str] = None,
+        use_case_id: Optional[str] = None,
+        include_superseded: bool = False,
+    ) -> List[AnalysisTemplate]:
+        """List a workspace's templates (FR-45).
+
+        Superseded versions are hidden by default — the list should show
+        the current state of each lineage, not its whole history.
+        """
+
+        self.repository.get_workspace(workspace_id)
+        rows = self.repository.list_analysis_templates(workspace_id)
+        if not include_superseded:
+            rows = [
+                row
+                for row in rows
+                if row.status is not AnalysisTemplateStatus.SUPERSEDED
+            ]
+        if status:
+            normalized = AnalysisTemplateStatus(status)
+            rows = [row for row in rows if row.status is normalized]
+        if use_case_id:
+            rows = [row for row in rows if row.use_case_id == use_case_id]
+        return rows
+
+    def get_analysis_template_versions(
+        self,
+        analysis_template_id: str,
+    ) -> List[AnalysisTemplate]:
+        """Return every version in a template's lineage, oldest first (FR-25)."""
+
+        template = self.repository.get_analysis_template(analysis_template_id)
+        rows = [
+            row
+            for row in self.repository.list_analysis_templates(template.workspace_id)
+            if row.lineage_id == template.lineage_id
+        ]
+        return sorted(rows, key=lambda row: row.version)
+
+    # --- Product Analysis Catalog (FR-31 / FR-45..FR-48) ---
+
+    def create_analysis_epoch(
+        self,
+        workspace_id: str,
+        name: str,
+        description: str = "",
+        timestamp: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        parent_epoch_id: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisEpoch:
+        """Create a workspace-scoped analysis epoch."""
+
+        self.repository.get_workspace(workspace_id)
+        if parent_epoch_id:
+            parent = self.repository.get_analysis_epoch(parent_epoch_id)
+            if parent.workspace_id != workspace_id:
+                raise ValidationError(
+                    "parent_epoch_id does not belong to the given workspace"
+                )
+
+        epoch_timestamp = (
+            datetime.fromisoformat(timestamp) if timestamp else current_timestamp()
+        )
+        epoch = create_analysis_epoch(
+            workspace_id=workspace_id,
+            name=(name or "").strip(),
+            description=(description or "").strip(),
+            timestamp=epoch_timestamp,
+            tags=[tag.strip() for tag in (tags or []) if tag.strip()],
+            parent_epoch_id=parent_epoch_id,
+        )
+        self.repository.create_analysis_epoch(epoch)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "workspace-ui",
+                action="create_analysis_epoch",
+                target_type="analysis_epoch",
+                target_id=epoch.analysis_epoch_id,
+            )
+        )
+        return epoch
+
+    def get_analysis_epoch(self, analysis_epoch_id: str) -> AnalysisEpoch:
+        """Get an analysis epoch."""
+
+        return self.repository.get_analysis_epoch(analysis_epoch_id)
+
+    def list_analysis_epochs(self, workspace_id: str) -> List[AnalysisEpoch]:
+        """Browse the epochs in a workspace."""
+
+        self.repository.get_workspace(workspace_id)
+        return self.repository.list_analysis_epochs(workspace_id)
+
+    def record_analysis_execution(
+        self,
+        run_id: str,
+        algorithm: str,
+        status: AnalysisExecutionStatus = AnalysisExecutionStatus.COMPLETED,
+        *,
+        template_id: Optional[str] = None,
+        template_name: str = "",
+        use_case_id: Optional[str] = None,
+        epoch_id: Optional[str] = None,
+        algorithm_version: str = "",
+        parameters: Optional[Dict[str, Any]] = None,
+        graph_config: Optional[Dict[str, Any]] = None,
+        results_location: Optional[str] = None,
+        result_count: int = 0,
+        performance_metrics: Optional[Dict[str, Any]] = None,
+        result_sample: Optional[Dict[str, Any]] = None,
+        error_message: Optional[str] = None,
+        catalog_execution_id: Optional[str] = None,
+        started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> AnalysisExecution:
+        """Record one completed/failed algorithm execution for a workflow run."""
+
+        run = self.repository.get_workflow_run(run_id)
+        if not isinstance(status, AnalysisExecutionStatus):
+            status = AnalysisExecutionStatus(status)
+
+        epoch = None
+        if epoch_id:
+            epoch = self.repository.get_analysis_epoch(epoch_id)
+            if epoch.workspace_id != run.workspace_id:
+                raise ValidationError("epoch_id does not belong to the run's workspace")
+
+        execution = create_analysis_execution(
+            workspace_id=run.workspace_id,
+            run_id=run.run_id,
+            algorithm=(algorithm or "unknown").strip() or "unknown",
+            status=status,
+            graph_profile_id=run.graph_profile_id,
+            requirement_version_id=run.requirement_version_id,
+            use_case_id=use_case_id,
+            template_id=template_id,
+            template_name=template_name,
+            epoch_id=epoch_id,
+            algorithm_version=algorithm_version,
+            parameters=dict(parameters or {}),
+            graph_config=dict(graph_config or {}),
+            results_location=results_location,
+            result_count=max(0, int(result_count or 0)),
+            performance_metrics=dict(performance_metrics or {}),
+            result_sample=result_sample,
+            error_message=error_message,
+            workflow_mode=run.workflow_mode.value,
+            catalog_execution_id=catalog_execution_id,
+            started_at=started_at or run.started_at or current_timestamp(),
+            completed_at=completed_at,
+            metadata=dict(metadata or {}),
+        )
+        self.repository.create_analysis_execution(execution)
+
+        if execution.analysis_execution_id not in run.analysis_execution_ids:
+            run.analysis_execution_ids.append(execution.analysis_execution_id)
+            self.repository.update_workflow_run(run)
+
+        if epoch is not None:
+            if execution.analysis_execution_id not in epoch.analysis_execution_ids:
+                epoch.analysis_execution_ids.append(execution.analysis_execution_id)
+            epoch.analysis_count = len(epoch.analysis_execution_ids)
+            self.repository.update_analysis_epoch(epoch)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=run.workspace_id,
+                actor=actor or "workflow-runner",
+                action="record_analysis_execution",
+                target_type="analysis_execution",
+                target_id=execution.analysis_execution_id,
+                metadata={
+                    "run_id": run.run_id,
+                    "algorithm": execution.algorithm,
+                    "status": execution.status.value,
+                },
+            )
+        )
+        return execution
+
+    def record_workflow_analysis_executions(
+        self, run_id: str, state: Any
+    ) -> List[AnalysisExecution]:
+        """Mirror an agent runner's execution results into the product catalog.
+
+        The method is idempotent by GAE job ID so a supervisor retry cannot
+        duplicate catalog rows.
+        """
+
+        run = self.repository.get_workflow_run(run_id)
+        existing = self.repository.list_analysis_executions(run.workspace_id)
+        known_job_ids = {
+            str(item.metadata.get("gae_job_id"))
+            for item in existing
+            if item.run_id == run_id and item.metadata.get("gae_job_id")
+        }
+        templates = list(getattr(state, "templates", []) or [])
+        recorded: List[AnalysisExecution] = []
+
+        for index, result in enumerate(
+            list(getattr(state, "execution_results", []) or [])
+        ):
+            job = getattr(result, "job", None)
+            if job is None:
+                continue
+            job_id = str(getattr(job, "job_id", "") or "")
+            if job_id and job_id in known_job_ids:
+                continue
+
+            template = next(
+                (
+                    candidate
+                    for candidate in templates
+                    if getattr(candidate, "name", None)
+                    == getattr(job, "template_name", None)
+                ),
+                templates[index] if index < len(templates) else None,
+            )
+            template_config = getattr(template, "config", None)
+            graph_config = (
+                template_config.to_dict()
+                if template_config is not None
+                and hasattr(template_config, "to_dict")
+                else {}
+            )
+            algorithm_params = getattr(
+                getattr(template, "algorithm", None), "parameters", {}
+            )
+            success = bool(getattr(result, "success", False))
+            result_rows = list(getattr(result, "results", []) or [])
+            job_metrics = dict(getattr(result, "metrics", {}) or {})
+            execution_seconds = getattr(job, "execution_time_seconds", None)
+            if execution_seconds is not None:
+                job_metrics.setdefault("execution_time_seconds", execution_seconds)
+
+            execution = self.record_analysis_execution(
+                run_id=run_id,
+                algorithm=str(getattr(job, "algorithm", "unknown") or "unknown"),
+                status=(
+                    AnalysisExecutionStatus.COMPLETED
+                    if success
+                    else AnalysisExecutionStatus.FAILED
+                ),
+                template_id=(
+                    run.template_ids[index] if index < len(run.template_ids) else None
+                ),
+                template_name=str(getattr(job, "template_name", "") or ""),
+                use_case_id=getattr(template, "use_case_id", None),
+                parameters=dict(algorithm_params or {}),
+                graph_config=graph_config,
+                results_location=getattr(job, "result_collection", None),
+                result_count=int(
+                    getattr(job, "result_count", None) or len(result_rows)
+                ),
+                performance_metrics=job_metrics,
+                result_sample=(
+                    {
+                        "top_results": result_rows[:100],
+                        "summary_stats": {},
+                        "sample_size": min(len(result_rows), 100),
+                    }
+                    if result_rows
+                    else None
+                ),
+                error_message=(
+                    getattr(result, "error", None)
+                    or getattr(job, "error_message", None)
+                ),
+                catalog_execution_id=(
+                    (getattr(job, "metadata", {}) or {}).get(
+                        "catalog_execution_id"
+                    )
+                ),
+                started_at=(
+                    getattr(job, "started_at", None)
+                    or getattr(job, "submitted_at", None)
+                ),
+                completed_at=getattr(job, "completed_at", None),
+                metadata={
+                    "gae_job_id": job_id or None,
+                    "warnings": list(getattr(result, "warnings", []) or []),
+                },
+            )
+            recorded.append(execution)
+            if job_id:
+                known_job_ids.add(job_id)
+
+        return recorded
+
+    def get_analysis_execution(
+        self, analysis_execution_id: str
+    ) -> AnalysisExecution:
+        """Get one product-catalog execution."""
+
+        return self.repository.get_analysis_execution(analysis_execution_id)
+
+    def list_analysis_executions(
+        self,
+        workspace_id: str,
+        algorithm: Optional[str] = None,
+        status: Optional[str] = None,
+        epoch_id: Optional[str] = None,
+        graph_profile_id: Optional[str] = None,
+        started_after: Optional[str] = None,
+        started_before: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[AnalysisExecution]:
+        """Search executions by the filters required by FR-46."""
+
+        self.repository.get_workspace(workspace_id)
+        executions = self.repository.list_analysis_executions(workspace_id)
+        after = datetime.fromisoformat(started_after) if started_after else None
+        before = datetime.fromisoformat(started_before) if started_before else None
+        normalized_status = AnalysisExecutionStatus(status) if status else None
+
+        def matches(execution: AnalysisExecution) -> bool:
+            return not (
+                (algorithm and execution.algorithm != algorithm)
+                or (normalized_status and execution.status != normalized_status)
+                or (epoch_id and execution.epoch_id != epoch_id)
+                or (
+                    graph_profile_id
+                    and execution.graph_profile_id != graph_profile_id
+                )
+                or (after and execution.started_at < after)
+                or (before and execution.started_at > before)
+            )
+
+        return [item for item in executions if matches(item)][: max(0, limit)]
+
+    def browse_analysis_catalog(self, workspace_id: str) -> Dict[str, Any]:
+        """Browse workspace-scoped epochs, executions, templates, use cases,
+        and requirements (FR-45).
+
+        Templates and use cases are full product records now that FR-19..FR-26
+        entities exist. Executions can still reference ids that have no product
+        record — anything produced by an agentic run before those entities
+        landed, or generated inside the AI layer without being mirrored — so
+        those are surfaced separately as ``unresolved_*_ids`` rather than
+        silently dropped, which would make lineage look complete when it isn't.
+        """
+
+        executions = self.list_analysis_executions(workspace_id, limit=500)
+        epochs = self.list_analysis_epochs(workspace_id)
+        requirements = self.repository.list_requirement_versions(workspace_id)
+        use_cases = self.repository.list_use_cases(workspace_id)
+        templates = self.list_analysis_templates(workspace_id)
+
+        known_template_ids = {item.analysis_template_id for item in templates}
+        known_use_case_ids = {item.use_case_id for item in use_cases}
+        referenced_template_ids = {
+            execution.template_id for execution in executions if execution.template_id
+        }
+        referenced_use_case_ids = {
+            execution.use_case_id for execution in executions if execution.use_case_id
+        }
+
+        return {
+            "workspace_id": workspace_id,
+            "epochs": [epoch.to_dict() for epoch in epochs],
+            "executions": [execution.to_dict() for execution in executions],
+            "templates": [template.to_dict() for template in templates],
+            "use_cases": [use_case.to_dict() for use_case in use_cases],
+            "requirements": [
+                {
+                    "requirement_version_id": item.requirement_version_id,
+                    "version": item.version,
+                    "status": item.status.value,
+                    "summary": item.summary,
+                }
+                for item in requirements
+            ],
+            "unresolved_template_ids": sorted(
+                referenced_template_ids - known_template_ids
+            ),
+            "unresolved_use_case_ids": sorted(
+                referenced_use_case_ids - known_use_case_ids
+            ),
+        }
+
+    def get_analysis_catalog_stats(self, workspace_id: str) -> Dict[str, Any]:
+        """Return workspace-scoped execution and epoch aggregates."""
+
+        executions = self.list_analysis_executions(workspace_id, limit=100_000)
+        epochs = self.list_analysis_epochs(workspace_id)
+        by_status: Dict[str, int] = {}
+        by_algorithm: Dict[str, int] = {}
+        for execution in executions:
+            by_status[execution.status.value] = (
+                by_status.get(execution.status.value, 0) + 1
+            )
+            by_algorithm[execution.algorithm] = (
+                by_algorithm.get(execution.algorithm, 0) + 1
+            )
+        timestamps = [execution.started_at for execution in executions]
+        return {
+            "workspace_id": workspace_id,
+            "execution_count": len(executions),
+            "epoch_count": len(epochs),
+            "executions_by_status": by_status,
+            "executions_by_algorithm": by_algorithm,
+            "date_range": {
+                "start": min(timestamps).isoformat() if timestamps else None,
+                "end": max(timestamps).isoformat() if timestamps else None,
+            },
+        }
+
+    def compare_analysis_executions(
+        self, workspace_id: str, analysis_execution_ids: List[str]
+    ) -> Dict[str, Any]:
+        """Compare result counts and numeric metrics across executions/epochs."""
+
+        if len(analysis_execution_ids) < 2:
+            raise ValidationError("At least two analysis_execution_ids are required")
+        executions = [
+            self.repository.get_analysis_execution(execution_id)
+            for execution_id in analysis_execution_ids
+        ]
+        if any(item.workspace_id != workspace_id for item in executions):
+            raise ValidationError(
+                "All analysis executions must belong to the given workspace"
+            )
+
+        baseline = executions[0]
+        numeric_metric_keys = sorted(
+            {
+                key
+                for item in executions
+                for key, value in item.performance_metrics.items()
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+            }
+        )
+        return {
+            "workspace_id": workspace_id,
+            "baseline_execution_id": baseline.analysis_execution_id,
+            "executions": [item.to_dict() for item in executions],
+            "deltas": [
+                {
+                    "analysis_execution_id": item.analysis_execution_id,
+                    "result_count": item.result_count - baseline.result_count,
+                    "performance_metrics": {
+                        key: item.performance_metrics.get(key, 0)
+                        - baseline.performance_metrics.get(key, 0)
+                        for key in numeric_metric_keys
+                    },
+                }
+                for item in executions
+            ],
+        }
+
+    def get_analysis_lineage(self, analysis_execution_id: str) -> Dict[str, Any]:
+        """Trace report → execution → template → use case → requirement."""
+
+        execution = self.repository.get_analysis_execution(analysis_execution_id)
+        reports = [
+            report
+            for report in self.repository.list_report_manifests(
+                execution.workspace_id
+            )
+            if analysis_execution_id in report.analysis_execution_ids
+            or report.run_id == execution.run_id
+        ]
+        return {
+            "workspace_id": execution.workspace_id,
+            "reports": [report.to_dict() for report in reports],
+            "execution": execution.to_dict(),
+            "template_id": execution.template_id,
+            "use_case_id": execution.use_case_id,
+            "requirement_version_id": execution.requirement_version_id,
+        }
+
     def update_workflow_step(
         self,
         run_id: str,
@@ -1286,7 +2880,7 @@ class ProductService:
         """
 
         run = self.repository.get_workflow_run(run_id)
-        if not _internal and run.workflow_mode == WorkflowMode.AGENTIC:
+        if not _internal and self.is_supervised_agentic_mode(run.workflow_mode):
             raise ConflictError(
                 "Step transitions on agentic runs are managed by the "
                 "AgenticRunSupervisor. Use POST /api/runs/{id}/cancel to "
@@ -1689,6 +3283,47 @@ class ProductService:
             names = [name for name in names if not name.startswith("_")]
         return {"endpoint": endpoint.strip(), "databases": sorted(names)}
 
+    def get_connection_defaults(self) -> Dict[str, Any]:
+        """Non-secret connection defaults derived from the environment.
+
+        Prefills the connection-profile form so an operator doesn't have
+        to retype what the deployment already has configured (endpoint,
+        user, database, SSL, deployment mode). This intentionally NEVER
+        returns the password value — only the env-var *name* the password
+        is referenced by (``ARANGO_PASSWORD``). All fields are best-effort:
+        unset variables come back as empty strings so the form simply
+        falls back to its own placeholders.
+        """
+
+        endpoint = (os.getenv("ARANGO_ENDPOINT") or "").strip()
+        username = (os.getenv("ARANGO_USER") or "root").strip()
+        database = (os.getenv("ARANGO_DATABASE") or "").strip()
+
+        verify_ssl = True
+        verify_raw = os.getenv("ARANGO_VERIFY_SSL")
+        if verify_raw is not None:
+            parsed = parse_ssl_verify(verify_raw)
+            # A CA-path string still means "verify"; only an explicit
+            # false disables it.
+            verify_ssl = parsed if isinstance(parsed, bool) else True
+
+        mode_str = (os.getenv("GAE_DEPLOYMENT_MODE") or "").strip().lower()
+        if mode_str in ("amp", "managed", "arangograph"):
+            deployment_mode = "amp"
+        elif mode_str in ("self_managed", "self-managed", "genai", "gen-ai"):
+            deployment_mode = "self_managed"
+        else:
+            deployment_mode = ""
+
+        return {
+            "endpoint": endpoint,
+            "username": username,
+            "database": database,
+            "verify_ssl": verify_ssl,
+            "deployment_mode": deployment_mode,
+            "password_secret_env_var": "ARANGO_PASSWORD",
+        }
+
     def verify_connection_profile(
         self,
         connection_profile_id: str,
@@ -1728,6 +3363,7 @@ class ProductService:
                 endpoint=profile.endpoint,
                 database=profile.database,
                 error_message=self._mask_secret(str(exc), password),
+                gae_status=self._check_gae_access(),
             )
 
         profile.last_verified_at = verified_at
@@ -1740,7 +3376,34 @@ class ProductService:
             verified_at=verified_at.isoformat(),
             endpoint=profile.endpoint,
             database=profile.database,
+            gae_status=self._check_gae_access(),
         )
+
+    @staticmethod
+    def _check_gae_access() -> Dict[str, Any]:
+        """Best-effort GAE deployment reachability check (FR-7).
+
+        GAE credentials come from deployment-wide environment variables
+        (see ``config.GAEConfig``), not from the connection profile, so
+        this reports the deployment's GAE reachability rather than
+        anything scoped to the profile being verified. Never raises —
+        an unreachable or unconfigured GAE deployment degrades to
+        ``{"status": "failed", ...}`` rather than blocking the DB
+        verification result above.
+        """
+
+        try:
+            from ..gae_connection import get_gae_connection
+
+            connection = get_gae_connection()
+            if hasattr(connection, "test_connection"):
+                reachable = bool(connection.test_connection())
+            else:
+                connection.list_engines()
+                reachable = True
+            return {"status": "success" if reachable else "failed"}
+        except Exception as exc:  # noqa: BLE001 — never block DB verification
+            return {"status": "failed", "message": str(exc)}
 
     def list_connection_profile_graphs(
         self,
@@ -1836,6 +3499,7 @@ class ProductService:
         verify_system: bool = True,
         schema_strategy: str = "auto",
         force_database_scope: bool = False,
+        force_llm: bool = False,
     ) -> GraphDiscoveryResult:
         """Discover graph schema from a connection profile and persist it.
 
@@ -1849,6 +3513,10 @@ class ProductService:
         ``schema_strategy`` ("auto" | "analyzer" | "heuristic") is the
         FR-57 escalation knob — see :func:`acquire_schema` for the
         precedence rules.
+
+        ``force_llm`` (FR-58): forces the LLM-assisted analyzer path even
+        when the algorithmic/heuristic path would otherwise be judged
+        sufficient — passed straight through to :func:`acquire_schema`.
 
         ``force_database_scope`` (FR-67b): create a database-scope
         profile covering every collection regardless of which named
@@ -1919,6 +3587,7 @@ class ProductService:
             workspace_id=profile.workspace_id,
             graph_name=selected_graph_name,
             strategy=schema_strategy,
+            force_llm=force_llm,
         )
 
         v6_kwargs: Dict[str, Any] = {}
@@ -1961,6 +3630,46 @@ class ProductService:
                 merged_meta["sensitivity"] = sensitivity_report.to_dict()
                 v6_kwargs["analyzer_metadata"] = merged_meta
 
+        # FR-65: read the deployment's sharding/multitenancy layout straight
+        # from ArangoDB. This does NOT depend on the acquisition bundle — the
+        # upstream analyzer never emits metadata.multitenancy /
+        # metadata.shardingProfile, so waiting for it would leave FR-65
+        # permanently blocked. Runs even when acquisition failed, and its own
+        # failure is non-fatal.
+        try:
+            sharding_profile = detect_sharding_profile(db)
+        except Exception:  # noqa: BLE001 — never block discovery
+            sharding_profile = None
+        if sharding_profile is not None:
+            merged_meta = dict(v6_kwargs.get("analyzer_metadata") or {})
+            merged_meta["sharding_profile"] = sharding_profile.to_dict()
+            merged_meta["multitenancy"] = {
+                "is_multitenant": sharding_profile.is_multitenant,
+                "tenant_key": sharding_profile.tenant_key,
+            }
+            merged_meta["gae_projection_hints"] = (
+                sharding_profile.gae_projection_hints()
+            )
+            v6_kwargs["analyzer_metadata"] = merged_meta
+
+        # FR-11: re-discovering a graph_name already profiled on this
+        # connection bumps the version in place instead of piling up
+        # disconnected duplicate rows. Picking the most recently updated
+        # match is defensive against pre-existing duplicates; the common
+        # case is exactly one match.
+        existing_matches = sorted(
+            (
+                candidate
+                for candidate in self.repository.list_graph_profiles(
+                    profile.workspace_id
+                )
+                if candidate.connection_profile_id == connection_profile_id
+                and candidate.graph_name == selected_graph_name
+            ),
+            key=lambda candidate: candidate.updated_at,
+        )
+        existing_profile = existing_matches[-1] if existing_matches else None
+
         graph_profile = create_graph_profile(
             workspace_id=profile.workspace_id,
             connection_profile_id=profile.connection_profile_id,
@@ -1980,7 +3689,21 @@ class ProductService:
             },
             **v6_kwargs,
         )
-        self.repository.create_graph_profile(graph_profile)
+
+        if existing_profile is not None:
+            # Keep the same graph_profile_id so every existing reference
+            # (workspace.active_graph_profile_id, GraphSet membership,
+            # WorkflowRun.graph_profile_id) still resolves after
+            # re-discovery — only the version and discovered content move.
+            graph_profile.graph_profile_id = existing_profile.graph_profile_id
+            graph_profile.version = existing_profile.version + 1
+            graph_profile.status = existing_profile.status
+            graph_profile.created_at = existing_profile.created_at
+            graph_profile.created_by = existing_profile.created_by or created_by
+            graph_profile.collection_roles = existing_profile.collection_roles
+            self.repository.update_graph_profile(graph_profile)
+        else:
+            self.repository.create_graph_profile(graph_profile)
 
         return GraphDiscoveryResult(
             graph_profile=graph_profile.to_dict(),
@@ -1997,6 +3720,7 @@ class ProductService:
         verify_system: bool = True,
         schema_strategy: str = "auto",
         include_system: bool = False,
+        force_llm: bool = False,
     ) -> WorkspaceGraphInventoryResult:
         """Bulk-discover every named graph on a connection (FR-67).
 
@@ -2051,6 +3775,7 @@ class ProductService:
                 verify_system=verify_system,
                 schema_strategy=schema_strategy,
                 force_database_scope=True,
+                force_llm=force_llm,
             )
             graph_profiles.append(result.graph_profile)
             if not eligible_names:
@@ -2075,6 +3800,7 @@ class ProductService:
                     max_samples_per_collection=max_samples_per_collection,
                     verify_system=verify_system,
                     schema_strategy=schema_strategy,
+                    force_llm=force_llm,
                 )
                 graph_profiles.append(result.graph_profile)
             except Exception as exc:  # noqa: BLE001
@@ -2279,6 +4005,7 @@ class ProductService:
         workspace_id: str,
         graph_name: str,
         strategy: str,
+        force_llm: bool = False,
     ) -> tuple[Optional[SchemaAcquisitionBundle], Optional[str]]:
         """Run :func:`acquire_schema` and write through to ``aga_schema_snapshots``.
 
@@ -2288,6 +4015,10 @@ class ProductService:
         warning) covers the most common failure mode (analyzer not
         installed); only a hard storage outage on the cache write or a
         DB-side AQL failure during sampling will surface here.
+
+        ``force_llm`` (FR-58) is passed straight through to
+        :func:`acquire_schema`, which is the actual owner of the
+        algorithmic-first / LLM-escalation decision (FR-58).
 
         Returns ``(bundle, snapshot_id)``. ``snapshot_id`` is set when
         the cache write succeeded so the caller can stamp it onto the
@@ -2301,6 +4032,7 @@ class ProductService:
                 strategy=strategy,  # type: ignore[arg-type]
                 graph_name=graph_name,
                 cache=cache,
+                force_llm=force_llm,
             )
         except Exception:  # noqa: BLE001 — degrade gracefully on any failure
             return None, None
@@ -2511,6 +4243,66 @@ class ProductService:
         )
         return graph_profile
 
+    def assign_graph_profile_collection_roles(
+        self,
+        graph_profile_id: str,
+        collection_roles: Dict[str, List[str]],
+        actor: Optional[str] = None,
+    ) -> GraphProfile:
+        """Assign analytical roles to collections on a graph profile (FR-10).
+
+        ``collection_roles`` maps a role name (e.g. ``"entity"``,
+        ``"fact"``, ``"dimension"`` — an open vocabulary, not a closed
+        enum) to the collection names that play that role. Every
+        referenced collection must already be part of the profile's
+        discovered ``vertex_collections`` or ``edge_collections`` — this
+        assigns a role to existing inventory, it does not add collections.
+
+        Re-discovery (:meth:`discover_graph_profile`) preserves whatever
+        roles are assigned here across schema refreshes.
+        """
+
+        if not isinstance(collection_roles, dict):
+            raise ValidationError("collection_roles must be a JSON object")
+
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        known_collections = set(graph_profile.vertex_collections) | set(
+            graph_profile.edge_collections
+        )
+
+        normalized: Dict[str, List[str]] = {}
+        for role, collections in collection_roles.items():
+            if not isinstance(role, str) or not role.strip():
+                raise ValidationError("collection_roles keys must be non-empty strings")
+            if not isinstance(collections, list) or not all(
+                isinstance(name, str) for name in collections
+            ):
+                raise ValidationError(
+                    f"collection_roles[{role!r}] must be a list of collection names"
+                )
+            unknown = sorted(set(collections) - known_collections)
+            if unknown:
+                raise ValidationError(
+                    f"collection_roles[{role!r}] references collections not on "
+                    f"this profile: {unknown}"
+                )
+            normalized[role] = list(collections)
+
+        before = dict(graph_profile.collection_roles)
+        graph_profile.collection_roles = normalized
+        self.repository.update_graph_profile(graph_profile)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=graph_profile.workspace_id,
+                actor=actor or "system",
+                action="assign_graph_profile_collection_roles",
+                target_type="graph_profile",
+                target_id=graph_profile.graph_profile_id,
+                metadata={"before": before, "after": normalized},
+            )
+        )
+        return graph_profile
+
     # ------------------------------------------------------------------
     # GraphSet workbench (PRD v0.6 / FR-68..FR-70)
     # ------------------------------------------------------------------
@@ -2714,7 +4506,9 @@ class ProductService:
         self,
         graph_set_id: str,
         max_links: int = 16,
-        min_overlap: int = 5,
+        min_overlap: int = 2,
+        probe_edges: bool = True,
+        sample_size: int = 500,
     ) -> List[Dict[str, Any]]:
         """Suggest CrossGraphLinks across the profiles in a set (FR-69).
 
@@ -2727,14 +4521,22 @@ class ProductService:
         (same database — the most common case for a workspace's own
         corpus + KG).
 
-        This method does NOT touch the database; it only inspects the
-        conceptual_schema / physical_mapping snapshots already on the
-        graph profiles. Heavier statistical overlap probes (which
-        WOULD need DB access) are intentionally deferred to Phase 6d.
+        FR-69 also requires inspecting real edges: when ``probe_edges`` is
+        set (the default), each member profile's edge collections are sampled
+        and their ``_from``/``_to`` endpoints are read. An edge whose endpoints
+        land in collections belonging to two *different* member profiles is a
+        cross-graph hop that actually exists in the data, so it is reported at
+        confidence 0.95 — strictly higher than any name match, which is only a
+        guess that two same-named fields mean the same thing.
+
+        Edge probing needs a live connection. Any failure (no credentials,
+        unreachable database, permissions) degrades to name-matching alone
+        rather than failing the call, since suggestions are advisory.
 
         ``max_links`` caps the number of suggestions returned to keep
-        the workbench tooltip manageable. ``min_overlap`` reserved
-        for the future statistical path; ignored here.
+        the workbench tooltip manageable. ``min_overlap`` is the minimum
+        number of sampled edges that must support a hop before it is
+        reported, which keeps a single stray edge from looking structural.
         """
 
         graph_set = self.repository.get_graph_set(graph_set_id)
@@ -2745,9 +4547,6 @@ class ProductService:
             profile = self.repository.get_graph_profile(pid)
             field_names = self._collect_joinable_fields(profile)
             members.append((pid, profile.connection_profile_id, field_names))
-
-        # Limit reserved (paginates the suggestion list shown in UI).
-        del min_overlap
 
         candidates: List[Dict[str, Any]] = []
         for i in range(len(members)):
@@ -2772,6 +4571,28 @@ class ProductService:
                         }
                     )
 
+        if probe_edges:
+            # Observed hops outrank name guesses, so they are prepended and
+            # dedupe wins over any name match for the same profile pair.
+            observed = self._probe_cross_graph_edges(
+                graph_set_id=graph_set_id,
+                min_overlap=min_overlap,
+                sample_size=sample_size,
+            )
+            seen_pairs = {
+                (link["from_graph_profile_id"], link["to_graph_profile_id"])
+                for link in observed
+            }
+            candidates = observed + [
+                candidate
+                for candidate in candidates
+                if (
+                    candidate["from_graph_profile_id"],
+                    candidate["to_graph_profile_id"],
+                )
+                not in seen_pairs
+            ]
+
         # Sort by confidence desc then field name for stable output.
         candidates.sort(
             key=lambda c: (
@@ -2781,6 +4602,146 @@ class ProductService:
             )
         )
         return candidates[:max_links]
+
+    def _probe_cross_graph_edges(
+        self,
+        graph_set_id: str,
+        min_overlap: int,
+        sample_size: int,
+    ) -> List[Dict[str, Any]]:
+        """Sample real edges and report hops that cross member profiles (FR-69).
+
+        Returns an empty list on any failure: cross-graph suggestions are
+        advisory, so a missing credential or unreachable database must not
+        turn a workbench hint into an error.
+        """
+
+        graph_set = self.repository.get_graph_set(graph_set_id)
+        profiles = []
+        for pid in graph_set.graph_profile_ids:
+            try:
+                profiles.append(self.repository.get_graph_profile(pid))
+            except Exception:  # noqa: BLE001
+                continue
+        if len(profiles) < 2:
+            return []
+
+        # collection name -> owning profile id. A collection shared by two
+        # profiles is ambiguous, so it is excluded rather than attributed to
+        # whichever profile happened to be seen first.
+        owner: Dict[str, Optional[str]] = {}
+        for profile in profiles:
+            for name in list(profile.vertex_collections or []):
+                owner[name] = (
+                    None if name in owner else profile.graph_profile_id
+                )
+
+        # Group edge collections by connection so each database is opened once.
+        by_connection: Dict[str, List[GraphProfile]] = {}
+        for profile in profiles:
+            by_connection.setdefault(profile.connection_profile_id, []).append(
+                profile
+            )
+
+        # (from_profile, to_profile, edge_collection) -> observed count
+        hops: Dict[tuple, int] = {}
+
+        for connection_profile_id, connection_profiles in by_connection.items():
+            try:
+                db = self._connect_for_connection_profile(connection_profile_id)
+            except Exception:  # noqa: BLE001 — advisory feature, degrade quietly
+                logger.info(
+                    "Cross-graph edge probe skipped for connection %s",
+                    connection_profile_id,
+                    exc_info=True,
+                )
+                continue
+
+            edge_collections = sorted(
+                {
+                    name
+                    for profile in connection_profiles
+                    for name in list(profile.edge_collections or [])
+                }
+            )
+            for edge_collection in edge_collections:
+                for from_id, to_id in self._sample_edge_endpoints(
+                    db, edge_collection, sample_size
+                ):
+                    from_owner = owner.get(from_id.split("/", 1)[0])
+                    to_owner = owner.get(to_id.split("/", 1)[0])
+                    if not from_owner or not to_owner or from_owner == to_owner:
+                        continue
+                    key = (from_owner, to_owner, edge_collection)
+                    hops[key] = hops.get(key, 0) + 1
+
+        links: List[Dict[str, Any]] = []
+        for (from_profile, to_profile, edge_collection), count in hops.items():
+            if count < max(1, min_overlap):
+                continue
+            links.append(
+                {
+                    "from_graph_profile_id": from_profile,
+                    "to_graph_profile_id": to_profile,
+                    "from_field": "_from",
+                    "to_field": "_to",
+                    "link_type": "edge_traversal",
+                    # Observed in the data, not inferred from a name.
+                    "confidence": 0.95,
+                    "metadata": {
+                        "discovery": "edge_endpoint_probe",
+                        "edge_collection": edge_collection,
+                        "observed_edges": count,
+                        "sample_size": sample_size,
+                    },
+                }
+            )
+        return links
+
+    def _connect_for_connection_profile(
+        self, connection_profile_id: str, password_secret_key: str = "password"
+    ):
+        """Open a database handle for a connection profile."""
+
+        profile = self.repository.get_connection_profile(connection_profile_id)
+        password_ref = profile.secret_refs.get(password_secret_key)
+        if not password_ref:
+            raise ValidationError(
+                f"Connection profile is missing secret ref: {password_secret_key}"
+            )
+        return self.db_connector(
+            endpoint=profile.endpoint,
+            username=profile.username,
+            password=self.secret_resolver.resolve(password_ref),
+            database=profile.database,
+            verify_ssl=profile.verify_ssl,
+            verify_system=False,
+        )
+
+    @staticmethod
+    def _sample_edge_endpoints(db, edge_collection: str, sample_size: int):
+        """Yield (_from, _to) pairs from a bounded edge sample.
+
+        Only the two endpoint fields are projected — edge documents can carry
+        large payloads and none of it is needed to detect a hop.
+        """
+
+        query = (
+            "FOR e IN @@edge LIMIT @limit "
+            "RETURN {f: e._from, t: e._to}"
+        )
+        try:
+            cursor = db.aql.execute(
+                query,
+                bind_vars={"@edge": edge_collection, "limit": int(sample_size)},
+            )
+        except Exception:  # noqa: BLE001 — a missing collection is not fatal
+            return
+        for row in cursor or []:
+            from_id = row.get("f") if isinstance(row, dict) else None
+            to_id = row.get("t") if isinstance(row, dict) else None
+            if isinstance(from_id, str) and isinstance(to_id, str):
+                yield from_id, to_id
 
     @staticmethod
     def _collect_joinable_fields(profile: GraphProfile) -> set[str]:
@@ -2823,6 +4784,171 @@ class ProductService:
                     if isinstance(name, str) and name.lower() in joinable_patterns:
                         out.add(name.lower())
         return out
+
+    # ------------------------------------------------------------------
+    # Source documents (FR-13..FR-15)
+    # ------------------------------------------------------------------
+
+    SUPPORTED_DOCUMENT_SUFFIXES = (".md", ".markdown", ".pdf", ".docx", ".txt")
+
+    def upload_source_document(
+        self,
+        workspace_id: str,
+        filename: str,
+        content_base64: str,
+        mime_type: str = "application/octet-stream",
+        actor: Optional[str] = None,
+        extract_requirements: bool = True,
+    ) -> SourceDocument:
+        """Upload a document, extract its text, and persist it (FR-13..FR-15).
+
+        Content arrives base64-encoded in a JSON body rather than as
+        multipart: every other route in this product API is JSON-only
+        (see ``fastapi_app._request_json``), and introducing multipart
+        for one endpoint would fork the dispatcher.
+
+        Only the *extracted text* is persisted (``EXTRACT_ONLY``) — the
+        raw upload is written to a temp file for parsing and deleted
+        immediately. ArangoDB is product metadata storage, not a blob
+        store, and PDFs/DOCX would bloat it for no downstream benefit.
+
+        FR-15: structured requirements extraction runs best-effort and
+        is stored under ``metadata["extracted_requirements"]``. It needs
+        an LLM provider, so it is expected to be unavailable in many
+        environments — failure never blocks the upload. Promoting an
+        extraction into an approvable ``RequirementVersion`` is a
+        separate flow (the Requirements Copilot owns that today).
+        """
+
+        if not filename or not filename.strip():
+            raise ValidationError("filename is required")
+
+        filename = filename.strip()
+        suffix = Path(filename).suffix.lower()
+        if suffix not in self.SUPPORTED_DOCUMENT_SUFFIXES:
+            raise ValidationError(
+                f"Unsupported document type '{suffix or filename}'. "
+                f"Supported: {', '.join(self.SUPPORTED_DOCUMENT_SUFFIXES)}"
+            )
+
+        # Validates the workspace exists before doing any parsing work.
+        self.repository.get_workspace(workspace_id)
+
+        try:
+            raw_bytes = base64.b64decode(content_base64 or "", validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValidationError(f"content_base64 is not valid base64: {exc}") from exc
+
+        if not raw_bytes:
+            raise ValidationError("Uploaded document is empty")
+
+        sha256 = hashlib.sha256(raw_bytes).hexdigest()
+
+        parsed_document, extraction_errors = self._parse_uploaded_document(
+            raw_bytes, filename, suffix
+        )
+        extracted_text = parsed_document.content if parsed_document else ""
+
+        metadata: Dict[str, Any] = {
+            "byte_size": len(raw_bytes),
+            "uploaded_by": actor or "system",
+        }
+        if extraction_errors:
+            metadata["extraction_errors"] = extraction_errors
+
+        if extract_requirements and parsed_document and extracted_text.strip():
+            summary = self._extract_requirements_summary(parsed_document)
+            if summary is not None:
+                metadata["extracted_requirements"] = summary
+
+        document = create_source_document(
+            workspace_id=workspace_id,
+            filename=filename,
+            mime_type=mime_type or "application/octet-stream",
+            sha256=sha256,
+            storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+            extracted_text=extracted_text or None,
+            metadata=metadata,
+        )
+        self.repository.create_source_document(document)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="upload_source_document",
+                target_type="source_document",
+                target_id=document.document_id,
+                details={"filename": filename, "sha256": sha256},
+            )
+        )
+        return document
+
+    @staticmethod
+    def _parse_uploaded_document(
+        raw_bytes: bytes,
+        filename: str,
+        suffix: str,
+    ) -> tuple[Any, List[str]]:
+        """Extract text from uploaded bytes via the existing DocumentParser.
+
+        ``DocumentParser`` is path-based for binary formats, so bytes are
+        staged in a NamedTemporaryFile that is always removed. Returns
+        ``(document_or_None, extraction_errors)`` — never raises, so a
+        malformed PDF still yields a persisted metadata row the user can
+        see and re-upload against.
+        """
+
+        try:
+            from ..ai.documents.parser import DocumentParser
+        except Exception as exc:  # noqa: BLE001 — optional parser deps
+            return None, [f"Document parser unavailable: {exc}"]
+
+        temp_path: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False
+            ) as temp_file:
+                temp_file.write(raw_bytes)
+                temp_path = temp_file.name
+            document = DocumentParser().parse(temp_path)
+            # DocumentParser swallows per-format failures and reports them
+            # on the returned document rather than raising.
+            return document, list(getattr(document, "extraction_errors", []) or [])
+        except Exception as exc:  # noqa: BLE001 — upload must still succeed
+            return None, [str(exc)]
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _extract_requirements_summary(parsed_document: Any) -> Optional[Dict[str, Any]]:
+        """Run LLM requirements extraction (FR-15), or return None.
+
+        Requires a configured LLM provider; returns ``None`` whenever
+        that is unavailable or extraction fails, so document upload
+        works in environments with no LLM credentials.
+        """
+
+        try:
+            from ..ai.documents.extractor import RequirementsExtractor
+
+            extracted = RequirementsExtractor().extract([parsed_document])
+            return extracted.to_summary_dict()
+        except Exception:  # noqa: BLE001 — extraction is best-effort
+            logger.info(
+                "Requirements extraction unavailable for uploaded document; "
+                "persisting extracted text only",
+                exc_info=True,
+            )
+            return None
+
+    def list_source_documents(self, workspace_id: str) -> List[SourceDocument]:
+        """List uploaded source documents for a workspace (FR-13/FR-14)."""
+
+        return self.repository.list_source_documents(workspace_id)
 
     def start_requirements_copilot(
         self,
@@ -3086,6 +5212,16 @@ class ProductService:
 
         interview.status = RequirementInterviewStatus.APPROVED
         self.repository.update_requirement_interview(interview)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=interview.workspace_id,
+                actor=approved_by or "system",
+                action="approve_requirement_version",
+                target_type="requirement_version",
+                target_id=requirement_version.requirement_version_id,
+                details={"version": next_version},
+            )
+        )
         return requirement_version
 
     def export_workspace_bundle(
@@ -3093,6 +5229,7 @@ class ProductService:
         workspace_id: str,
         include_audit_events: bool = True,
         audit_limit: int = 1000,
+        actor: Optional[str] = None,
     ) -> WorkspaceBundle:
         """Export workspace metadata without resolved secrets or secret refs."""
 
@@ -3106,6 +5243,8 @@ class ProductService:
         requirement_versions = self.repository.list_requirement_versions(workspace_id)
         workflow_runs = self.repository.list_workflow_runs(workspace_id)
         report_manifests = self.repository.list_report_manifests(workspace_id)
+        analysis_epochs = self.repository.list_analysis_epochs(workspace_id)
+        analysis_executions = self.repository.list_analysis_executions(workspace_id)
 
         reports = [
             self.get_report_bundle(report.report_id).to_dict()
@@ -3123,7 +5262,7 @@ class ProductService:
             else []
         )
 
-        return WorkspaceBundle(
+        bundle = WorkspaceBundle(
             schema_version=PRODUCT_SCHEMA_VERSION,
             workspace=workspace.to_dict(),
             connection_profiles=[
@@ -3141,12 +5280,27 @@ class ProductService:
             workflow_runs=[run.to_dict() for run in workflow_runs],
             reports=reports,
             audit_events=audit_events,
+            analysis_epochs=[epoch.to_dict() for epoch in analysis_epochs],
+            analysis_executions=[
+                execution.to_dict() for execution in analysis_executions
+            ],
         )
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "system",
+                action="export_workspace_bundle",
+                target_type="workspace",
+                target_id=workspace_id,
+            )
+        )
+        return bundle
 
     def import_workspace_bundle(
         self,
         bundle: WorkspaceBundle | Dict[str, Any],
         include_audit_events: bool = False,
+        actor: Optional[str] = None,
     ) -> WorkspaceImportResult:
         """Import a workspace bundle after validating shape and secret handling."""
 
@@ -3176,6 +5330,14 @@ class ProductService:
             RequirementVersion.from_dict(version)
             for version in bundle_doc.get("requirement_versions", [])
         ]
+        analysis_epochs = [
+            AnalysisEpoch.from_dict(epoch)
+            for epoch in bundle_doc.get("analysis_epochs", [])
+        ]
+        analysis_executions = [
+            AnalysisExecution.from_dict(execution)
+            for execution in bundle_doc.get("analysis_executions", [])
+        ]
         workflow_runs = [
             WorkflowRun.from_dict(run) for run in bundle_doc.get("workflow_runs", [])
         ]
@@ -3190,6 +5352,10 @@ class ProductService:
             self.repository.create_requirement_interview(interview)
         for version in requirement_versions:
             self.repository.create_requirement_version(version)
+        for epoch in analysis_epochs:
+            self.repository.create_analysis_epoch(epoch)
+        for execution in analysis_executions:
+            self.repository.create_analysis_execution(execution)
         for run in workflow_runs:
             self.repository.create_workflow_run(run)
 
@@ -3222,6 +5388,16 @@ class ProductService:
                 self.repository.create_audit_event(AuditEvent.from_dict(event_doc))
                 audit_count += 1
 
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace.workspace_id,
+                actor=actor or "system",
+                action="import_workspace_bundle",
+                target_type="workspace",
+                target_id=workspace.workspace_id,
+            )
+        )
+
         return WorkspaceImportResult(
             workspace_id=workspace.workspace_id,
             counts={
@@ -3230,6 +5406,8 @@ class ProductService:
                 "source_documents": len(source_documents),
                 "requirement_interviews": len(requirement_interviews),
                 "requirement_versions": len(requirement_versions),
+                "analysis_epochs": len(analysis_epochs),
+                "analysis_executions": len(analysis_executions),
                 "workflow_runs": len(workflow_runs),
                 "reports": report_count,
                 "report_sections": section_count,
@@ -3406,6 +5584,8 @@ class ProductService:
             "source_documents",
             "requirement_interviews",
             "requirement_versions",
+            "analysis_epochs",
+            "analysis_executions",
             "workflow_runs",
         ]:
             for item in bundle_doc.get(collection_name, []):
@@ -3622,7 +5802,23 @@ class ProductService:
         self,
         graph_profile: GraphProfile,
     ) -> Dict[str, Any]:
-        return {
+        """Build the schema context the Requirements Copilot reasons over.
+
+        FR-72: when the profile carries a v0.6 conceptual schema
+        (FR-62) the copilot should reason about *logical* entity and
+        relationship types rather than raw collection names — on an LPG
+        graph the collection list is often just ``Entities`` /
+        ``Relationships``, which tells a business user nothing. The
+        graph purpose (FR-67) and any cross-graph links declared on a
+        GraphSet containing this profile (FR-68/69) are included for the
+        same reason.
+
+        Raw collection lists are always kept: they remain the only
+        signal for profiles discovered before v0.6, and the draft
+        builder falls back to them when no conceptual schema exists.
+        """
+
+        observations: Dict[str, Any] = {
             "graph_name": graph_profile.graph_name,
             "vertex_collections": graph_profile.vertex_collections,
             "edge_collections": graph_profile.edge_collections,
@@ -3631,6 +5827,92 @@ class ProductService:
             "counts": graph_profile.counts,
             "schema_summary": graph_profile.metadata.get("schema_summary", {}),
         }
+
+        if graph_profile.graph_purpose:
+            observations["graph_purpose"] = graph_profile.graph_purpose
+
+        conceptual = graph_profile.conceptual_schema or {}
+        entities = conceptual.get("entities") or []
+        relationships = conceptual.get("relationships") or []
+        if entities or relationships:
+            observations["entity_types"] = [
+                name
+                for name in (
+                    entity.get("name")
+                    for entity in entities
+                    if isinstance(entity, dict)
+                )
+                if name
+            ]
+            observations["relationship_types"] = [
+                {
+                    "type": rel.get("type"),
+                    "from": rel.get("fromEntity", "Any"),
+                    "to": rel.get("toEntity", "Any"),
+                }
+                for rel in relationships
+                if isinstance(rel, dict) and rel.get("type")
+            ]
+            observations["entity_type_count"] = len(observations["entity_types"])
+            observations["relationship_type_count"] = len(
+                observations["relationship_types"]
+            )
+
+        cross_graph_links = self._cross_graph_links_for_profile(graph_profile)
+        if cross_graph_links:
+            observations["cross_graph_links"] = cross_graph_links
+
+        # FR-65c: surface the inferred tenant key so Copilot questions can be
+        # tenant-scoped, and warn when an analysis would span tenants.
+        analyzer_metadata = graph_profile.analyzer_metadata or {}
+        multitenancy = analyzer_metadata.get("multitenancy") or {}
+        if multitenancy.get("is_multitenant"):
+            observations["multitenancy"] = {
+                "tenant_key": multitenancy.get("tenant_key"),
+                "note": (
+                    "This deployment is sharded by "
+                    f"{multitenancy.get('tenant_key')!r}. Scope questions to a "
+                    "single tenant unless a cross-tenant view is intended."
+                ),
+            }
+        sharding_profile = analyzer_metadata.get("sharding_profile") or {}
+        if sharding_profile.get("deployment_kind") not in (None, "", "unknown"):
+            observations["deployment_kind"] = sharding_profile["deployment_kind"]
+
+        return observations
+
+    def _cross_graph_links_for_profile(
+        self,
+        graph_profile: GraphProfile,
+    ) -> List[Dict[str, Any]]:
+        """Cross-graph links (FR-68/69) touching this profile, best-effort.
+
+        Returns an empty list when the workspace has no GraphSets, when
+        none of them contain this profile, or when the repository does
+        not expose GraphSets at all — the copilot must still start for
+        workspaces that never built one.
+        """
+
+        try:
+            graph_sets = self.repository.list_graph_sets(graph_profile.workspace_id)
+        except Exception:  # noqa: BLE001 — copilot must not fail on this
+            return []
+
+        links: List[Dict[str, Any]] = []
+        for graph_set in graph_sets or []:
+            if graph_profile.graph_profile_id not in (graph_set.graph_profile_ids or []):
+                continue
+            for link in graph_set.cross_graph_links or []:
+                links.append(
+                    {
+                        "graph_set": graph_set.name,
+                        "from_graph_profile_id": link.from_graph_profile_id,
+                        "to_graph_profile_id": link.to_graph_profile_id,
+                        "from_field": link.from_field,
+                        "to_field": link.to_field,
+                    }
+                )
+        return links
 
     def _requirements_copilot_questions(
         self,
@@ -3674,6 +5956,51 @@ class ProductService:
         )
         domain = interview.domain or "Unspecified domain"
 
+        # FR-72: lead with logical entity/relationship types when the
+        # profile carries a conceptual schema — on an LPG graph the raw
+        # collection names ("Entities"/"Relationships") are meaningless
+        # to a business reviewer. Raw collections stay below either way.
+        schema_lines: List[str] = [
+            f"- Graph: {observations.get('graph_name', interview.graph_profile_id)}"
+        ]
+        if observations.get("graph_purpose"):
+            schema_lines.append(f"- Graph purpose: {observations['graph_purpose']}")
+
+        entity_types = observations.get("entity_types") or []
+        relationship_types = observations.get("relationship_types") or []
+        if entity_types:
+            schema_lines.append(
+                f"- Entity types ({len(entity_types)}): {', '.join(entity_types)}"
+            )
+        if relationship_types:
+            rendered_relationships = ", ".join(
+                f"{rel['type']} ({rel['from']}→{rel['to']})"
+                for rel in relationship_types
+            )
+            schema_lines.append(
+                f"- Relationship types ({len(relationship_types)}): "
+                f"{rendered_relationships}"
+            )
+
+        schema_lines.extend(
+            [
+                f"- Vertex collections: {vertex_collections}",
+                f"- Edge collections: {edge_collections}",
+                f"- Counts: {json.dumps(observations.get('counts', {}), sort_keys=True)}",
+            ]
+        )
+
+        cross_graph_links = observations.get("cross_graph_links") or []
+        if cross_graph_links:
+            schema_lines.append(
+                f"- Cross-graph links ({len(cross_graph_links)}): "
+                + ", ".join(
+                    f"{link['from_field']}→{link['to_field']} "
+                    f"(via {link['graph_set']})"
+                    for link in cross_graph_links
+                )
+            )
+
         return "\n".join(
             [
                 "# Business Requirements Draft",
@@ -3682,10 +6009,7 @@ class ProductService:
                 domain,
                 "",
                 "## Observed Graph Schema",
-                f"- Graph: {observations.get('graph_name', interview.graph_profile_id)}",
-                f"- Vertex collections: {vertex_collections}",
-                f"- Edge collections: {edge_collections}",
-                f"- Counts: {json.dumps(observations.get('counts', {}), sort_keys=True)}",
+                *schema_lines,
                 "",
                 "## Business Goal",
                 answer_map.get("business_goal", "[Needs user input]"),

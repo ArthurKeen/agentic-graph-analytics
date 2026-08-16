@@ -26,7 +26,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from graph_analytics_ai.ai.schema.acquire import (
-    InMemorySchemaCache,
     SchemaAcquisitionBundle,
     cache_key,
     reset_default_cache,
@@ -440,6 +439,17 @@ class _StubServiceRepository:
 
     def get_graph_profile(self, graph_profile_id: str) -> GraphProfile:
         return self._graph_profiles[graph_profile_id]
+
+    def update_graph_profile(self, profile: GraphProfile) -> str:
+        self._graph_profiles[profile.graph_profile_id] = profile
+        return profile.graph_profile_id
+
+    def list_graph_profiles(self, workspace_id: str) -> List[GraphProfile]:
+        return [
+            profile
+            for profile in self._graph_profiles.values()
+            if profile.workspace_id == workspace_id
+        ]
 
     # SchemaSnapshot CRUD — delegate to the fake.
     def create_schema_snapshot(self, snapshot: SchemaSnapshot) -> str:

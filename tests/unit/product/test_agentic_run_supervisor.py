@@ -247,8 +247,13 @@ class _FakeDbConnector:
 # ---------------------------------------------------------------------------
 
 
-def test_canonical_layout_has_six_steps_in_known_order():
-    """Decision 1: the runner has six fixed phases; we mirror them."""
+def test_canonical_layout_has_known_steps_in_known_order():
+    """Decision 1: the runner has six fixed phases; we mirror them.
+
+    FR-33 adds a seventh, product-owned step: catalog persistence runs in
+    ``AgenticRunSupervisor`` (not the runner), so it has no trace event and
+    the supervisor updates it directly.
+    """
 
     layout = canonical_steps()
     assert [c.step_id for c in layout] == [
@@ -258,6 +263,7 @@ def test_canonical_layout_has_six_steps_in_known_order():
         "template_generation",
         "execution",
         "reporting",
+        "catalog_persistence",
     ]
     # Each canonical step maps cleanly to a runner phase name so the
     # reporter can route trace events back to the right product step.
@@ -270,7 +276,7 @@ def test_canonical_layout_has_six_steps_in_known_order():
     assert step_id_for_phase("not_a_real_phase") is None
 
 
-def test_create_workflow_run_in_agentic_mode_replaces_user_steps_with_canonical_six():
+def test_create_workflow_run_in_agentic_mode_replaces_user_steps_with_canonical_layout():
     """Decision 1: agentic runs ignore client step labels."""
 
     service, repository, run = _seed_workspace_and_run(
@@ -288,6 +294,7 @@ def test_create_workflow_run_in_agentic_mode_replaces_user_steps_with_canonical_
         ("use_case_generation", "template_generation"),
         ("template_generation", "execution"),
         ("execution", "reporting"),
+        ("reporting", "catalog_persistence"),
     ]
     # executor_kind stamped so future durable-executor migration can
     # tell which rows were produced by the in-process Phase 1 path.
@@ -732,7 +739,7 @@ def test_supervisor_finalize_emits_execute_workflow_audit_for_completed_run():
     event = executes[0]
     assert event.actor == "workflow-runner"
     assert event.metadata["outcome"] == RUN_OUTCOME_COMPLETED
-    assert event.metadata["step_count"] == 6
+    assert event.metadata["step_count"] == 7
     assert event.metadata["error_message"] is None
 
 
@@ -1020,3 +1027,217 @@ def test_step_status_reporter_translates_each_event_type():
     error_call = recorded.calls[2]
     assert error_call["status"] == WorkflowStepStatus.FAILED
     assert error_call["errors"] == ["missing input"]
+
+
+# ---------------------------------------------------------------------------
+# FR-33: catalog persistence is its own DAG step
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_persistence_step_completes_with_recorded_count():
+    """FR-33: the catalog write drives its own step, not a hidden side effect."""
+
+    service, repository, run = _seed_workspace_and_run(
+        workflow_mode=WorkflowMode.AGENTIC
+    )
+    recorded_calls = []
+
+    def _fake_record(run_id, state):
+        recorded_calls.append(run_id)
+        return ["analysis-execution-1", "analysis-execution-2"]
+
+    service.record_workflow_analysis_executions = _fake_record
+
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=lambda **_: _FakeRunner(events=[]),
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+    )
+    handle = supervisor.submit(run.run_id)
+    handle.future.result(timeout=10)
+
+    assert recorded_calls == [run.run_id]
+    stored = repository.get_workflow_run(run.run_id)
+    catalog_step = next(
+        step for step in stored.steps if step.step_id == "catalog_persistence"
+    )
+    assert catalog_step.status is WorkflowStepStatus.COMPLETED
+    assert catalog_step.outputs == {"analysis_executions_recorded": 2}
+
+
+def test_catalog_persistence_failure_fails_only_that_step():
+    """A catalog write failure is a warning, not a failed analysis run."""
+
+    service, repository, run = _seed_workspace_and_run(
+        workflow_mode=WorkflowMode.AGENTIC
+    )
+
+    def _boom(run_id, state):
+        raise RuntimeError("catalog unavailable")
+
+    service.record_workflow_analysis_executions = _boom
+
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=lambda **_: _FakeRunner(events=[]),
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+    )
+    supervisor.submit(run.run_id).future.result(timeout=10)
+
+    stored = repository.get_workflow_run(run.run_id)
+    catalog_step = next(
+        step for step in stored.steps if step.step_id == "catalog_persistence"
+    )
+    assert catalog_step.status is WorkflowStepStatus.FAILED
+    assert "catalog unavailable" in catalog_step.errors[0]
+    # The run itself still completed — the analysis succeeded.
+    assert stored.status is WorkflowRunStatus.COMPLETED
+    assert any("Analysis Catalog persistence failed" in w for w in stored.warnings)
+
+
+# ---------------------------------------------------------------------------
+# FR-34: parallel agentic execution
+# ---------------------------------------------------------------------------
+
+
+class _AsyncCapableRunner(_FakeRunner):
+    """Fake runner exposing both sync and async entry points."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.async_called = False
+        self.async_kwargs: Dict[str, Any] = {}
+
+    async def run_async(self, *, enable_parallelism=True, **kwargs):
+        self.async_called = True
+        self.async_kwargs = {"enable_parallelism": enable_parallelism, **kwargs}
+        return self.run(**kwargs)
+
+
+def test_parallel_agentic_mode_uses_the_async_runner_path():
+    """FR-34: parallel_agentic dispatches through run_async, not run."""
+
+    service, repository, run = _seed_workspace_and_run(
+        workflow_mode=WorkflowMode.PARALLEL_AGENTIC
+    )
+    runner = _AsyncCapableRunner(events=[])
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=lambda **_: runner,
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+    )
+    supervisor.submit(run.run_id).future.result(timeout=10)
+
+    assert runner.async_called is True
+    assert runner.async_kwargs["enable_parallelism"] is True
+    assert repository.get_workflow_run(run.run_id).status is (
+        WorkflowRunStatus.COMPLETED
+    )
+
+
+def test_parallel_mode_falls_back_to_sync_when_runner_lacks_run_async():
+    """A runner without run_async degrades to sequential rather than failing."""
+
+    service, repository, run = _seed_workspace_and_run(
+        workflow_mode=WorkflowMode.PARALLEL_AGENTIC
+    )
+    runner = _FakeRunner(events=[])  # no run_async
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=lambda **_: runner,
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+    )
+    supervisor.submit(run.run_id).future.result(timeout=10)
+
+    assert runner.run_called_with != {}
+    assert repository.get_workflow_run(run.run_id).status is (
+        WorkflowRunStatus.COMPLETED
+    )
+
+
+def test_parallel_dag_marks_schema_and_requirements_as_concurrent_roots():
+    """FR-34: the DAG reflects what _run_parallel_workflow actually does."""
+
+    _, _, run = _seed_workspace_and_run(workflow_mode=WorkflowMode.PARALLEL_AGENTIC)
+
+    edges = [(edge.from_step_id, edge.to_step_id) for edge in run.dag_edges]
+    # Both phase-1 steps are roots that converge on use case generation,
+    # rather than requirements depending on schema.
+    assert ("schema_analysis", "use_case_generation") in edges
+    assert ("requirements_extraction", "use_case_generation") in edges
+    assert ("schema_analysis", "requirements_extraction") not in edges
+    # Downstream stays sequential — those phases really do depend on their
+    # predecessor's output.
+    assert ("use_case_generation", "template_generation") in edges
+    assert ("execution", "reporting") in edges
+    assert ("reporting", "catalog_persistence") in edges
+
+
+def test_sequential_agentic_dag_remains_a_strict_chain():
+    """AGENTIC mode is unchanged by the FR-34 parallel work."""
+
+    _, _, run = _seed_workspace_and_run(workflow_mode=WorkflowMode.AGENTIC)
+
+    edges = [(edge.from_step_id, edge.to_step_id) for edge in run.dag_edges]
+    assert edges == [
+        ("schema_analysis", "requirements_extraction"),
+        ("requirements_extraction", "use_case_generation"),
+        ("use_case_generation", "template_generation"),
+        ("template_generation", "execution"),
+        ("execution", "reporting"),
+        ("reporting", "catalog_persistence"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# FR-29: GAE job IDs reach the product step row
+# ---------------------------------------------------------------------------
+
+
+def test_step_end_outputs_carry_gae_job_ids():
+    """FR-29: a user can correlate a run step with the engine-side job.
+
+    Exercises the real StepStatusReporter against a STEP_END event shaped
+    like the one OrchestratorAgent now emits (whitelisted response fields
+    merged into event.data).
+    """
+
+    service, repository, run = _seed_workspace_and_run(
+        workflow_mode=WorkflowMode.AGENTIC
+    )
+    supervisor = AgenticRunSupervisor(
+        service=service,
+        runner_factory=lambda **_: _FakeRunner(
+            events=[
+                {
+                    "event_type": TraceEventType.STEP_START,
+                    "agent_name": WorkflowSteps.EXECUTION,
+                    "data": {"step": WorkflowSteps.EXECUTION},
+                },
+                {
+                    "event_type": TraceEventType.STEP_END,
+                    "agent_name": WorkflowSteps.EXECUTION,
+                    "data": {
+                        "step": WorkflowSteps.EXECUTION,
+                        "total": 2,
+                        "successful": 2,
+                        "failed": 0,
+                        "gae_job_ids": ["job-abc", "job-def"],
+                        "result_collections": ["pagerank_results"],
+                    },
+                },
+            ]
+        ),
+        llm_provider_factory=LLMProviderFactory(loader=lambda: object()),
+    )
+    supervisor.submit(run.run_id).future.result(timeout=10)
+
+    stored = repository.get_workflow_run(run.run_id)
+    execution_step = next(
+        step for step in stored.steps if step.step_id == "execution"
+    )
+    assert execution_step.status is WorkflowStepStatus.COMPLETED
+    assert execution_step.outputs["gae_job_ids"] == ["job-abc", "job-def"]
+    assert execution_step.outputs["result_collections"] == ["pagerank_results"]
+    # "step" is routing metadata, not an output.
+    assert "step" not in execution_step.outputs

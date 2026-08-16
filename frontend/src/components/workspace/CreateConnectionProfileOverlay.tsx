@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type {
+  ConnectionDefaults,
   CreateConnectionProfileInput,
   ListClusterDatabasesInput
 } from "@/lib/product-api/types";
@@ -16,6 +17,11 @@ interface CreateConnectionProfileOverlayProps {
   onListDatabases: (
     input: ListClusterDatabasesInput
   ) => Promise<{ endpoint: string; databases: string[] }>;
+  /** Best-effort prefill of the form from the deployment's environment
+   * (endpoint/user/database/SSL/mode + password env-var name). Never carries
+   * the password value. Optional — the form keeps its placeholders if absent
+   * or if the call fails. */
+  onLoadDefaults?: () => Promise<ConnectionDefaults>;
 }
 
 const deploymentModes = [
@@ -30,7 +36,8 @@ export function CreateConnectionProfileOverlay({
   errorMessage,
   onCancel,
   onSubmit,
-  onListDatabases
+  onListDatabases,
+  onLoadDefaults
 }: CreateConnectionProfileOverlayProps) {
   const [form, setForm] = useState<CreateConnectionProfileInput>({
     name: "",
@@ -41,6 +48,42 @@ export function CreateConnectionProfileOverlay({
     verifySsl: true,
     passwordSecretEnvVar: ""
   });
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Prefill from the deployment environment on open. Best-effort: only fills
+  // fields the user hasn't already changed, and silently keeps placeholders
+  // if there are no defaults or the lookup fails.
+  useEffect(() => {
+    if (!onLoadDefaults) {
+      return;
+    }
+    let cancelled = false;
+    onLoadDefaults()
+      .then((defaults) => {
+        if (cancelled) {
+          return;
+        }
+        setForm((current) => ({
+          ...current,
+          endpoint: defaults.endpoint || current.endpoint,
+          username: defaults.username || current.username,
+          database: defaults.database || current.database,
+          verifySsl: defaults.verifySsl,
+          deploymentMode: defaults.deploymentMode || current.deploymentMode,
+          passwordSecretEnvVar:
+            defaults.passwordSecretEnvVar || current.passwordSecretEnvVar
+        }));
+        setPrefilled(
+          Boolean(defaults.endpoint || defaults.username || defaults.database)
+        );
+      })
+      .catch(() => {
+        /* best-effort — keep the form's own placeholders */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onLoadDefaults]);
   const [databases, setDatabases] = useState<string[]>([]);
   const [isFinding, setIsFinding] = useState(false);
   const [findError, setFindError] = useState<string | null>(null);
@@ -143,6 +186,14 @@ export function CreateConnectionProfileOverlay({
           list what&apos;s available, then pick a database. The password is
           referenced by environment-variable name — never entered in plaintext.
         </p>
+
+        {prefilled ? (
+          <p className="muted">
+            Prefilled from the server environment (<code>.env</code>). Edit any
+            field as needed — the password is never read, only referenced by
+            variable name.
+          </p>
+        ) : null}
 
         <label>
           Name

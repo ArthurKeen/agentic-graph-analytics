@@ -87,3 +87,8 @@ scratch/
 .prd-drift-queue/
 .claude/
 CLAUDE.md
+.no-drift-gate
+.pattern-capture-queue/
+.cursor/.shared-memory-sessions/
+.cursor/hooks.json.pre-update.*
+.cursor/hooks/*.pre-update.*

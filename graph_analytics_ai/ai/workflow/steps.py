@@ -289,11 +289,10 @@ class WorkflowSteps:
                 lines.append(f"- **{sh.name}** ({sh.role}): {sh.interest}")
             lines.append("")
 
-        # Group requirements by priority
+        # Group requirements by priority (ExtractedRequirements exposes `requirements`,
+        # not `all_requirements`).
         critical = extracted.critical_requirements
-        high = [r for r in extracted.all_requirements if r.priority.value == "high"]
-        [r for r in extracted.all_requirements if r.priority.value == "medium"]
-        [r for r in extracted.all_requirements if r.priority.value == "low"]
+        high = [r for r in extracted.requirements if r.priority.value == "high"]
 
         if critical:
             lines.append(f"## Critical Requirements ({len(critical)})\n")

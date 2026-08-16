@@ -116,6 +116,59 @@ class WorkflowStepStatus(Enum):
     CANCELLED = "cancelled"
 
 
+class UseCaseStatus(Enum):
+    """Lifecycle status for a product-layer use case (FR-20)."""
+
+    DRAFT = "draft"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ARCHIVED = "archived"
+
+
+class UseCaseOrigin(Enum):
+    """Where a use case came from.
+
+    ``GENERATED`` rows are mirrored from an agentic run's UseCaseAgent;
+    ``MANUAL`` rows are authored by a user (FR-19). The distinction drives
+    provenance display — a user should be able to tell at a glance which
+    use cases the system proposed and which they wrote.
+    """
+
+    GENERATED = "generated"
+    MANUAL = "manual"
+
+
+class AnalysisTemplateStatus(Enum):
+    """Lifecycle status for a product-layer analysis template (FR-25)."""
+
+    DRAFT = "draft"
+    APPROVED = "approved"
+    SUPERSEDED = "superseded"
+    ARCHIVED = "archived"
+
+
+class AnalysisExecutionStatus(Enum):
+    """Status for a recorded analysis execution (FR-31).
+
+    Mirrors ``graph_analytics_ai.catalog.models.ExecutionStatus`` so rows
+    imported from (or mirrored to) the AI-layer catalog round-trip
+    without translation.
+    """
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    PARTIAL = "partial"
+
+
+class AnalysisEpochStatus(Enum):
+    """Lifecycle status for an analysis epoch (FR-45/FR-48)."""
+
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    ARCHIVED = "archived"
+
+
 class ReportStatus(Enum):
     """Lifecycle status for dynamic reports."""
 
@@ -1098,6 +1151,462 @@ class WorkflowRun:
 
 
 @dataclass
+class AnalysisExecution:
+    """Workspace-scoped mirror of an Analysis Catalog execution.
+
+    The AI-layer catalog is intentionally independent of product workspaces.
+    Product rows therefore own a stable ``analysis_execution_id`` and keep an
+    optional ``catalog_execution_id`` back-pointer when a corresponding
+    AI-layer row exists.
+    """
+
+    analysis_execution_id: str
+    workspace_id: str
+    run_id: str
+    algorithm: str
+    status: AnalysisExecutionStatus = AnalysisExecutionStatus.RUNNING
+    graph_profile_id: Optional[str] = None
+    requirement_version_id: Optional[str] = None
+    use_case_id: Optional[str] = None
+    template_id: Optional[str] = None
+    template_name: str = ""
+    epoch_id: Optional[str] = None
+    algorithm_version: str = ""
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    graph_config: Dict[str, Any] = field(default_factory=dict)
+    results_location: Optional[str] = None
+    result_count: int = 0
+    performance_metrics: Dict[str, Any] = field(default_factory=dict)
+    result_sample: Optional[Dict[str, Any]] = None
+    error_message: Optional[str] = None
+    workflow_mode: Optional[str] = None
+    catalog_execution_id: Optional[str] = None
+    started_at: datetime = field(default_factory=current_timestamp)
+    completed_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.analysis_execution_id,
+            "analysis_execution_id": self.analysis_execution_id,
+            "workspace_id": self.workspace_id,
+            "run_id": self.run_id,
+            "algorithm": self.algorithm,
+            "status": _enum_value(self.status),
+            "graph_profile_id": self.graph_profile_id,
+            "requirement_version_id": self.requirement_version_id,
+            "use_case_id": self.use_case_id,
+            "template_id": self.template_id,
+            "template_name": self.template_name,
+            "epoch_id": self.epoch_id,
+            "algorithm_version": self.algorithm_version,
+            "parameters": self.parameters,
+            "graph_config": self.graph_config,
+            "results_location": self.results_location,
+            "result_count": self.result_count,
+            "performance_metrics": self.performance_metrics,
+            "result_sample": self.result_sample,
+            "error_message": self.error_message,
+            "workflow_mode": self.workflow_mode,
+            "catalog_execution_id": self.catalog_execution_id,
+            "started_at": self.started_at.isoformat(),
+            "completed_at": _datetime_to_str(self.completed_at),
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnalysisExecution":
+        """Create an execution from an ArangoDB document."""
+
+        return cls(
+            analysis_execution_id=data.get("analysis_execution_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            run_id=data["run_id"],
+            algorithm=data.get("algorithm", "unknown"),
+            status=AnalysisExecutionStatus(
+                data.get("status", AnalysisExecutionStatus.RUNNING.value)
+            ),
+            graph_profile_id=data.get("graph_profile_id"),
+            requirement_version_id=data.get("requirement_version_id"),
+            use_case_id=data.get("use_case_id"),
+            template_id=data.get("template_id"),
+            template_name=data.get("template_name", ""),
+            epoch_id=data.get("epoch_id"),
+            algorithm_version=data.get("algorithm_version", ""),
+            parameters=data.get("parameters", {}),
+            graph_config=data.get("graph_config", {}),
+            results_location=data.get("results_location"),
+            result_count=int(data.get("result_count", 0)),
+            performance_metrics=data.get("performance_metrics", {}),
+            result_sample=data.get("result_sample"),
+            error_message=data.get("error_message"),
+            workflow_mode=data.get("workflow_mode"),
+            catalog_execution_id=data.get("catalog_execution_id"),
+            started_at=datetime.fromisoformat(data["started_at"]),
+            completed_at=_datetime_from_str(data.get("completed_at")),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class AnalysisEpoch:
+    """Workspace-scoped group of related analysis executions."""
+
+    analysis_epoch_id: str
+    workspace_id: str
+    name: str
+    description: str = ""
+    timestamp: datetime = field(default_factory=current_timestamp)
+    status: AnalysisEpochStatus = AnalysisEpochStatus.ACTIVE
+    tags: List[str] = field(default_factory=list)
+    parent_epoch_id: Optional[str] = None
+    analysis_count: int = 0
+    analysis_execution_ids: List[str] = field(default_factory=list)
+    catalog_epoch_id: Optional[str] = None
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.name.strip():
+            raise ValidationError("AnalysisEpoch.name is required")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.analysis_epoch_id,
+            "analysis_epoch_id": self.analysis_epoch_id,
+            "workspace_id": self.workspace_id,
+            "name": self.name,
+            "description": self.description,
+            "timestamp": self.timestamp.isoformat(),
+            "status": _enum_value(self.status),
+            "tags": list(self.tags),
+            "parent_epoch_id": self.parent_epoch_id,
+            "analysis_count": self.analysis_count,
+            "analysis_execution_ids": list(self.analysis_execution_ids),
+            "catalog_epoch_id": self.catalog_epoch_id,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnalysisEpoch":
+        """Create an epoch from an ArangoDB document."""
+
+        return cls(
+            analysis_epoch_id=data.get("analysis_epoch_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            name=data["name"],
+            description=data.get("description", ""),
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+            status=AnalysisEpochStatus(
+                data.get("status", AnalysisEpochStatus.ACTIVE.value)
+            ),
+            tags=list(data.get("tags", [])),
+            parent_epoch_id=data.get("parent_epoch_id"),
+            analysis_count=int(data.get("analysis_count", 0)),
+            analysis_execution_ids=list(data.get("analysis_execution_ids", [])),
+            catalog_epoch_id=data.get("catalog_epoch_id"),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class RetentionPolicy:
+    """Per-workspace data-retention configuration (FR-54).
+
+    The PRD says "admins can configure retention" without saying what that
+    means mechanically. The design chosen here is an explicit per-workspace
+    policy record plus an on-demand sweep, rather than ArangoDB TTL indexes,
+    because retention has to be *selective*: approved requirement versions,
+    published report snapshots, and audit events are compliance artifacts that
+    must survive even when older than the window. A TTL index cannot express
+    "delete drafts but never published snapshots".
+
+    ``0`` means "keep forever" for that category — the safe default, so
+    creating a policy never silently starts deleting anything.
+    """
+
+    retention_policy_id: str
+    workspace_id: str
+    enabled: bool = False
+    draft_retention_days: int = 0
+    run_retention_days: int = 0
+    document_retention_days: int = 0
+    report_snapshot_retention_days: int = 0
+    audit_log_retention_days: int = 0
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    updated_by: Optional[str] = None
+    last_applied_at: Optional[datetime] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def window_for(self, category: str) -> int:
+        return {
+            "drafts": self.draft_retention_days,
+            "runs": self.run_retention_days,
+            "documents": self.document_retention_days,
+            "report_snapshots": self.report_snapshot_retention_days,
+            "audit_logs": self.audit_log_retention_days,
+        }.get(category, 0)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.retention_policy_id,
+            "retention_policy_id": self.retention_policy_id,
+            "workspace_id": self.workspace_id,
+            "enabled": self.enabled,
+            "draft_retention_days": self.draft_retention_days,
+            "run_retention_days": self.run_retention_days,
+            "document_retention_days": self.document_retention_days,
+            "report_snapshot_retention_days": self.report_snapshot_retention_days,
+            "audit_log_retention_days": self.audit_log_retention_days,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "updated_by": self.updated_by,
+            "last_applied_at": _datetime_to_str(self.last_applied_at),
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RetentionPolicy":
+        """Create a retention policy from an ArangoDB document."""
+
+        return cls(
+            retention_policy_id=data.get("retention_policy_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            enabled=bool(data.get("enabled", False)),
+            draft_retention_days=int(data.get("draft_retention_days", 0)),
+            run_retention_days=int(data.get("run_retention_days", 0)),
+            document_retention_days=int(data.get("document_retention_days", 0)),
+            report_snapshot_retention_days=int(
+                data.get("report_snapshot_retention_days", 0)
+            ),
+            audit_log_retention_days=int(data.get("audit_log_retention_days", 0)),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            updated_by=data.get("updated_by"),
+            last_applied_at=_datetime_from_str(data.get("last_applied_at")),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class UseCase:
+    """A workspace-scoped analytics use case (FR-19..FR-21).
+
+    Mirrors ``graph_analytics_ai.ai.generation.use_cases.UseCase``, which has
+    no id generator, no ``to_dict``/``from_dict``, and no persistence — it
+    exists only inside a running agent pipeline. This record adds workspace
+    scoping, a review lifecycle, and durable lineage in both directions
+    (FR-21): back to the requirement version that motivated it, and forward to
+    the templates generated from it.
+    """
+
+    use_case_id: str
+    workspace_id: str
+    title: str
+    description: str = ""
+    use_case_type: str = "pattern"
+    priority: str = "medium"
+    status: UseCaseStatus = UseCaseStatus.DRAFT
+    origin: UseCaseOrigin = UseCaseOrigin.MANUAL
+    # Backward lineage (FR-21). ``related_requirements`` holds the AI layer's
+    # free-form requirement ids (e.g. "REQ-003") within that version.
+    requirement_version_id: Optional[str] = None
+    related_requirements: List[str] = field(default_factory=list)
+    graph_algorithms: List[str] = field(default_factory=list)
+    data_needs: List[str] = field(default_factory=list)
+    expected_outputs: List[str] = field(default_factory=list)
+    success_metrics: List[str] = field(default_factory=list)
+    # Review trail (FR-20).
+    reviewed_by: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    review_note: str = ""
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    created_by: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.use_case_id,
+            "use_case_id": self.use_case_id,
+            "workspace_id": self.workspace_id,
+            "title": self.title,
+            "description": self.description,
+            "use_case_type": self.use_case_type,
+            "priority": self.priority,
+            "status": _enum_value(self.status),
+            "origin": _enum_value(self.origin),
+            "requirement_version_id": self.requirement_version_id,
+            "related_requirements": self.related_requirements,
+            "graph_algorithms": self.graph_algorithms,
+            "data_needs": self.data_needs,
+            "expected_outputs": self.expected_outputs,
+            "success_metrics": self.success_metrics,
+            "reviewed_by": self.reviewed_by,
+            "reviewed_at": _datetime_to_str(self.reviewed_at),
+            "review_note": self.review_note,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "created_by": self.created_by,
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "UseCase":
+        """Create a use case from an ArangoDB document."""
+
+        return cls(
+            use_case_id=data.get("use_case_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            title=data["title"],
+            description=data.get("description", ""),
+            use_case_type=data.get("use_case_type", "pattern"),
+            priority=data.get("priority", "medium"),
+            status=UseCaseStatus(data.get("status", UseCaseStatus.DRAFT.value)),
+            origin=UseCaseOrigin(data.get("origin", UseCaseOrigin.MANUAL.value)),
+            requirement_version_id=data.get("requirement_version_id"),
+            related_requirements=list(data.get("related_requirements", [])),
+            graph_algorithms=list(data.get("graph_algorithms", [])),
+            data_needs=list(data.get("data_needs", [])),
+            expected_outputs=list(data.get("expected_outputs", [])),
+            success_metrics=list(data.get("success_metrics", [])),
+            reviewed_by=data.get("reviewed_by"),
+            reviewed_at=_datetime_from_str(data.get("reviewed_at")),
+            review_note=data.get("review_note", ""),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_by=data.get("created_by"),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class AnalysisTemplate:
+    """A versioned, workspace-scoped GAE analysis template (FR-22..FR-26).
+
+    Mirrors ``graph_analytics_ai.ai.templates.models.AnalysisTemplate``, which
+    is an executable config object with no identity or persistence. ``algorithm``
+    and ``parameters`` are kept flat (rather than the AI layer's nested
+    ``AlgorithmParameters``) so the parameter editor (FR-23) can patch a single
+    field without round-tripping a nested structure.
+
+    FR-25 versioning: an APPROVED template is immutable. Editing one produces a
+    NEW row at ``version + 1`` while the original flips to SUPERSEDED, so any
+    completed run still resolves the exact template it executed. ``lineage_id``
+    is stable across that chain — it identifies "this template" independent of
+    which version you are looking at.
+    """
+
+    analysis_template_id: str
+    workspace_id: str
+    name: str
+    lineage_id: str
+    description: str = ""
+    algorithm: str = ""
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    config: Dict[str, Any] = field(default_factory=dict)
+    version: int = 1
+    status: AnalysisTemplateStatus = AnalysisTemplateStatus.DRAFT
+    use_case_id: Optional[str] = None
+    estimated_runtime_seconds: Optional[float] = None
+    superseded_by: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=current_timestamp)
+    updated_at: datetime = field(default_factory=current_timestamp)
+    created_by: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to an ArangoDB document."""
+
+        doc = {
+            "_key": self.analysis_template_id,
+            "analysis_template_id": self.analysis_template_id,
+            "workspace_id": self.workspace_id,
+            "name": self.name,
+            "lineage_id": self.lineage_id,
+            "description": self.description,
+            "algorithm": self.algorithm,
+            "parameters": self.parameters,
+            "config": self.config,
+            "version": self.version,
+            "status": _enum_value(self.status),
+            "use_case_id": self.use_case_id,
+            "estimated_runtime_seconds": self.estimated_runtime_seconds,
+            "superseded_by": self.superseded_by,
+            "approved_by": self.approved_by,
+            "approved_at": _datetime_to_str(self.approved_at),
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+            "created_by": self.created_by,
+            "metadata": self.metadata,
+        }
+        validate_no_secret_values(doc)
+        return doc
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnalysisTemplate":
+        """Create an analysis template from an ArangoDB document."""
+
+        return cls(
+            analysis_template_id=data.get("analysis_template_id") or data["_key"],
+            workspace_id=data["workspace_id"],
+            name=data["name"],
+            # Older rows predate lineage_id; fall back to the row's own id so
+            # each legacy template is its own single-entry lineage.
+            lineage_id=data.get("lineage_id")
+            or data.get("analysis_template_id")
+            or data["_key"],
+            description=data.get("description", ""),
+            algorithm=data.get("algorithm", ""),
+            parameters=data.get("parameters", {}),
+            config=data.get("config", {}),
+            version=int(data.get("version", 1)),
+            status=AnalysisTemplateStatus(
+                data.get("status", AnalysisTemplateStatus.DRAFT.value)
+            ),
+            use_case_id=data.get("use_case_id"),
+            estimated_runtime_seconds=data.get("estimated_runtime_seconds"),
+            superseded_by=data.get("superseded_by"),
+            approved_by=data.get("approved_by"),
+            approved_at=_datetime_from_str(data.get("approved_at")),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            created_by=data.get("created_by"),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
 class ReportManifest:
     """Report identity, publication state, and lineage links."""
 
@@ -1537,6 +2046,88 @@ def create_workflow_run(
         run_id=generate_product_id("run"),
         workspace_id=workspace_id,
         workflow_mode=workflow_mode,
+        **kwargs,
+    )
+
+
+def create_retention_policy(
+    workspace_id: str,
+    **kwargs: Any,
+) -> RetentionPolicy:
+    """Create a retention policy with a generated ID (FR-54)."""
+
+    return RetentionPolicy(
+        retention_policy_id=generate_product_id("retention-policy"),
+        workspace_id=workspace_id,
+        **kwargs,
+    )
+
+
+def create_use_case(
+    workspace_id: str,
+    title: str,
+    **kwargs: Any,
+) -> UseCase:
+    """Create a product use case with a generated ID (FR-19)."""
+
+    return UseCase(
+        use_case_id=generate_product_id("use-case"),
+        workspace_id=workspace_id,
+        title=title,
+        **kwargs,
+    )
+
+
+def create_analysis_template(
+    workspace_id: str,
+    name: str,
+    **kwargs: Any,
+) -> AnalysisTemplate:
+    """Create a product analysis template with a generated ID (FR-22).
+
+    ``lineage_id`` defaults to the new row's own id, making a fresh template
+    the first version of its own lineage. :meth:`ProductService.update_analysis_template`
+    carries the lineage forward when it supersedes an approved version.
+    """
+
+    analysis_template_id = generate_product_id("analysis-template")
+    kwargs.setdefault("lineage_id", analysis_template_id)
+    return AnalysisTemplate(
+        analysis_template_id=analysis_template_id,
+        workspace_id=workspace_id,
+        name=name,
+        **kwargs,
+    )
+
+
+def create_analysis_execution(
+    workspace_id: str,
+    run_id: str,
+    algorithm: str,
+    **kwargs: Any,
+) -> AnalysisExecution:
+    """Create a product Analysis Catalog execution with a generated ID."""
+
+    return AnalysisExecution(
+        analysis_execution_id=generate_product_id("analysis-execution"),
+        workspace_id=workspace_id,
+        run_id=run_id,
+        algorithm=algorithm,
+        **kwargs,
+    )
+
+
+def create_analysis_epoch(
+    workspace_id: str,
+    name: str,
+    **kwargs: Any,
+) -> AnalysisEpoch:
+    """Create a product Analysis Catalog epoch with a generated ID."""
+
+    return AnalysisEpoch(
+        analysis_epoch_id=generate_product_id("analysis-epoch"),
+        workspace_id=workspace_id,
+        name=name,
         **kwargs,
     )
 

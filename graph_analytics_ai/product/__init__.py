@@ -9,6 +9,10 @@ from .api import (
 from .fastapi_app import create_product_fastapi_app
 from .factory import create_product_service
 from .models import (
+    AnalysisEpoch,
+    AnalysisEpochStatus,
+    AnalysisExecution,
+    AnalysisExecutionStatus,
     AuditEvent,
     ChartSpec,
     ChartType,
@@ -40,6 +44,8 @@ from .models import (
     WorkflowStep,
     WorkflowStepStatus,
     create_audit_event,
+    create_analysis_epoch,
+    create_analysis_execution,
     create_chart_spec,
     create_connection_profile,
     create_graph_profile,
@@ -74,6 +80,10 @@ from .service import (
 from .storage import ProductArangoStorage
 
 __all__ = [
+    "AnalysisEpoch",
+    "AnalysisEpochStatus",
+    "AnalysisExecution",
+    "AnalysisExecutionStatus",
     "ConnectionProfile",
     "ConnectionVerificationResult",
     "AuditEvent",
@@ -126,6 +136,8 @@ __all__ = [
     "WorkflowStepUpdateResult",
     "WorkspaceSchemaCache",
     "create_audit_event",
+    "create_analysis_epoch",
+    "create_analysis_execution",
     "create_chart_spec",
     "create_connection_profile",
     "create_product_fastapi_app",

@@ -217,7 +217,10 @@ class WorkflowState:
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(checkpoint_path, "w") as f:
-            json.dump(self.to_dict(), f, indent=2)
+            # default=str so enum values (e.g. DocumentType/UseCaseType) in the state
+            # serialize instead of raising "Object of type DocumentType is not JSON
+            # serializable" and failing the checkpoint/save_outputs step.
+            json.dump(self.to_dict(), f, indent=2, default=str)
 
     @classmethod
     def load_checkpoint(cls, checkpoint_path: Path) -> "WorkflowState":
