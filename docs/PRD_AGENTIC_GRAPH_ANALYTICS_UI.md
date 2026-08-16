@@ -857,7 +857,13 @@ FR-31b/FR-31c and FR-34.
 ### Import and Export
 
 - **FR-49:** The product supports import from AdTech-style YAML/docs projects.
-  *(Implemented: `import_vertical_project`
+  *(**Partial — backend and API only, no import UI.** FR-26's generic template
+  dictionary import has an "Import Dictionary" button; this vertical importer
+  has no equivalent, so a user cannot reach it from the product. Held Partial
+  for consistency with how FR-26 was judged. Remaining work: a file picker that
+  posts the bundle, reusing the FR-26 control.
+
+  Backend complete: `import_vertical_project`
   (`graph_analytics_ai/product/service.py:2200`), exposed at
   `POST /api/workspaces/{workspace_id}/vertical-projects/import`. No concrete
   source format existed for this requirement — the sibling repos it referred to
@@ -866,7 +872,8 @@ FR-31b/FR-31c and FR-34.
   carries `use_cases` and `templates`, and templates resolve their use case by
   title. See FR-50 for why one format covers both.)*
 - **FR-50:** The product supports import from clinical trials/CRO and open source intelligence analysis template files.
-  *(Implemented by the same importer. FR-49 and FR-50 differ in domain
+  *(**Partial — same UI gap as FR-49.** Implemented by the same importer.
+  FR-49 and FR-50 differ in domain
   vocabulary, not structure — both describe "here are the analytical questions
   and the algorithm configurations that answer them" — so a `vertical`
   discriminator (`adtech` | `clinical_trials` | `osint` | any) carries the
@@ -890,7 +897,15 @@ FR-31b/FR-31c and FR-34.
 
 - **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions. *(Implemented: `approve_requirement_version`, `export_workspace_bundle`, and `import_workspace_bundle` audit events added in `graph_analytics_ai/product/service.py` alongside the pre-existing create/update/launch/publish/archive events. There is no hard-delete method in the product service — only the already-audited soft-delete `archive_workspace` — so no action in this list is unaudited.)*
 - **FR-54:** Admins can configure retention for drafts, runs, documents, report
-  snapshots, and audit logs. *(Implemented: a per-workspace `RetentionPolicy`
+  snapshots, and audit logs. *(**Partial — backend and API only, no admin UI.**
+  This requirement reads "**Admins can configure**", and nothing under
+  `frontend/src` calls the retention endpoints, so an admin cannot actually
+  configure retention from the product — only by calling the API directly.
+  Held Partial deliberately rather than claiming a user-facing capability no
+  user can reach. Remaining work: an admin screen for the windows plus a
+  dry-run preview of what a sweep would remove.
+
+  Backend complete: a per-workspace `RetentionPolicy`
   plus an on-demand sweep — `set_retention_policy`
   (`graph_analytics_ai/product/service.py:1385`) and `apply_retention_policy`
   (`:1451`). Deliberately NOT ArangoDB TTL indexes: retention has to be
@@ -1057,7 +1072,14 @@ older requirement, this section wins.
   to the Requirements Copilot so questions can be tenant-scoped
   automatically.
 
-  *(Implemented — but NOT via the analyzer. The precondition in the sentence
+  *(**Partial — backend only, no UI.** This requirement says the product
+  "surfaces them on the graph profile" and "(b) warns before running
+  cross-tenant analyses"; both are display behaviours, and no frontend file
+  reads `sharding_profile`. The profile is detected and persisted, and the
+  tenant hint does reach the Requirements Copilot's observations (c), but
+  nothing renders the sharding badge or the cross-tenant warning yet.
+
+  Backend complete — and notably NOT via the analyzer. The precondition in the sentence
   above never holds: `arango-schema-analyzer` emits neither field, so waiting
   for it would leave this permanently blocked. The information does not need
   the analyzer — ArangoDB reports it directly on `collection.properties()`
