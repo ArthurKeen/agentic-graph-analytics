@@ -896,6 +896,21 @@ FR-31b/FR-31c and FR-34.
   unknown enum values degrade with a reported warning rather than failing the
   whole bundle, but never silently.)*
 - **FR-51:** The product can export a workspace bundle with metadata, documents, templates, and report snapshots.
+  *(**Partial — templates are missing from the export.** `WorkspaceBundle`
+  (`graph_analytics_ai/product/service.py:210`) carries the workspace,
+  connection profiles, graph profiles, source documents, requirement interviews
+  and versions, workflow runs, reports, audit events, analysis epochs and
+  analysis executions — but no `use_cases` and no `analysis_templates`, which
+  this requirement names explicitly. Metadata, documents and report snapshots
+  are covered.
+
+  This is a never-rewired defect rather than an omission: use cases and
+  analysis templates only became product entities in the FR-19..FR-26 work, and
+  the exporter predates them, so it was never extended. No test caught it
+  because the export tests assert the fields the bundle already has. Both are
+  already listable (`list_use_cases`, `list_analysis_templates`), so the
+  remaining work is two fields on `WorkspaceBundle`, the matching import side,
+  and a round-trip test.)*
 - **FR-52:** Exported bundles exclude secret values.
 
 ### Administration and Audit
