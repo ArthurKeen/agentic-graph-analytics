@@ -7,6 +7,7 @@ import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
 import { CreateWorkspaceOverlay } from "./CreateWorkspaceOverlay";
 import { CreateWorkflowRunOverlay } from "./CreateWorkflowRunOverlay";
+import { CrossTenantRunConfirmationOverlay } from "./CrossTenantRunConfirmationOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { EditWorkspaceOverlay } from "./EditWorkspaceOverlay";
@@ -74,6 +75,10 @@ export function WorkspaceShell({
     approveAnalysisTemplate,
     getAnalysisTemplateVersions,
     importAnalysisTemplates,
+    importVerticalProject,
+    getRetentionPolicy,
+    setRetentionPolicy,
+    applyRetentionPolicy,
     listAnalysisExecutions,
     compareAnalysisExecutions,
     getAnalysisLineage,
@@ -112,6 +117,10 @@ export function WorkspaceShell({
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
+  // FR-65: a run on a tenant-sharded deployment is confirmed once before it
+  // launches; `null` means no confirmation is pending.
+  const [pendingCrossTenantRun, setPendingCrossTenantRun] =
+    useState<WorkspaceAsset | null>(null);
   // When non-null, the start overlay is invoked in "reopen" mode; the
   // basedOnVersion is passed through to the backend so the new interview is
   // pre-populated from this approved RequirementVersion and the prior version
@@ -507,6 +516,29 @@ export function WorkspaceShell({
     });
   }, [graphProfileById, overview]);
 
+  const launchWorkflowRun = useCallback(
+    (asset: WorkspaceAsset) => {
+      setRunActionMessage(null);
+      setRunActionErrorMessage(null);
+      setStartingRunId(asset.id);
+      void startWorkflowRun(asset.id)
+        .then((workflowRun) => {
+          setSelectedAsset({
+            ...asset,
+            description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
+          });
+          setRunActionMessage(`Started run ${workflowRun.runId}.`);
+        })
+        .catch((error) =>
+          setRunActionErrorMessage(
+            error instanceof Error ? error.message : "Failed to start workflow run"
+          )
+        )
+        .finally(() => setStartingRunId(null));
+    },
+    [startWorkflowRun]
+  );
+
   const [activeGraphSelectorErrorMessage, setActiveGraphSelectorErrorMessage] =
     useState<string | null>(null);
   const [isSettingActiveGraphProfile, setIsSettingActiveGraphProfile] = useState(false);
@@ -647,23 +679,11 @@ export function WorkspaceShell({
           }
         }}
         onStartRun={(asset) => {
-          setRunActionMessage(null);
-          setRunActionErrorMessage(null);
-          setStartingRunId(asset.id);
-          void startWorkflowRun(asset.id)
-            .then((workflowRun) => {
-              setSelectedAsset({
-                ...asset,
-                description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
-              });
-              setRunActionMessage(`Started run ${workflowRun.runId}.`);
-            })
-            .catch((error) =>
-              setRunActionErrorMessage(
-                error instanceof Error ? error.message : "Failed to start workflow run"
-              )
-            )
-            .finally(() => setStartingRunId(null));
+          if (activeGraphProfile?.shardingProfile?.isMultitenant) {
+            setPendingCrossTenantRun(asset);
+            return;
+          }
+          launchWorkflowRun(asset);
         }}
         onOpenReport={(reportId) => {
           const report = visibleAssets.find((asset) => asset.id === reportId);
@@ -890,6 +910,10 @@ export function WorkspaceShell({
         onApproveAnalysisTemplate={approveAnalysisTemplate}
         onGetAnalysisTemplateVersions={getAnalysisTemplateVersions}
         onImportAnalysisTemplates={importAnalysisTemplates}
+        onImportVerticalProject={importVerticalProject}
+        onGetRetentionPolicy={getRetentionPolicy}
+        onSetRetentionPolicy={setRetentionPolicy}
+        onApplyRetentionPolicy={applyRetentionPolicy}
         onFitCanvas={() => {
           setCanvasActionMessage("Fit All requested. The current workspace layout is already fit to visible assets.");
         }}
@@ -1382,6 +1406,18 @@ export function WorkspaceShell({
             } finally {
               setStartingCopilotGraphProfileId(null);
             }
+          }}
+        />
+      ) : null}
+      {pendingCrossTenantRun && activeGraphProfile?.shardingProfile ? (
+        <CrossTenantRunConfirmationOverlay
+          asset={pendingCrossTenantRun}
+          sharding={activeGraphProfile.shardingProfile}
+          onCancel={() => setPendingCrossTenantRun(null)}
+          onConfirm={() => {
+            const asset = pendingCrossTenantRun;
+            setPendingCrossTenantRun(null);
+            launchWorkflowRun(asset);
           }}
         />
       ) : null}

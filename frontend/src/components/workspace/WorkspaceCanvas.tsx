@@ -1,6 +1,7 @@
 "use client";
 
 import { AnalysisCatalogCanvas } from "./AnalysisCatalogCanvas";
+import { RetentionAdminCanvas } from "./RetentionAdminCanvas";
 import { UseCaseTemplateCanvas } from "./UseCaseTemplateCanvas";
 import { CanvasLensLegend } from "./CanvasLensLegend";
 import { ConnectionProfileCanvas } from "./ConnectionProfileCanvas";
@@ -38,7 +39,11 @@ import type {
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkflowRunStatusView,
-  WorkspaceAsset
+  WorkspaceAsset,
+  RetentionPolicy,
+  RetentionSweepResult,
+  SetRetentionPolicyInput,
+  VerticalProjectImportResult
 } from "@/lib/product-api/types";
 
 interface WorkspaceCanvasProps {
@@ -130,6 +135,15 @@ interface WorkspaceCanvasProps {
   ) => Promise<AnalysisTemplate>;
   onApproveAnalysisTemplate?: (id: string) => Promise<AnalysisTemplate>;
   onGetAnalysisTemplateVersions?: (id: string) => Promise<AnalysisTemplate[]>;
+  onImportVerticalProject?: (
+    document: string,
+    documentFormat?: string
+  ) => Promise<VerticalProjectImportResult>;
+  onGetRetentionPolicy?: () => Promise<RetentionPolicy>;
+  onSetRetentionPolicy?: (
+    input: SetRetentionPolicyInput
+  ) => Promise<RetentionPolicy>;
+  onApplyRetentionPolicy?: (dryRun?: boolean) => Promise<RetentionSweepResult>;
   onImportAnalysisTemplates?: (
     templates: Array<Record<string, unknown>>
   ) => Promise<AnalysisTemplate[]>;
@@ -218,6 +232,10 @@ export function WorkspaceCanvas({
   onApproveAnalysisTemplate,
   onGetAnalysisTemplateVersions,
   onImportAnalysisTemplates,
+  onImportVerticalProject,
+  onGetRetentionPolicy,
+  onSetRetentionPolicy,
+  onApplyRetentionPolicy,
   onFitCanvas,
   onCenterCanvas,
   onViewOperationalDAG,
@@ -250,7 +268,9 @@ export function WorkspaceCanvas({
                 ? "Analysis Catalog"
                 : selectedAsset?.kind === "use-cases"
                   ? "Use Cases & Templates"
-                  : "Operational DAG";
+                  : selectedAsset?.kind === "retention"
+                    ? "Retention"
+                    : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateWorkspace: onRequestCreateWorkspace,
@@ -369,7 +389,8 @@ export function WorkspaceCanvas({
         onUpdateAnalysisTemplate &&
         onApproveAnalysisTemplate &&
         onGetAnalysisTemplateVersions &&
-        onImportAnalysisTemplates ? (
+        onImportAnalysisTemplates &&
+        onImportVerticalProject ? (
         <UseCaseTemplateCanvas
           onBrowse={onBrowseAnalysisCatalog}
           onCreateUseCase={onCreateUseCase}
@@ -380,6 +401,16 @@ export function WorkspaceCanvas({
           onApproveTemplate={onApproveAnalysisTemplate}
           onGetTemplateVersions={onGetAnalysisTemplateVersions}
           onImportTemplates={onImportAnalysisTemplates}
+          onImportVerticalProject={onImportVerticalProject}
+        />
+      ) : selectedAsset.kind === "retention" &&
+        onGetRetentionPolicy &&
+        onSetRetentionPolicy &&
+        onApplyRetentionPolicy ? (
+        <RetentionAdminCanvas
+          onLoad={onGetRetentionPolicy}
+          onSave={onSetRetentionPolicy}
+          onApply={onApplyRetentionPolicy}
         />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section

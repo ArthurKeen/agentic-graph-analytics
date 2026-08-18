@@ -207,6 +207,15 @@ describe("product API client mappers", () => {
         kind: "use-cases",
         label: "Use Cases & Templates",
         description: "Author, review, and version analysis templates"
+      },
+      {
+        // FR-54: retention is an admin surface, so it is shown even when no
+        // policy is configured — "nothing configured" is the state an admin
+        // most needs to discover.
+        id: "retention:workspace-1",
+        kind: "retention",
+        label: "Retention",
+        description: "Configure retention windows and preview a sweep"
       }
     ]);
   });

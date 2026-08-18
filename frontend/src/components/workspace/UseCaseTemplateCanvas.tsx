@@ -7,7 +7,8 @@ import type {
   CreateAnalysisTemplateInput,
   CreateUseCaseInput,
   UseCase,
-  UseCaseStatus
+  UseCaseStatus,
+  VerticalProjectImportResult
 } from "@/lib/product-api/types";
 
 interface UseCaseTemplateCanvasProps {
@@ -29,6 +30,11 @@ interface UseCaseTemplateCanvasProps {
   onImportTemplates: (
     templates: Array<Record<string, unknown>>
   ) => Promise<AnalysisTemplate[]>;
+  /** FR-49/FR-50: import a whole vertical project bundle (use cases + templates). */
+  onImportVerticalProject: (
+    document: string,
+    documentFormat?: string
+  ) => Promise<VerticalProjectImportResult>;
 }
 
 const USE_CASE_TYPES = [
@@ -51,7 +57,8 @@ export function UseCaseTemplateCanvas({
   onUpdateTemplate,
   onApproveTemplate,
   onGetTemplateVersions,
-  onImportTemplates
+  onImportTemplates,
+  onImportVerticalProject
 }: UseCaseTemplateCanvasProps) {
   const [useCases, setUseCases] = useState<UseCase[]>([]);
   const [templates, setTemplates] = useState<AnalysisTemplate[]>([]);
@@ -74,6 +81,8 @@ export function UseCaseTemplateCanvas({
     id: string;
     versions: AnalysisTemplate[];
   } | null>(null);
+  const [importResult, setImportResult] =
+    useState<VerticalProjectImportResult | null>(null);
 
   const refresh = useCallback(async () => {
     const view = await onBrowse();
@@ -397,7 +406,49 @@ export function UseCaseTemplateCanvas({
           >
             Import Dictionary
           </button>
+          <button
+            type="button"
+            className="secondary-button"
+            title="Import a vertical project bundle (AdTech, clinical trials, OSINT) — see docs/vertical_project_bundle.md"
+            onClick={() => {
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = "application/json,.json,.yaml,.yml,text/yaml";
+              input.onchange = async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                // The importer parses both; the extension only picks which
+                // parser it tries first.
+                const format = /\.ya?ml$/i.test(file.name) ? "yaml" : "json";
+                try {
+                  const text = await file.text();
+                  await run(async () => {
+                    const result = await onImportVerticalProject(text, format);
+                    setImportResult(result);
+                  }, `Imported bundle "${file.name}".`);
+                } catch (error) {
+                  setErrorMessage(
+                    error instanceof Error ? error.message : "Failed to read file"
+                  );
+                }
+              };
+              input.click();
+            }}
+          >
+            Import Project Bundle
+          </button>
         </div>
+
+        {importResult ? (
+          <p className="muted">
+            Imported <strong>{importResult.projectName}</strong> (
+            {importResult.vertical}): {importResult.counts.use_cases} use case(s),{" "}
+            {importResult.counts.templates} template(s) as drafts.
+            {importResult.warnings.length > 0
+              ? ` Warnings: ${importResult.warnings.join("; ")}`
+              : ""}
+          </p>
+        ) : null}
 
         {templates.length === 0 ? (
           <p className="muted">No templates yet.</p>

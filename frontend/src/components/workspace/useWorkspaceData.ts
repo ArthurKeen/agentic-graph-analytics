@@ -43,6 +43,10 @@ import type {
   CreateUseCaseInput,
   UseCase,
   UseCaseStatus,
+  RetentionPolicy,
+  RetentionSweepResult,
+  SetRetentionPolicyInput,
+  VerticalProjectImportResult,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
   UploadSourceDocumentInput,
@@ -156,6 +160,17 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   importAnalysisTemplates: (
     templates: Array<Record<string, unknown>>
   ) => Promise<AnalysisTemplate[]>;
+  /** FR-54: read the workspace retention policy. */
+  getRetentionPolicy: () => Promise<RetentionPolicy>;
+  /** FR-54: configure retention windows. */
+  setRetentionPolicy: (input: SetRetentionPolicyInput) => Promise<RetentionPolicy>;
+  /** FR-54: sweep expired records; dry run unless dryRun is false. */
+  applyRetentionPolicy: (dryRun?: boolean) => Promise<RetentionSweepResult>;
+  /** FR-49/FR-50: import a vertical project bundle. */
+  importVerticalProject: (
+    document: string,
+    documentFormat?: string
+  ) => Promise<VerticalProjectImportResult>;
   /** FR-45: browse the workspace's analysis epochs and executions. */
   browseAnalysisCatalog: () => Promise<AnalysisCatalogView>;
   /** FR-46: server-side filtered execution search. */
@@ -853,6 +868,91 @@ export function useWorkspaceData({
     });
   };
 
+  const DEMO_RETENTION_POLICY: RetentionPolicy = {
+    workspaceId: "workspace-demo",
+    configured: true,
+    enabled: true,
+    draftRetentionDays: 30,
+    runRetentionDays: 90,
+    documentRetentionDays: 0,
+    reportSnapshotRetentionDays: 0,
+    auditLogRetentionDays: 0,
+    lastAppliedAt: null
+  };
+
+  const getRetentionPolicy = async (): Promise<RetentionPolicy> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.getRetentionPolicy(effectiveWorkspaceId);
+    }
+    return DEMO_RETENTION_POLICY;
+  };
+
+  const setRetentionPolicy = async (
+    input: SetRetentionPolicyInput
+  ): Promise<RetentionPolicy> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.setRetentionPolicy(effectiveWorkspaceId, input);
+    }
+    return { ...DEMO_RETENTION_POLICY, ...input };
+  };
+
+  const applyRetentionPolicy = async (
+    dryRun = true
+  ): Promise<RetentionSweepResult> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.applyRetentionPolicy(effectiveWorkspaceId, dryRun);
+    }
+    return {
+      workspaceId: "workspace-demo",
+      deleted: !dryRun,
+      enabled: true,
+      counts: {
+        drafts: 1,
+        runs: 2,
+        documents: 0,
+        report_snapshots: 0,
+        audit_logs: 0
+      },
+      candidates: {
+        drafts: [
+          { id: "requirement-version-demo-old", collection: "aga_requirement_versions", label: "v1 (draft)" }
+        ],
+        runs: [
+          { id: "run-demo-old-1", collection: "aga_workflow_runs", label: "agentic", ephemeral: true },
+          { id: "run-demo-old-2", collection: "aga_workflow_runs", label: "agentic" }
+        ],
+        documents: [],
+        report_snapshots: [],
+        audit_logs: []
+      },
+      protected: {
+        published_report_ids: ["report-demo"],
+        runs_with_published_reports: ["run-demo"]
+      },
+      ...(dryRun ? {} : { removed: 3 })
+    };
+  };
+
+  const importVerticalProject = async (
+    document: string,
+    documentFormat = "yaml"
+  ): Promise<VerticalProjectImportResult> => {
+    if (isLive && effectiveWorkspaceId) {
+      return apiClient.importVerticalProject(
+        effectiveWorkspaceId,
+        document,
+        documentFormat
+      );
+    }
+    return {
+      workspaceId: "workspace-demo",
+      vertical: "adtech",
+      projectName: "Demo bundle",
+      counts: { use_cases: 0, templates: 0 },
+      warnings: ["Demo mode: nothing was imported."]
+    };
+  };
+
   const browseAnalysisCatalog = async (): Promise<AnalysisCatalogView> => {
     if (isLive && effectiveWorkspaceId) {
       return apiClient.browseAnalysisCatalog(effectiveWorkspaceId);
@@ -1268,6 +1368,10 @@ export function useWorkspaceData({
     approveAnalysisTemplate,
     getAnalysisTemplateVersions,
     importAnalysisTemplates,
+    getRetentionPolicy,
+    setRetentionPolicy,
+    applyRetentionPolicy,
+    importVerticalProject,
     browseAnalysisCatalog,
     listAnalysisExecutions,
     compareAnalysisExecutions,

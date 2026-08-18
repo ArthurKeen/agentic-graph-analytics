@@ -31,6 +31,9 @@ export type WorkspaceAssetKind =
   | "analysis-catalog"
   // FR-19..FR-26: one consolidated "Use Cases & Templates" row per workspace.
   | "use-cases"
+  // FR-54: one consolidated "Retention" admin row per workspace. Always shown,
+  // because "no policy configured" is itself the thing an admin needs to see.
+  | "retention"
   | "run"
   | "report";
 
@@ -91,6 +94,122 @@ export interface GraphProfileSummary {
   edgeDefinitions: Array<Record<string, unknown>>;
   collectionRoles: Record<string, string[]>;
   counts: Record<string, number>;
+  /** FR-65: deployment sharding/tenancy layout, read from ArangoDB during
+   * discovery. Absent on profiles discovered before FR-65 shipped. */
+  shardingProfile?: ShardingProfile | null;
+}
+
+/** FR-65. Mirrors ShardingProfile.to_dict from ai/schema/sharding.py. */
+export interface ShardingProfile {
+  deploymentKind: string;
+  isOneShard: boolean;
+  isMultitenant: boolean;
+  tenantKey?: string | null;
+  shardKeys: string[];
+  smartGraphAttributes: string[];
+  maxNumberOfShards: number;
+  minReplicationFactor?: number | null;
+  satelliteCollections: string[];
+  warnings: string[];
+}
+
+export interface RawShardingProfile {
+  deployment_kind?: string;
+  is_one_shard?: boolean;
+  is_multitenant?: boolean;
+  tenant_key?: string | null;
+  shard_keys?: string[];
+  smart_graph_attributes?: string[];
+  max_number_of_shards?: number;
+  min_replication_factor?: number | null;
+  satellite_collections?: string[];
+  warnings?: string[];
+}
+
+/* --- Retention (FR-54) --- */
+
+export interface RetentionPolicy {
+  workspaceId: string;
+  configured: boolean;
+  enabled: boolean;
+  draftRetentionDays: number;
+  runRetentionDays: number;
+  documentRetentionDays: number;
+  reportSnapshotRetentionDays: number;
+  auditLogRetentionDays: number;
+  lastAppliedAt?: string | null;
+}
+
+export interface RetentionSweepCandidate {
+  id: string;
+  collection: string;
+  label?: string;
+  ephemeral?: boolean;
+}
+
+export interface RetentionSweepResult {
+  workspaceId: string;
+  /** false for a dry run — the default. */
+  deleted: boolean;
+  enabled: boolean;
+  reason?: string;
+  counts: Record<string, number>;
+  candidates: Record<string, RetentionSweepCandidate[]>;
+  protected: {
+    published_report_ids?: string[];
+    runs_with_published_reports?: string[];
+  };
+  removed?: number;
+}
+
+export interface SetRetentionPolicyInput {
+  enabled?: boolean;
+  draftRetentionDays?: number;
+  runRetentionDays?: number;
+  documentRetentionDays?: number;
+  reportSnapshotRetentionDays?: number;
+  auditLogRetentionDays?: number;
+}
+
+export interface RawRetentionPolicy {
+  workspace_id: string;
+  configured?: boolean;
+  enabled?: boolean;
+  draft_retention_days?: number;
+  run_retention_days?: number;
+  document_retention_days?: number;
+  report_snapshot_retention_days?: number;
+  audit_log_retention_days?: number;
+  last_applied_at?: string | null;
+}
+
+export interface RawRetentionSweepResult {
+  workspace_id: string;
+  deleted?: boolean;
+  enabled?: boolean;
+  reason?: string;
+  counts?: Record<string, number>;
+  candidates?: Record<string, RetentionSweepCandidate[]>;
+  protected?: Record<string, string[]>;
+  removed?: number;
+}
+
+/* --- Vertical project import (FR-49 / FR-50) --- */
+
+export interface VerticalProjectImportResult {
+  workspaceId: string;
+  vertical: string;
+  projectName: string;
+  counts: { use_cases: number; templates: number };
+  warnings: string[];
+}
+
+export interface RawVerticalProjectImportResult {
+  workspace_id: string;
+  vertical?: string;
+  project_name?: string;
+  counts?: { use_cases: number; templates: number };
+  warnings?: string[];
 }
 
 export interface SourceDocumentSummary {
@@ -825,6 +944,24 @@ export interface ProductAPIClient {
     workspaceId: string,
     templates: Array<Record<string, unknown>>
   ): Promise<AnalysisTemplate[]>;
+  /** FR-54: read the workspace retention policy. */
+  getRetentionPolicy(workspaceId: string): Promise<RetentionPolicy>;
+  /** FR-54: configure retention windows. */
+  setRetentionPolicy(
+    workspaceId: string,
+    input: SetRetentionPolicyInput
+  ): Promise<RetentionPolicy>;
+  /** FR-54: sweep expired records. Dry run unless dryRun is false. */
+  applyRetentionPolicy(
+    workspaceId: string,
+    dryRun?: boolean
+  ): Promise<RetentionSweepResult>;
+  /** FR-49/FR-50: import a vertical project bundle (YAML or JSON). */
+  importVerticalProject(
+    workspaceId: string,
+    document: string,
+    documentFormat?: string
+  ): Promise<VerticalProjectImportResult>;
   /** FR-45: browse epochs + executions for a workspace. */
   browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView>;
   /** FR-46: server-side filtered execution search. */
@@ -1015,6 +1152,10 @@ export interface RawGraphProfileSummary {
   edge_definitions?: Array<Record<string, unknown>>;
   collection_roles?: Record<string, string[]>;
   counts?: Record<string, number>;
+  analyzer_metadata?: { sharding_profile?: RawShardingProfile } & Record<
+    string,
+    unknown
+  >;
 }
 
 export interface RawWorkflowDAGNode {
