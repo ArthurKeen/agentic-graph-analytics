@@ -1,0 +1,600 @@
+<title>Agentic Graph Analytics</title>
+<style>
+  /* ---------- tokens: light is the base; all three theme states defined at token level ---------- */
+  :root {
+    --paper:        #F7F8F6;
+    --paper-raised: #FFFFFF;
+    --paper-sunk:   #EDEFEB;
+    --ink:          #11161A;
+    --ink-soft:     #3D474D;
+    --ink-faint:    #737E84;
+    --rule:         #DBD9D2;
+    --rule-strong:  #BDBBB3;
+
+    --accent:      #0F6E5C;
+    --accent-wash: #E4EFEB;
+    --caution:     #966014;
+    --caution-wash:#F6EEDF;
+    --alert:       #A32E32;
+
+    --display: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --body: "Iowan Old Style", "Charter", Charter, Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:        #11161A;
+      --paper-raised: #171D22;
+      --paper-sunk:   #0C1013;
+      --ink:          #EDEFEB;
+      --ink-soft:     #B4BCC1;
+      --ink-faint:    #7C868C;
+      --rule:         #29323A;
+      --rule-strong:  #3E4952;
+
+      --accent:      #4FBFA3;
+      --accent-wash: #16302A;
+      --caution:     #D9A75B;
+      --caution-wash:#302617;
+      --alert:       #E58B87;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:        #11161A;
+    --paper-raised: #171D22;
+    --paper-sunk:   #0C1013;
+    --ink:          #EDEFEB;
+    --ink-soft:     #B4BCC1;
+    --ink-faint:    #7C868C;
+    --rule:         #29323A;
+    --rule-strong:  #3E4952;
+
+    --accent:      #4FBFA3;
+    --accent-wash: #16302A;
+    --caution:     #D9A75B;
+    --caution-wash:#302617;
+    --alert:       #E58B87;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- deck mechanics ---------- */
+  .deck {
+    scroll-snap-type: y mandatory;
+    height: 100vh;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) { .deck { scroll-behavior: auto; } }
+
+  .slide {
+    scroll-snap-align: start;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 26px;
+    padding: 72px clamp(24px, 6vw, 96px) 88px;
+    border-bottom: 1px solid var(--rule);
+    position: relative;
+  }
+  .slide > * { max-width: 62rem; width: 100%; }
+
+  .foot {
+    position: absolute;
+    left: clamp(24px, 6vw, 96px);
+    right: clamp(24px, 6vw, 96px);
+    bottom: 28px;
+    max-width: none;
+    width: auto;
+    margin: 0;
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+  }
+  .foot span { font-variant-numeric: tabular-nums; }
+
+  /* ---------- type ---------- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .eyebrow.step { color: var(--accent); }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 800;
+    letter-spacing: -0.032em;
+    font-size: clamp(2.4rem, 6vw, 4.5rem);
+    line-height: 1.02;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h2 {
+    font-family: var(--display);
+    font-weight: 750;
+    letter-spacing: -0.024em;
+    font-size: clamp(1.75rem, 3.7vw, 2.7rem);
+    line-height: 1.1;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h3 {
+    font-family: var(--display);
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    font-size: 1.06rem;
+    margin: 0 0 6px;
+  }
+
+  p { margin: 0; max-width: 65ch; }
+  .lede { font-size: clamp(1.1rem, 1.7vw, 1.34rem); color: var(--ink-soft); }
+  .kicker {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(1.15rem, 2vw, 1.5rem);
+    letter-spacing: -0.015em;
+    line-height: 1.3;
+    text-wrap: balance;
+    max-width: 48ch;
+  }
+
+  /* ---------- components ---------- */
+  .cols {
+    display: grid;
+    gap: 22px;
+    grid-template-columns: repeat(auto-fit, minmax(min(258px, 100%), 1fr));
+  }
+  .card {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 20px 22px;
+  }
+  .card p { font-size: 0.94rem; color: var(--ink-soft); }
+  .card .q {
+    font-style: italic;
+    color: var(--ink);
+    font-size: 1rem;
+    margin-bottom: 10px;
+  }
+
+  ul.plain { margin: 0; padding-left: 20px; max-width: 66ch; }
+  ul.plain li { margin-bottom: 11px; color: var(--ink-soft); }
+  ul.plain li strong { color: var(--ink); }
+
+  ul.tight { margin: 8px 0 0; padding-left: 18px; }
+  ul.tight li { font-size: 0.92rem; color: var(--ink-soft); margin-bottom: 5px; }
+
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  code {
+    background: var(--paper-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  /* the pipeline — the product's own spine, so the deck uses it as structure */
+  .pipeline {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(min(178px, 100%), 1fr));
+    counter-reset: stage;
+  }
+  .stage {
+    background: var(--paper-raised);
+    border: 1px solid var(--rule);
+    border-top: 2px solid var(--accent);
+    border-radius: 3px;
+    padding: 16px 17px;
+    position: relative;
+  }
+  .stage::before {
+    counter-increment: stage;
+    content: counter(stage, decimal-leading-zero);
+    display: block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .stage h3 { font-size: 0.98rem; margin-bottom: 5px; }
+  .stage p { font-size: 0.86rem; color: var(--ink-soft); }
+
+  /* state chips: form as well as colour, so status reads at a glance */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 4px 9px;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .chip::before {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+  }
+  .chip.on  { color: var(--accent);  background: var(--accent-wash); }
+  .chip.hold{ color: var(--caution); background: var(--caution-wash); border-style: dashed; }
+
+  .callout {
+    background: var(--caution-wash);
+    border: 1px solid var(--caution);
+    border-radius: 4px;
+    padding: 18px 20px;
+    max-width: 62rem;
+  }
+  .callout .eyebrow { color: var(--caution); }
+  .callout p { color: var(--ink); font-size: 0.97rem; margin-top: 6px; }
+
+  .pull {
+    border-left: 3px solid var(--accent);
+    padding: 4px 0 4px 22px;
+    font-size: clamp(1.16rem, 2.1vw, 1.5rem);
+    line-height: 1.34;
+    font-style: italic;
+    text-wrap: balance;
+    max-width: 48ch;
+  }
+
+  .verticals { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); }
+  .vertical {
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    padding: 16px 20px;
+    background: var(--paper-raised);
+  }
+  .vertical h3 { font-size: 1rem; }
+
+  .metrics { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); }
+  .metric .n {
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: clamp(2rem, 4.2vw, 3rem);
+    letter-spacing: -0.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    display: block;
+  }
+  .metric .l {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-top: 8px;
+  }
+
+  .hint {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  hr.rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+
+<main class="deck" id="deck" tabindex="-1">
+
+  <!-- 01 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">Agentic Graph Analytics</p>
+    <h1>Your data already knows who the key players are.</h1>
+    <p class="lede">Connect a database, say what you want to know in plain English, and get a reviewed, reproducible analysis back &mdash; without writing a line of code.</p>
+    <p class="hint">Scroll, or use &darr; / &rarr; to advance</p>
+    <div class="foot"><span>01 / 11</span><span>Agentic Graph Analytics</span></div>
+  </section>
+
+  <!-- 02 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">The opportunity</p>
+    <h2>The questions spreadsheets can&rsquo;t answer</h2>
+    <p>Every organisation can tell you totals. The questions that change decisions are about <em>relationships</em>.</p>
+    <div class="cols">
+      <div class="card">
+        <p class="q">&ldquo;Which accounts sit at the centre of unusual money movement?&rdquo;</p>
+        <p>Fraud &amp; financial crime</p>
+      </div>
+      <div class="card">
+        <p class="q">&ldquo;Which audiences secretly overlap, so we pay twice to reach the same people?&rdquo;</p>
+        <p>Advertising &amp; identity</p>
+      </div>
+      <div class="card">
+        <p class="q">&ldquo;Which trial sites cluster around the same investigators &mdash; and what if one leaves?&rdquo;</p>
+        <p>Clinical research</p>
+      </div>
+      <div class="card">
+        <p class="q">&ldquo;Which suppliers are we exposed to three hops away, through companies we&rsquo;ve never heard of?&rdquo;</p>
+        <p>Supply chain &amp; risk</p>
+      </div>
+    </div>
+    <p>None of these are answerable by filtering rows. They&rsquo;re about the <strong>shape of the connections</strong> between things.</p>
+    <div class="foot"><span>02 / 11</span><span>The opportunity</span></div>
+  </section>
+
+  <!-- 03 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">Why now</p>
+    <h2>The maths was never the obstacle</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>PageRank</h3>
+        <p>The technique that made Google work. Tells you what&rsquo;s <strong>influential</strong> in a network &mdash; not what&rsquo;s biggest, what&rsquo;s best-connected to other well-connected things.</p>
+      </div>
+      <div class="card">
+        <h3>Community detection</h3>
+        <p>Finds the <strong>clusters</strong> nobody drew on the org chart &mdash; groups that behave as a unit whether or not anyone intended them to.</p>
+      </div>
+      <div class="card">
+        <h3>Path &amp; reachability</h3>
+        <p>Traces how <strong>exposure travels</strong>. Who is two steps from a sanctioned party; what breaks if this node disappears.</p>
+      </div>
+    </div>
+    <p class="pull">These have been production-ready for a decade. What took weeks was the specialist work between having a database and having an answer.</p>
+    <div class="foot"><span>03 / 11</span><span>Why now</span></div>
+  </section>
+
+  <!-- 04 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">The product</p>
+    <h2>Database to defensible answer, in five stages</h2>
+    <div class="pipeline">
+      <div class="stage">
+        <h3>Connect</h3>
+        <p>Verify reachability, permissions and compute availability before you invest any time.</p>
+      </div>
+      <div class="stage">
+        <h3>Discover</h3>
+        <p>The schema is read from the database. You don&rsquo;t describe your data model &mdash; it finds it.</p>
+      </div>
+      <div class="stage">
+        <h3>Ask</h3>
+        <p>Upload your requirements document, or let the Copilot interview you about your actual graph.</p>
+      </div>
+      <div class="stage">
+        <h3>Curate</h3>
+        <p>Agents propose analyses. You approve, adjust or reject before anything runs.</p>
+      </div>
+      <div class="stage">
+        <h3>Run &amp; publish</h3>
+        <p>Live pipeline, results back in your database, reports with full lineage.</p>
+      </div>
+    </div>
+    <p>One console, a growing library of reusable templates &mdash; instead of a bespoke project per engagement.</p>
+    <div class="foot"><span>04 / 11</span><span>The product</span></div>
+  </section>
+
+  <!-- 05 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow step">Stage 02 &mdash; Discover</p>
+    <h2>It reads the map, however messy the map is</h2>
+    <p class="lede">Real databases don&rsquo;t look like tutorials. Getting this stage right is what everything downstream depends on.</p>
+    <ul class="plain">
+      <li><strong>Many logical types in one container.</strong> Plenty of databases cram dozens of entity types into a single collection, told apart by a <code>type</code> field. Naive tooling reports &ldquo;one entity type: <span class="mono">Entities</span>&rdquo; &mdash; which is useless. This doesn&rsquo;t.</li>
+      <li><strong>Several graphs sharing a database.</strong> A document corpus beside an extracted knowledge graph beside a straightforward HR dataset. Each is profiled separately and <em>classified by what it&rsquo;s for</em>.</li>
+      <li><strong>Cross-graph links.</strong> Where those graphs actually join up is discovered by sampling real edges, not guessed from naming conventions.</li>
+      <li><strong>Physical layout.</strong> How the data is spread across machines, read from the database itself &mdash; because that decides whether an analysis needs an expensive shuffle or can stay local.</li>
+    </ul>
+    <div class="foot"><span>05 / 11</span><span>Discover</span></div>
+  </section>
+
+  <!-- 06 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow step">Stage 03 &mdash; Ask</p>
+    <h2>Two ways in, depending on where you&rsquo;re starting</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>Upload what you already have</h3>
+        <p>Requirements are usually already written down &mdash; a brief, a PDF, a Word document. Upload it and the structured objectives, requirements and constraints are extracted from the prose.</p>
+      </div>
+      <div class="card">
+        <h3>Or let the Copilot interview you</h3>
+        <p>Not a generic questionnaire. It has already seen your entity types, your relationship types, your volumes and whether your data is partitioned by customer &mdash; so it asks about <em>your</em> graph.</p>
+      </div>
+    </div>
+    <p>Either way you end up with a <strong>versioned</strong> requirements document you can review, edit, approve and revisit. Every analysis traces back to it.</p>
+    <div class="foot"><span>06 / 11</span><span>Ask</span></div>
+  </section>
+
+  <!-- 07 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow step">Stage 04 &mdash; Curate</p>
+    <h2>Agents propose. People approve.</h2>
+    <p>Given your requirements and your schema, agents propose concrete analytical questions worth asking of this graph &mdash; each becoming a template with a chosen algorithm, its parameters, and its scope.</p>
+    <div class="cols">
+      <div class="card">
+        <h3>Nothing runs unreviewed</h3>
+        <p>Templates arrive as <span class="chip hold">Draft</span> and stay there until a person approves them.</p>
+      </div>
+      <div class="card">
+        <h3>Approved means immutable</h3>
+        <p>Editing an approved template creates a <strong>new version</strong> rather than mutating the old one, so a published report always points at exactly what produced it.</p>
+      </div>
+      <div class="card">
+        <h3>Every knob is visible</h3>
+        <p>Disagree with the algorithm choice or the parameters? Change them. The agents do the tedious mapping; you keep the judgement.</p>
+      </div>
+    </div>
+    <div class="foot"><span>07 / 11</span><span>Curate</span></div>
+  </section>
+
+  <!-- 08 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow step">Stage 05 &mdash; Run &amp; publish</p>
+    <h2>Watch it work, then defend the number</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>Three ways to run</h3>
+        <ul class="tight">
+          <li><strong>Quick</strong> &mdash; one prompt, one report, no setup</li>
+          <li><strong>Guided</strong> &mdash; Copilot interview, then a focused analysis</li>
+          <li><strong>Detailed</strong> &mdash; full requirements, many use cases, branches in parallel</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Live pipeline</h3>
+        <p>Every step with its status, artifacts and warnings. Retry, pause and resume &mdash; a failure at step four doesn&rsquo;t mean starting over.</p>
+      </div>
+      <div class="card">
+        <h3>Reports that stay true</h3>
+        <p>Rendered from database records, not exported as files. No more circulating a PDF that&rsquo;s four months stale.</p>
+      </div>
+    </div>
+    <p>Because everything is a record with lineage, you can <strong>compare this quarter against last</strong>, trace any figure back to the template, requirement version and run that produced it, and re-run months later with a defensible account of what changed.</p>
+    <div class="foot"><span>08 / 11</span><span>Run &amp; publish</span></div>
+  </section>
+
+  <!-- 09 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">Past the demo</p>
+    <h2>Built for how deployments actually look</h2>
+    <div class="callout">
+      <p class="eyebrow">The one that saves you from yourself</p>
+      <p>Many production databases hold many customers&rsquo; data in one place, kept apart by a single field. Run an analysis blind across that and you get a beautiful result that <strong>mixes customers together</strong> &mdash; worse than no result. The product detects that layout from the database, names the field it found, and warns you before the run starts.</p>
+    </div>
+    <div class="cols">
+      <div class="card">
+        <h3>Secrets stay out</h3>
+        <p>Credentials are held as references, never values. Exported bundles exclude them.</p>
+      </div>
+      <div class="card">
+        <h3>Everything is audited</h3>
+        <p>Create, update, approve, launch, publish, import, export, archive &mdash; recorded and attributable.</p>
+      </div>
+      <div class="card">
+        <h3>Retention that shows its work</h3>
+        <p>The cleanup sweep is a <strong>dry run by default</strong>: it names every record it would remove before anything is deleted. Approved requirements, published snapshots and the runs behind them are never removed at any age.</p>
+      </div>
+    </div>
+    <div class="foot"><span>09 / 11</span><span>Governance</span></div>
+  </section>
+
+  <!-- 10 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">Time to value</p>
+    <h2>Start from a vertical, not from zero</h2>
+    <p>Import a portable <strong>project bundle</strong> carrying a domain&rsquo;s use cases and analysis templates in one file.</p>
+    <div class="verticals">
+      <div class="vertical">
+        <h3>AdTech &amp; identity graphs</h3>
+        <p>Audience overlap, identity resolution, influence ranking across the ad supply chain.</p>
+      </div>
+      <div class="vertical">
+        <h3>Clinical trials &amp; CRO networks</h3>
+        <p>Site clustering, investigator networks, enrolment-path analysis.</p>
+      </div>
+      <div class="vertical">
+        <h3>Open source intelligence</h3>
+        <p>Entity linkage, indirect-exposure discovery, community structure.</p>
+      </div>
+    </div>
+    <p>Bundles import as <span class="chip hold">Draft</span>, never as approved work &mdash; a starter pack is a starting point, not something that quietly starts running. Importing cannot execute code: a file that tries to smuggle executable content is rejected rather than run. The format is documented, so your team&rsquo;s accumulated templates become the bundle you hand to the next project.</p>
+    <div class="foot"><span>10 / 11</span><span>Verticals</span></div>
+  </section>
+
+  <!-- 11 ─────────────────────────────────────────── -->
+  <section class="slide">
+    <p class="eyebrow">Who it&rsquo;s for</p>
+    <h2>Ask the question. Keep the receipt.</h2>
+    <div class="cols">
+      <div class="card">
+        <h3>Solutions &amp; data teams</h3>
+        <p>Currently spinning up a bespoke project per engagement. Trade that for one console and a growing template library.</p>
+      </div>
+      <div class="card">
+        <h3>Domain analysts</h3>
+        <p>You don&rsquo;t need to know what a damping factor is to ask &ldquo;who are the key players here?&rdquo; Review the proposal in business terms.</p>
+      </div>
+      <div class="card">
+        <h3>Anyone defending a number</h3>
+        <p>Versioned requirements, immutable approved templates, run lineage and a full audit trail. &ldquo;Where did this come from?&rdquo; is a link, not an excavation.</p>
+      </div>
+    </div>
+    <hr class="rule">
+    <div class="metrics">
+      <div class="metric"><span class="n">5</span><span class="l">stages, one console</span></div>
+      <div class="metric"><span class="n">3</span><span class="l">run modes</span></div>
+      <div class="metric"><span class="n">3</span><span class="l">vertical starter bundles</span></div>
+      <div class="metric"><span class="n">0</span><span class="l">lines of code to write</span></div>
+    </div>
+    <p class="kicker">Connect a database. Say what you want to know. Review what the agents propose. Run it, share it, and come back next quarter to see what changed.</p>
+    <p class="hint">Runs on ArangoDB &mdash; a database that stores data as a network of connected things, with an engine built to run these algorithms at scale.</p>
+    <div class="foot"><span>11 / 11</span><span>Get started</span></div>
+  </section>
+
+</main>
+
+<script>
+  // Keyboard navigation between slides, without hijacking normal scrolling.
+  (function () {
+    var deck = document.getElementById("deck");
+    var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
+
+    function current() {
+      var top = deck.scrollTop, best = 0, bestDist = Infinity;
+      slides.forEach(function (s, i) {
+        var d = Math.abs(s.offsetTop - top);
+        if (d < bestDist) { bestDist = d; best = i; }
+      });
+      return best;
+    }
+
+    function go(delta) {
+      var next = Math.min(slides.length - 1, Math.max(0, current() + delta));
+      slides[next].scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    document.addEventListener("keydown", function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      switch (e.key) {
+        case "ArrowDown": case "ArrowRight": case "PageDown":
+          e.preventDefault(); go(1); break;
+        case "ArrowUp": case "ArrowLeft": case "PageUp":
+          e.preventDefault(); go(-1); break;
+        case "Home":
+          e.preventDefault(); slides[0].scrollIntoView({ block: "start" }); break;
+        case "End":
+          e.preventDefault(); slides[slides.length - 1].scrollIntoView({ block: "start" }); break;
+      }
+    });
+  })();
+</script>
