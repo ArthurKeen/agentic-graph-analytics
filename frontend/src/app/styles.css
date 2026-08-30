@@ -1667,3 +1667,23 @@ button {
   border-color: var(--aga-warning, #f0b429);
   color: var(--aga-warning, #f0b429);
 }
+
+/* FR-37: a step's artifact reference that resolves to an openable asset. Reads
+ * as a link, not a button, so it does not compete with the canvas actions. */
+.artifact-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--aga-accent);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.artifact-link:hover,
+.artifact-link:focus-visible {
+  color: var(--aga-accent-strong);
+  outline: none;
+  text-decoration-thickness: 2px;
+}

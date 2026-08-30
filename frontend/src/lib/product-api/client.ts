@@ -81,6 +81,7 @@ import type {
   WorkflowRunSummary,
   WorkflowStepStatus,
   WorkflowStepUpdateResult,
+  WorkflowArtifactRef,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -1481,4 +1482,48 @@ function mapWorkflowEdge(raw: RawWorkflowDAGView["edges"][number]): WorkflowDAGE
     to: raw.to,
     label: raw.label
   };
+}
+
+/**
+ * FR-37: route a workflow step's artifact reference to the asset that shows it.
+ *
+ * Refs carry a backend `type` (`report`, `graph_profile`, …) while the Assets
+ * panel keys off UI `kind`s, and the two do not use the same vocabulary. Some
+ * assets are per-record and match by id; others are synthetic singletons
+ * (Requirements, Use Cases & Templates, Analysis Catalog) whose ids are
+ * workspace-scoped strings, so those match on kind alone and the ref's id is
+ * used afterwards to focus the right row inside the canvas.
+ *
+ * Returns null when nothing can show the ref, so the caller can leave it as
+ * plain text rather than rendering a control that does nothing.
+ */
+export function resolveArtifactAsset(
+  ref: WorkflowArtifactRef,
+  assets: WorkspaceAsset[]
+): WorkspaceAsset | null {
+  const byId: Record<string, WorkspaceAsset["kind"]> = {
+    report: "report",
+    graph_profile: "graph-profile",
+    connection_profile: "connection-profile",
+    source_document: "document",
+    run: "run"
+  };
+  const bySingleton: Record<string, WorkspaceAsset["kind"]> = {
+    requirement_version: "requirements",
+    use_case: "use-cases",
+    analysis_template: "use-cases",
+    analysis_execution: "analysis-catalog"
+  };
+
+  const idKind = byId[ref.type];
+  if (idKind) {
+    return assets.find((asset) => asset.kind === idKind && asset.id === ref.id) ?? null;
+  }
+
+  const singletonKind = bySingleton[ref.type];
+  if (singletonKind) {
+    return assets.find((asset) => asset.kind === singletonKind) ?? null;
+  }
+
+  return null;
 }

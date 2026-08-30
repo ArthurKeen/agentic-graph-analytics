@@ -31,6 +31,7 @@ import type {
   WorkspaceAsset,
   WorkspaceSummary
 } from "@/lib/product-api/types";
+import { resolveArtifactAsset } from "@/lib/product-api/client";
 
 interface WorkspaceShellProps {
   initialWorkspaceId?: string;
@@ -773,6 +774,21 @@ export function WorkspaceShell({
         activeRequirementInterview={activeRequirementInterview}
         approvedRequirementVersion={approvedRequirementVersion}
         showHelp={showHelp}
+        canOpenArtifact={(ref) => resolveArtifactAsset(ref, visibleAssets) !== null}
+        onOpenArtifact={(ref) => {
+          const target = resolveArtifactAsset(ref, visibleAssets);
+          if (!target) {
+            return;
+          }
+          setSelectedAsset(target);
+          setSelectedStep(null);
+          // Requirements is one consolidated row covering every version, so
+          // selecting it is not enough — point the canvas dropdown at the
+          // version the step actually produced.
+          if (ref.type === "requirement_version") {
+            setSelectedRequirementVersionId(ref.id);
+          }
+        }}
         onSelectStep={setSelectedStep}
         onRetryWorkflowStep={(step) => {
           if (selectedAsset?.kind !== "run") {

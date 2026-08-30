@@ -16,7 +16,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..ai.schema.acquire import (
     SchemaAcquisitionBundle,
@@ -996,7 +996,7 @@ class ProductService:
             workspace_id=run.workspace_id,
             status=run.status.value,
             workflow_mode=run.workflow_mode.value,
-            nodes=[self._workflow_step_node(step) for step in run.steps],
+            nodes=[self._workflow_step_node(step, run) for step in run.steps],
             edges=[self._workflow_edge(edge) for edge in run.dag_edges],
             warnings=run.warnings,
             errors=run.errors,
@@ -5540,9 +5540,89 @@ class ProductService:
             snapshots=[snapshot.to_dict() for snapshot in snapshots],
         )
 
-    def _workflow_step_node(self, step: WorkflowStep) -> Dict[str, Any]:
+    #: FR-37 — which run-level artifact each canonical agentic step produces.
+    #: Keyed by canonical step id (see ``_build_canonical_agentic_dag``); the
+    #: value is the ``WorkflowRun`` attribute and the ref ``type`` the UI
+    #: routes on. ``use_case_generation`` has no entry because the run record
+    #: does not carry use-case ids.
+    _STEP_ARTIFACT_SOURCES: Dict[str, Tuple[str, str]] = {
+        "schema_analysis": ("graph_profile_id", "graph_profile"),
+        "requirements_extraction": ("requirement_version_id", "requirement_version"),
+        "template_generation": ("template_ids", "analysis_template"),
+        "execution": ("analysis_execution_ids", "analysis_execution"),
+        "reporting": ("report_ids", "report"),
+    }
+
+    def _derive_step_artifact_refs(
+        self, step: WorkflowStep, run: WorkflowRun
+    ) -> List[Dict[str, str]]:
+        """Attribute the run's artifacts to the step that produced them.
+
+        FR-37 requires step details to link to what the step produced, but
+        nothing in the product code ever wrote ``WorkflowStep.artifact_refs``
+        — only tests did. Every step therefore reported "Artifacts: 0" for
+        every real run, which is exactly the test-only shape the drift policy
+        calls deceptive.
+
+        The run itself already records what was produced (`report_ids`,
+        `analysis_execution_ids`, and friends), and the canonical agentic DAG
+        fixes which step produces which kind (FR-31a), so the mapping is
+        knowable without the executor writing anything. Derive it here rather
+        than backfilling stored rows, so runs completed before this existed
+        also link correctly.
+
+        Explicitly stored refs always win: a future executor that records real
+        per-step provenance should not be second-guessed by this fallback.
+        """
+
+        source = self._STEP_ARTIFACT_SOURCES.get(step.step_id)
+        if source is None:
+            return []
+
+        attribute, ref_type = source
+        value = getattr(run, attribute, None)
+        if value:
+            ids = value if isinstance(value, list) else [value]
+            return [
+                {"type": ref_type, "id": artifact_id}
+                for artifact_id in ids
+                if artifact_id
+            ]
+
+        # The run's own back-references are not always filled in — the seeded
+        # AdTech run has ten reports and an empty `report_ids`. Reports and
+        # executions each carry `run_id` themselves, so that reverse edge is
+        # the linkage that actually exists; fall back to it and label reports
+        # with their titles, which beats showing the user a bare UUID.
+        if ref_type == "report":
+            return [
+                {"type": ref_type, "id": report.report_id, "label": report.title}
+                for report in self.repository.list_report_manifests(run.workspace_id)
+                if getattr(report, "run_id", None) == run.run_id
+            ]
+
+        if ref_type == "analysis_execution":
+            return [
+                {"type": ref_type, "id": execution.analysis_execution_id}
+                for execution in self.repository.list_analysis_executions(
+                    run.workspace_id
+                )
+                if getattr(execution, "run_id", None) == run.run_id
+            ]
+
+        return []
+
+    def _workflow_step_node(
+        self, step: WorkflowStep, run: Optional[WorkflowRun] = None
+    ) -> Dict[str, Any]:
         node = step.to_dict()
         node["id"] = step.step_id
+        if run is not None and not node.get("artifact_refs"):
+            refs = self._derive_step_artifact_refs(step, run)
+            if refs:
+                node["artifact_refs"] = refs
+                # artifact_count is what the panel headlines; keep it honest.
+                node["artifact_count"] = len(refs)
         return node
 
     def _workflow_edge(self, edge: WorkflowDAGEdge) -> Dict[str, Any]:

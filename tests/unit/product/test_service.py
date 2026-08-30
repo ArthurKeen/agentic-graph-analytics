@@ -3206,3 +3206,90 @@ def test_browse_catalog_returns_real_templates_and_use_cases():
     assert [item["name"] for item in catalog["templates"]] == ["PageRank"]
     assert catalog["unresolved_template_ids"] == []
     assert catalog["unresolved_use_case_ids"] == []
+
+
+def test_workflow_dag_view_derives_step_artifact_refs():
+    """FR-37: step nodes link to the artifacts that step produced.
+
+    Nothing in the product code ever wrote ``WorkflowStep.artifact_refs`` —
+    only tests did — so every step of every real run reported "Artifacts: 0".
+    The DAG view now derives the refs from the run's own record.
+    """
+
+    repository = FakeProductRepository()
+    run = create_workflow_run(
+        workspace_id="workspace-1",
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=WorkflowRunStatus.COMPLETED,
+        graph_profile_id="graph-profile-1",
+        steps=[
+            WorkflowStep(step_id="schema_analysis", label="Schema Analysis"),
+            WorkflowStep(step_id="reporting", label="Reporting"),
+        ],
+        dag_edges=[
+            WorkflowDAGEdge(from_step_id="schema_analysis", to_step_id="reporting")
+        ],
+    )
+    repository.workflow_runs[run.run_id] = run
+
+    # Reports carry `run_id` themselves; the run's own `report_ids` is empty,
+    # which is exactly the shape the seeded AdTech workspace has.
+    for index in range(3):
+        manifest = create_report_manifest(
+            workspace_id="workspace-1",
+            run_id=run.run_id,
+            title=f"Report {index}",
+        )
+        repository.reports[manifest.report_id] = manifest
+    unrelated = create_report_manifest(
+        workspace_id="workspace-1",
+        run_id="run-somewhere-else",
+        title="Not this run",
+    )
+    repository.reports[unrelated.report_id] = unrelated
+
+    view = ProductService(repository).get_workflow_dag_view(run.run_id)
+    nodes = {node["id"]: node for node in view.nodes}
+
+    assert nodes["schema_analysis"]["artifact_refs"] == [
+        {"type": "graph_profile", "id": "graph-profile-1"}
+    ]
+    assert nodes["schema_analysis"]["artifact_count"] == 1
+
+    reporting_refs = nodes["reporting"]["artifact_refs"]
+    assert len(reporting_refs) == 3
+    assert {ref["type"] for ref in reporting_refs} == {"report"}
+    assert unrelated.report_id not in {ref["id"] for ref in reporting_refs}
+    # Titles beat bare UUIDs in the step detail panel.
+    assert {ref["label"] for ref in reporting_refs} == {
+        "Report 0",
+        "Report 1",
+        "Report 2",
+    }
+    assert nodes["reporting"]["artifact_count"] == 3
+
+
+def test_workflow_dag_view_prefers_stored_artifact_refs():
+    """Derivation is a fallback: real per-step provenance is never overwritten."""
+
+    repository = FakeProductRepository()
+    stored = [{"type": "analysis_execution", "id": "execution-explicit"}]
+    run = create_workflow_run(
+        workspace_id="workspace-1",
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=WorkflowRunStatus.COMPLETED,
+        graph_profile_id="graph-profile-1",
+        steps=[
+            WorkflowStep(
+                step_id="schema_analysis",
+                label="Schema Analysis",
+                artifact_refs=stored,
+            )
+        ],
+        dag_edges=[],
+    )
+    repository.workflow_runs[run.run_id] = run
+
+    view = ProductService(repository).get_workflow_dag_view(run.run_id)
+
+    assert view.nodes[0]["artifact_refs"] == stored

@@ -36,6 +36,7 @@ import type {
   RequirementInterview,
   RequirementVersion,
   SourceDocumentSummary,
+  WorkflowArtifactRef,
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkflowRunStatusView,
@@ -78,6 +79,13 @@ interface WorkspaceCanvasProps {
   approvedRequirementVersion: RequirementVersion | null;
   showHelp: boolean;
   isAssetInfoOpen: boolean;
+  /** FR-37: whether an artifact ref resolves to an asset this workspace can
+   * show. Kept separate from `onOpenArtifact` so render stays side-effect
+   * free — the predicate decides link-vs-text, the handler does the work. */
+  canOpenArtifact?: (ref: WorkflowArtifactRef) => boolean;
+  /** FR-37: open the asset a step artifact refers to. Optional so the canvas
+   * still renders (as plain text) where the shell has not wired routing. */
+  onOpenArtifact?: (ref: WorkflowArtifactRef) => void;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onRetryWorkflowStep: (step: WorkflowDAGNode) => void;
   /** FR-31a: cooperative cancel for the currently displayed agentic
@@ -206,6 +214,8 @@ export function WorkspaceCanvas({
   approvedRequirementVersion,
   showHelp,
   isAssetInfoOpen,
+  canOpenArtifact,
+  onOpenArtifact,
   onSelectStep,
   onRetryWorkflowStep,
   onCancelWorkflowRun,
@@ -544,11 +554,31 @@ export function WorkspaceCanvas({
           <p>Artifacts: {selectedStep.artifactCount}</p>
           {selectedStep.artifactRefs && selectedStep.artifactRefs.length > 0 ? (
             <ul className="copilot-question-list">
-              {selectedStep.artifactRefs.map((ref, index) => (
-                <li key={`${ref.type}-${ref.id}-${index}`}>
-                  {ref.label ?? `${ref.type}: ${ref.id}`}
-                </li>
-              ))}
+              {selectedStep.artifactRefs.map((ref, index) => {
+                const text = ref.label ?? `${ref.type}: ${ref.id}`;
+                // Only render a control when the shell can actually open the
+                // ref; an unroutable type stays plain text rather than a
+                // button that does nothing when clicked.
+                const canOpen = (canOpenArtifact?.(ref) ?? false) && Boolean(onOpenArtifact);
+                return (
+                  <li key={`${ref.type}-${ref.id}-${index}`}>
+                    {canOpen ? (
+                      <button
+                        type="button"
+                        className="artifact-link"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenArtifact?.(ref);
+                        }}
+                      >
+                        {text}
+                      </button>
+                    ) : (
+                      text
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
           <p>Warnings: {selectedStep.warningCount}</p>
