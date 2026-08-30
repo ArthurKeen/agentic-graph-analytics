@@ -504,6 +504,30 @@ export function createProductAPIClient(
         )
       );
     },
+    /** FR-15: turn a document's extracted requirements into a DRAFT version. */
+    async promoteExtractedRequirements(
+      documentId: string,
+      actor = "workspace-ui"
+    ): Promise<RequirementVersion> {
+      return mapRequirementVersion(
+        await postJSON<RawRequirementVersion>(
+          `${normalizedBaseUrl}/api/documents/${documentId}/promote-requirements`,
+          { actor }
+        )
+      );
+    },
+    /** FR-15: activate a DRAFT version, superseding the prior approved set. */
+    async approveRequirementVersion(
+      requirementVersionId: string,
+      approvedBy = "workspace-ui"
+    ): Promise<RequirementVersion> {
+      return mapRequirementVersion(
+        await postJSON<RawRequirementVersion>(
+          `${normalizedBaseUrl}/api/requirement-versions/${requirementVersionId}/approve`,
+          { approved_by: approvedBy }
+        )
+      );
+    },
     async approveRequirementsCopilotDraft(
       requirementInterviewId: string,
       version: number | null,

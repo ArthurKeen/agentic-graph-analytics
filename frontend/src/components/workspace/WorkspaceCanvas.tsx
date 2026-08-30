@@ -82,6 +82,10 @@ interface WorkspaceCanvasProps {
   /** FR-37: whether an artifact ref resolves to an asset this workspace can
    * show. Kept separate from `onOpenArtifact` so render stays side-effect
    * free — the predicate decides link-vs-text, the handler does the work. */
+  /** FR-15: promote a document's extracted requirements into a draft. */
+  onPromoteRequirements?: (documentId: string) => void;
+  isPromotingRequirements?: boolean;
+  promoteRequirementsErrorMessage?: string | null;
   canOpenArtifact?: (ref: WorkflowArtifactRef) => boolean;
   /** FR-37: open the asset a step artifact refers to. Optional so the canvas
    * still renders (as plain text) where the shell has not wired routing. */
@@ -214,6 +218,9 @@ export function WorkspaceCanvas({
   approvedRequirementVersion,
   showHelp,
   isAssetInfoOpen,
+  onPromoteRequirements,
+  isPromotingRequirements,
+  promoteRequirementsErrorMessage,
   canOpenArtifact,
   onOpenArtifact,
   onSelectStep,
@@ -364,7 +371,12 @@ export function WorkspaceCanvas({
           onDiscoverGraph={onRequestDiscoverGraph}
         />
       ) : sourceDocument && selectedAsset.kind === "document" ? (
-        <SourceDocumentCanvas document={sourceDocument} />
+        <SourceDocumentCanvas
+          document={sourceDocument}
+          onPromoteRequirements={onPromoteRequirements}
+          isPromotingRequirements={isPromotingRequirements}
+          promoteRequirementsErrorMessage={promoteRequirementsErrorMessage}
+        />
       ) : graphProfile && selectedAsset.kind === "graph-profile" ? (
         <GraphProfileCanvas
           graphProfile={graphProfile}

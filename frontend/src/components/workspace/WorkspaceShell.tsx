@@ -103,6 +103,7 @@ export function WorkspaceShell({
     updateWorkflowStep,
     requirementVersions,
     approvedRequirementVersion: activeApprovedRequirementVersion,
+    promoteExtractedRequirements,
     refreshOverview
   } = useWorkspaceData({
     initialWorkspaceId,
@@ -292,6 +293,9 @@ export function WorkspaceShell({
   // view without forcing the user to re-pick. URL deep-links seed this with
   // an explicit id; the URL is rewritten whenever the user picks a different
   // version (see effect below).
+  const [isPromotingRequirements, setIsPromotingRequirements] = useState(false);
+  const [promoteRequirementsErrorMessage, setPromoteRequirementsErrorMessage] =
+    useState<string | null>(null);
   const [selectedRequirementVersionId, setSelectedRequirementVersionId] = useState<
     string | null
   >(initialRequirementVersionId ?? null);
@@ -774,6 +778,31 @@ export function WorkspaceShell({
         activeRequirementInterview={activeRequirementInterview}
         approvedRequirementVersion={approvedRequirementVersion}
         showHelp={showHelp}
+        isPromotingRequirements={isPromotingRequirements}
+        promoteRequirementsErrorMessage={promoteRequirementsErrorMessage}
+        onPromoteRequirements={(documentId) => {
+          setPromoteRequirementsErrorMessage(null);
+          setIsPromotingRequirements(true);
+          promoteExtractedRequirements(documentId)
+            .then((version) => {
+              // Land the user on the draft they just created, rather than
+              // leaving them on the document wondering whether it worked.
+              setSelectedRequirementVersionId(version.requirementVersionId);
+              const requirementsAsset = visibleAssets.find(
+                (asset) => asset.kind === "requirements"
+              );
+              if (requirementsAsset) {
+                setSelectedAsset(requirementsAsset);
+                setSelectedStep(null);
+              }
+            })
+            .catch((error: unknown) => {
+              setPromoteRequirementsErrorMessage(
+                error instanceof Error ? error.message : String(error)
+              );
+            })
+            .finally(() => setIsPromotingRequirements(false));
+        }}
         canOpenArtifact={(ref) => resolveArtifactAsset(ref, visibleAssets) !== null}
         onOpenArtifact={(ref) => {
           const target = resolveArtifactAsset(ref, visibleAssets);

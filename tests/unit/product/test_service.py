@@ -34,7 +34,11 @@ from graph_analytics_ai.product import (
     create_workflow_run,
     create_workspace,
 )
-from graph_analytics_ai.product.exceptions import ConflictError, ValidationError
+from graph_analytics_ai.product.exceptions import (
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
 from graph_analytics_ai.product.models import (
     AnalysisTemplateStatus,
     DeploymentMode,
@@ -194,6 +198,12 @@ class FakeProductRepository:
     def create_source_document(self, document):
         self.source_documents.append(document)
         return document.document_id
+
+    def get_source_document(self, document_id):
+        for document in self.source_documents:
+            if document.document_id == document_id:
+                return document
+        raise NotFoundError(f"Source document {document_id} not found")
 
     def list_requirement_versions(self, workspace_id):
         return [
@@ -2680,7 +2690,7 @@ def test_upload_source_document_extracts_text_and_audits(monkeypatch):
     # FR-15 extraction needs an LLM provider; force the unavailable path
     # so this test covers upload + text extraction deterministically.
     monkeypatch.setattr(
-        ProductService, "_extract_requirements_summary", staticmethod(lambda _doc: None)
+        ProductService, "_extract_requirements", staticmethod(lambda _doc: None)
     )
 
     repository = FakeProductRepository()
@@ -3293,3 +3303,143 @@ def test_workflow_dag_view_prefers_stored_artifact_refs():
     view = ProductService(repository).get_workflow_dag_view(run.run_id)
 
     assert view.nodes[0]["artifact_refs"] == stored
+
+
+def _document_with_extraction(repository, workspace, payload):
+    document = create_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="brd.md",
+        mime_type="text/markdown",
+        sha256="abc123",
+        storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+        extracted_text="# Requirements",
+        metadata={"extracted_requirements_draft": payload},
+    )
+    repository.create_source_document(document)
+    return document
+
+
+_EXTRACTION_PAYLOAD = {
+    "summary": "Build an identity graph.",
+    "objectives": [
+        {"id": "OBJ-1", "text": "Achieve data autonomy", "source": "document_extraction"}
+    ],
+    "requirements": [
+        {"id": "REQ-1", "text": "Stitch devices to IPs", "source": "document_extraction"}
+    ],
+    "constraints": [
+        {"id": "CON-1", "text": "Must run on GAE", "source": "document_extraction"}
+    ],
+}
+
+
+def test_promote_extracted_requirements_creates_approvable_draft():
+    """FR-15: extracted requirements reach an approvable RequirementVersion.
+
+    Extraction ran on upload and was persisted, but nothing could consume it —
+    there was no path from an uploaded document to a requirement version, so
+    the extracted content was effectively write-only.
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    document = _document_with_extraction(repository, workspace, _EXTRACTION_PAYLOAD)
+    service = ProductService(repository)
+
+    version = service.promote_extracted_requirements(
+        document.document_id, actor="arthur"
+    )
+
+    # DRAFT, not APPROVED: machine extraction is a proposal, so the
+    # workspace's single active version must not change without a human.
+    assert version.status is RequirementVersionStatus.DRAFT
+    assert version.version == 1
+    assert version.document_ids == [document.document_id]
+    assert version.summary == "Build an identity graph."
+    # The content survives — the lossy to_summary_dict() shape could not have
+    # produced this, which is what blocked promotion before.
+    assert [item["text"] for item in version.requirements] == ["Stitch devices to IPs"]
+    assert [item["text"] for item in version.objectives] == ["Achieve data autonomy"]
+    assert [item["text"] for item in version.constraints] == ["Must run on GAE"]
+    assert version.metadata["source"] == "document_extraction"
+    assert version.metadata["source_document_id"] == document.document_id
+
+
+def test_promote_extracted_requirements_without_extraction_is_actionable():
+    """No LLM at upload time means nothing to promote — say so clearly."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    document = create_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="brd.md",
+        mime_type="text/markdown",
+        sha256="abc123",
+        storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+        extracted_text="# Requirements",
+    )
+    repository.create_source_document(document)
+
+    with pytest.raises(ValidationError, match="no extracted requirements"):
+        ProductService(repository).promote_extracted_requirements(document.document_id)
+
+
+def test_approve_requirement_version_supersedes_the_prior_active_set():
+    """A promoted draft can be activated, keeping exactly one APPROVED version.
+
+    The Copilot's approve path works from an interview, so a version promoted
+    from document extraction had no way to be activated at all.
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    prior = create_requirement_version(
+        workspace_id=workspace.workspace_id,
+        version=1,
+        status=RequirementVersionStatus.APPROVED,
+        summary="Earlier approved set",
+    )
+    repository.create_requirement_version(prior)
+    document = _document_with_extraction(repository, workspace, _EXTRACTION_PAYLOAD)
+    service = ProductService(repository)
+
+    draft = service.promote_extracted_requirements(document.document_id)
+    assert draft.version == 2
+
+    approved = service.approve_requirement_version(
+        draft.requirement_version_id, approved_by="arthur"
+    )
+
+    assert approved.status is RequirementVersionStatus.APPROVED
+    assert approved.approved_at is not None
+    assert approved.metadata["approved_by"] == "arthur"
+
+    refreshed_prior = repository.get_requirement_version(prior.requirement_version_id)
+    assert refreshed_prior.status is RequirementVersionStatus.SUPERSEDED
+    assert refreshed_prior.metadata["superseded_by"] == draft.requirement_version_id
+
+    active = [
+        version
+        for version in repository.list_requirement_versions(workspace.workspace_id)
+        if version.status is RequirementVersionStatus.APPROVED
+    ]
+    assert len(active) == 1
+
+
+def test_approve_requirement_version_rejects_non_draft():
+    """Superseded/archived versions must not be silently reactivated."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    superseded = create_requirement_version(
+        workspace_id=workspace.workspace_id,
+        version=1,
+        status=RequirementVersionStatus.SUPERSEDED,
+        summary="Old",
+    )
+    repository.create_requirement_version(superseded)
+
+    with pytest.raises(ValidationError, match="Only DRAFT"):
+        ProductService(repository).approve_requirement_version(
+            superseded.requirement_version_id
+        )

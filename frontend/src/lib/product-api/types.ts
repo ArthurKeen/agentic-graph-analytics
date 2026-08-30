@@ -996,6 +996,16 @@ export interface ProductAPIClient {
   generateRequirementsCopilotDraft(
     requirementInterviewId: string
   ): Promise<RequirementsDraftResult>;
+  /** FR-15: promote a document's extracted requirements into a DRAFT version. */
+  promoteExtractedRequirements(
+    documentId: string,
+    actor?: string
+  ): Promise<RequirementVersion>;
+  /** FR-15: approve a DRAFT requirement version, superseding the prior set. */
+  approveRequirementVersion(
+    requirementVersionId: string,
+    approvedBy?: string
+  ): Promise<RequirementVersion>;
   approveRequirementsCopilotDraft(
     requirementInterviewId: string,
     /** Pass `null` (recommended) to auto-increment to max(existing.version)+1.

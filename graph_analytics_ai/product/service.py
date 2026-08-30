@@ -4904,9 +4904,15 @@ class ProductService:
             metadata["extraction_errors"] = extraction_errors
 
         if extract_requirements and parsed_document and extracted_text.strip():
-            summary = self._extract_requirements_summary(parsed_document)
-            if summary is not None:
-                metadata["extracted_requirements"] = summary
+            extracted = self._extract_requirements(parsed_document)
+            if extracted is not None:
+                # The summary stays for at-a-glance display; the draft payload
+                # is what `promote_extracted_requirements` needs, because the
+                # summary is lossy by design (counts, not requirement text).
+                metadata["extracted_requirements"] = extracted.to_summary_dict()
+                metadata["extracted_requirements_draft"] = (
+                    self._extracted_requirements_payload(extracted)
+                )
 
         document = create_source_document(
             workspace_id=workspace_id,
@@ -4971,8 +4977,12 @@ class ProductService:
                     pass
 
     @staticmethod
-    def _extract_requirements_summary(parsed_document: Any) -> Optional[Dict[str, Any]]:
+    def _extract_requirements(parsed_document: Any) -> Optional[Any]:
         """Run LLM requirements extraction (FR-15), or return None.
+
+        Returns the ``ExtractedRequirements`` itself rather than its summary:
+        the caller needs the full content to build a promotable draft, and
+        ``to_summary_dict()`` discards requirement text.
 
         Requires a configured LLM provider; returns ``None`` whenever
         that is unavailable or extraction fails, so document upload
@@ -4982,8 +4992,7 @@ class ProductService:
         try:
             from ..ai.documents.extractor import RequirementsExtractor
 
-            extracted = RequirementsExtractor().extract([parsed_document])
-            return extracted.to_summary_dict()
+            return RequirementsExtractor().extract([parsed_document])
         except Exception:  # noqa: BLE001 — extraction is best-effort
             logger.info(
                 "Requirements extraction unavailable for uploaded document; "
@@ -4991,6 +5000,195 @@ class ProductService:
                 exc_info=True,
             )
             return None
+
+    @staticmethod
+    def _extracted_requirements_payload(extracted: Any) -> Dict[str, Any]:
+        """Serialise extraction output into RequirementVersion shape (FR-15).
+
+        ``ExtractedRequirements.to_summary_dict()`` is built for LLM prompting:
+        it reports *counts* (``requirements_by_type``,
+        ``success_criteria_count``) and drops requirement text entirely. That
+        is unusable as the basis of a requirement version, which is why the
+        extracted requirements could be stored but never promoted. This keeps
+        the content — text, priority, type, success criteria — in the same
+        ``{id, text, source}``-cored item shape the Copilot path produces, so
+        both origins yield versions the rest of the product can read
+        identically.
+        """
+
+        def _value(field: Any) -> Optional[str]:
+            return getattr(field, "value", field) if field is not None else None
+
+        objectives = [
+            {
+                "id": objective.id or f"OBJ-{index}",
+                "text": objective.title,
+                "source": "document_extraction",
+                "description": objective.description,
+                "priority": _value(objective.priority),
+                "success_criteria": list(objective.success_criteria or []),
+            }
+            for index, objective in enumerate(extracted.objectives or [], start=1)
+        ]
+        requirements = [
+            {
+                "id": requirement.id or f"REQ-{index}",
+                "text": requirement.text,
+                "source": "document_extraction",
+                "type": _value(requirement.requirement_type),
+                "priority": _value(requirement.priority),
+                "stakeholders": list(requirement.stakeholders or []),
+                "source_document": requirement.source_document,
+            }
+            for index, requirement in enumerate(extracted.requirements or [], start=1)
+        ]
+        constraints = [
+            {
+                "id": f"CON-{index}",
+                "text": constraint,
+                "source": "document_extraction",
+            }
+            for index, constraint in enumerate(extracted.constraints or [], start=1)
+        ]
+        return {
+            "summary": extracted.summary or "",
+            "objectives": objectives,
+            "requirements": requirements,
+            "constraints": constraints,
+        }
+
+    def promote_extracted_requirements(
+        self,
+        document_id: str,
+        actor: Optional[str] = None,
+    ) -> RequirementVersion:
+        """Promote a document's extracted requirements into a DRAFT version.
+
+        FR-15: extraction ran on upload and the result was persisted, but
+        nothing could consume it — there was no path from an uploaded document
+        to an approvable ``RequirementVersion``, so the extracted requirements
+        were effectively write-only.
+
+        A DRAFT (not APPROVED) is created deliberately: machine extraction is
+        a proposal, and the workspace's single active version should only
+        change once a human approves it via ``approve_requirement_version``.
+        """
+
+        document = self.repository.get_source_document(document_id)
+        payload = (document.metadata or {}).get("extracted_requirements_draft")
+        if not payload:
+            raise ValidationError(
+                "This document has no extracted requirements to promote. "
+                "Requirements extraction requires a configured LLM provider at "
+                "upload time; re-upload the document once one is available."
+            )
+
+        existing_versions = self.repository.list_requirement_versions(
+            document.workspace_id
+        )
+        next_version = max({v.version for v in existing_versions}, default=0) + 1
+
+        requirement_version = create_requirement_version(
+            workspace_id=document.workspace_id,
+            version=next_version,
+            status=RequirementVersionStatus.DRAFT,
+            document_ids=[document.document_id],
+            summary=payload.get("summary") or f"Extracted from {document.filename}",
+            objectives=payload.get("objectives") or [],
+            requirements=payload.get("requirements") or [],
+            constraints=payload.get("constraints") or [],
+            metadata={
+                "source": "document_extraction",
+                "source_document_id": document.document_id,
+                "source_filename": document.filename,
+                "promoted_by": actor,
+            },
+        )
+        self.repository.create_requirement_version(requirement_version)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=document.workspace_id,
+                actor=actor or "system",
+                action="promote_extracted_requirements",
+                target_type="requirement_version",
+                target_id=requirement_version.requirement_version_id,
+                details={
+                    "document_id": document.document_id,
+                    "version": next_version,
+                },
+            )
+        )
+        return requirement_version
+
+    def approve_requirement_version(
+        self,
+        requirement_version_id: str,
+        approved_by: Optional[str] = None,
+    ) -> RequirementVersion:
+        """Approve an existing DRAFT requirement version (FR-15/FR-17).
+
+        The Copilot had the only approval path, and it approves *from an
+        interview*. A version promoted from document extraction has no
+        interview, so without this it could be created but never activated.
+        """
+
+        requirement_version = self.repository.get_requirement_version(
+            requirement_version_id
+        )
+        if requirement_version.status is RequirementVersionStatus.APPROVED:
+            return requirement_version
+        if requirement_version.status is not RequirementVersionStatus.DRAFT:
+            raise ValidationError(
+                "Only DRAFT requirement versions can be approved; "
+                f"v{requirement_version.version} is "
+                f"{requirement_version.status.value}."
+            )
+
+        requirement_version.status = RequirementVersionStatus.APPROVED
+        requirement_version.approved_at = current_timestamp()
+        requirement_version.metadata = {
+            **(requirement_version.metadata or {}),
+            "approved_by": approved_by,
+        }
+        self.repository.update_requirement_version(requirement_version)
+
+        self._supersede_prior_approved_versions(
+            workspace_id=requirement_version.workspace_id,
+            new_version_id=requirement_version.requirement_version_id,
+        )
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=requirement_version.workspace_id,
+                actor=approved_by or "system",
+                action="approve_requirement_version",
+                target_type="requirement_version",
+                target_id=requirement_version.requirement_version_id,
+                details={"version": requirement_version.version},
+            )
+        )
+        return requirement_version
+
+    def _supersede_prior_approved_versions(
+        self,
+        workspace_id: str,
+        new_version_id: str,
+    ) -> None:
+        """Flip other APPROVED versions to SUPERSEDED.
+
+        Keeps the workspace invariant of exactly one active requirement set.
+        """
+
+        for prior in self.repository.list_requirement_versions(workspace_id):
+            if prior.requirement_version_id == new_version_id:
+                continue
+            if prior.status is RequirementVersionStatus.APPROVED:
+                prior.status = RequirementVersionStatus.SUPERSEDED
+                prior.metadata = {
+                    **(prior.metadata or {}),
+                    "superseded_by": new_version_id,
+                    "superseded_at": current_timestamp().isoformat(),
+                }
+                self.repository.update_requirement_version(prior)
 
     def list_source_documents(self, workspace_id: str) -> List[SourceDocument]:
         """List uploaded source documents for a workspace (FR-13/FR-14)."""
@@ -5247,15 +5445,10 @@ class ProductService:
 
         # Flip any prior APPROVED versions to SUPERSEDED so the workspace has
         # exactly one active set of requirements.
-        for prior in existing_versions:
-            if prior.status is RequirementVersionStatus.APPROVED:
-                prior.status = RequirementVersionStatus.SUPERSEDED
-                prior.metadata = {
-                    **(prior.metadata or {}),
-                    "superseded_by": requirement_version.requirement_version_id,
-                    "superseded_at": current_timestamp().isoformat(),
-                }
-                self.repository.update_requirement_version(prior)
+        self._supersede_prior_approved_versions(
+            workspace_id=interview.workspace_id,
+            new_version_id=requirement_version.requirement_version_id,
+        )
 
         interview.status = RequirementInterviewStatus.APPROVED
         self.repository.update_requirement_interview(interview)

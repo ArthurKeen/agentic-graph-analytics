@@ -128,6 +128,25 @@ PRODUCT_API_ENDPOINTS = [
         tags=["documents"],
         response_model="List[SourceDocument]",
     ),
+    # FR-15: extraction ran on upload and was persisted, but nothing could
+    # consume it. These two close the path document -> DRAFT version ->
+    # APPROVED, without routing through a Requirements Copilot interview.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/documents/{document_id}/promote-requirements",
+        service_method="promote_extracted_requirements",
+        summary="Promote a document's extracted requirements into a draft version",
+        tags=["documents", "requirements"],
+        response_model="RequirementVersion",
+    ),
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/requirement-versions/{requirement_version_id}/approve",
+        service_method="approve_requirement_version",
+        summary="Approve a draft requirement version",
+        tags=["requirements"],
+        response_model="RequirementVersion",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/connection-profiles/{connection_profile_id}/verify",

@@ -218,6 +218,9 @@ interface WorkspaceDataResult extends WorkspaceDataState {
    * + RequirementVersionCanvas. Returns a no-op promise when the hook is in
    * demo mode. */
   refreshOverview: () => Promise<void>;
+  /** FR-15: promote a document's extracted requirements into a DRAFT
+   * requirement version, then refresh so the new version is selectable. */
+  promoteExtractedRequirements: (documentId: string) => Promise<RequirementVersion>;
   exportWorkspaceBundle: () => Promise<WorkspaceBundle>;
   importWorkspaceBundle: (bundle: WorkspaceBundle) => Promise<WorkspaceImportResult>;
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<CreateWorkflowRunResult>;
@@ -523,6 +526,14 @@ export function useWorkspaceData({
     const archived = await apiClient.archiveWorkspace(workspaceId, actor);
     await refreshOverview();
     return archived;
+  };
+
+  const promoteExtractedRequirements = async (
+    documentId: string
+  ): Promise<RequirementVersion> => {
+    const version = await apiClient.promoteExtractedRequirements(documentId);
+    await refreshOverview();
+    return version;
   };
 
   const setActiveGraphProfile = async (
@@ -1383,6 +1394,7 @@ export function useWorkspaceData({
     generateRequirementsCopilotDraft,
     approveRequirementsCopilotDraft,
     refreshOverview,
+    promoteExtractedRequirements,
     exportWorkspaceBundle,
     importWorkspaceBundle,
     createWorkflowRun,
