@@ -17,6 +17,7 @@ import { UploadSourceDocumentOverlay } from "./UploadSourceDocumentOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { QuickAnalysisOverlay } from "./QuickAnalysisOverlay";
 import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
+import { ThemeToggle } from "./ThemeToggle";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -584,6 +585,9 @@ export function WorkspaceShell({
 
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
+      {/* Fixed to the viewport rather than placed in the canvas header, so the
+          toggle is reachable in every canvas state including the empty one. */}
+      <ThemeToggle />
       <DataSourceBanner
         status={status}
         errorMessage={errorMessage}

@@ -72,10 +72,22 @@ export function AssetExplorer({
   return (
     <aside className="asset-explorer" aria-label="Workspace assets">
       <div className="workspace-brand">
+        {/* Two variants: the stock logo has a white wordmark, which is
+            invisible on the light canvas. The -light file recolours only the
+            white ink to body-text grey, leaving the avocado and sparkle
+            untouched. CSS shows exactly one per theme. */}
         <img
-          className="workspace-brand-logo"
-          src="/arango-logo.png"
+          className="workspace-brand-logo workspace-brand-logo--on-light"
+          src="/arango-logo-light.png"
           alt="Arango"
+          width={343}
+          height={76}
+        />
+        <img
+          className="workspace-brand-logo workspace-brand-logo--on-dark"
+          src="/arango-logo.png"
+          alt=""
+          aria-hidden="true"
           width={343}
           height={76}
         />
