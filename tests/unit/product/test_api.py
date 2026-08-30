@@ -1,5 +1,8 @@
 """Unit tests for product API contract definitions."""
 
+import re
+from inspect import Parameter, signature
+
 from graph_analytics_ai.product import (
     DeploymentMode,
     PRODUCT_API_ENDPOINTS,
@@ -9,6 +12,55 @@ from graph_analytics_ai.product import (
     list_product_api_endpoints,
 )
 from graph_analytics_ai.product.models import WorkflowDAGEdge, WorkflowStep
+
+
+def test_every_get_route_can_supply_its_service_methods_required_args():
+    """A GET route must carry every required service argument in its path.
+
+    GET/DELETE requests have no body, so the dispatcher can only source
+    arguments from path params (and optional query params, which by definition
+    have defaults). A required service parameter that is not in the path
+    template can therefore *never* be supplied, and the route 500s on every
+    call with ``TypeError: missing 1 required positional argument``.
+
+    This shipped once: ``GET /api/catalog/stats`` mapped to
+    ``get_analysis_catalog_stats(workspace_id)`` with no ``{workspace_id}`` in
+    the path. A route-existence assertion passed while the route was
+    unconditionally broken, so assert invocability rather than presence.
+    """
+
+    from graph_analytics_ai.product.service import ProductService
+
+    bodyless_methods = {"GET", "DELETE", "HEAD"}
+    failures = []
+
+    for endpoint in PRODUCT_API_ENDPOINTS:
+        if endpoint.method not in bodyless_methods:
+            continue
+        service_method = getattr(ProductService, endpoint.service_method, None)
+        if service_method is None:
+            failures.append(
+                f"{endpoint.method} {endpoint.path}: "
+                f"ProductService has no method {endpoint.service_method!r}"
+            )
+            continue
+
+        path_params = set(re.findall(r"{(\w+)}", endpoint.path))
+        for name, parameter in signature(service_method).parameters.items():
+            if name == "self":
+                continue
+            if parameter.kind in (Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD):
+                continue
+            if parameter.default is not Parameter.empty:
+                continue
+            if name not in path_params:
+                failures.append(
+                    f"{endpoint.method} {endpoint.path} -> "
+                    f"{endpoint.service_method}(): required argument {name!r} "
+                    f"cannot be supplied (not in path params {sorted(path_params)})"
+                )
+
+    assert not failures, "Uninvocable routes:\n" + "\n".join(failures)
 
 
 def test_product_api_contract_includes_core_ui_routes():
@@ -53,7 +105,7 @@ def test_product_api_contract_includes_core_ui_routes():
         "GET",
         "/api/workspaces/{workspace_id}/analysis-epochs",
     ) in route_keys
-    assert ("GET", "/api/catalog/stats") in route_keys
+    assert ("GET", "/api/workspaces/{workspace_id}/catalog/stats") in route_keys
     # FR-19..FR-26: use cases and analysis templates as product records.
     assert ("POST", "/api/workspaces/{workspace_id}/use-cases") in route_keys
     assert ("GET", "/api/workspaces/{workspace_id}/use-cases") in route_keys

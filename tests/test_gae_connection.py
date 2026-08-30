@@ -210,7 +210,13 @@ class TestGenAIGAEConnection:
         assert service_id == "s2"
         assert connection.engine_id == "s2"
         connection.start_engine.assert_not_called()
-        connection.get_engine_version.assert_called_once()
+        # One probe selects the candidate; the readiness gate then requires
+        # several *consecutive* successful probes before declaring the service
+        # ready (guards against a DEPLOYED service whose ingress route has not
+        # propagated). The exact probe count is that gate's business — what
+        # this test pins is that an existing service was reused and health was
+        # actually checked, not a magic number.
+        assert connection.get_engine_version.call_count >= 1
 
     @patch("graph_analytics_ai.gae_connection.get_arango_config")
     def test_ensure_service_starts_new_if_none_exist(
@@ -295,17 +301,29 @@ class TestGenAIGAEConnection:
         connection._get_engine_url = MagicMock(
             return_value="https://test.local:8529/gral/s1"
         )
+        # Never start a real service: without this the test escapes its mocks
+        # and makes a live network call when the reuse path bails out.
+        connection.start_engine = MagicMock(return_value="should-not-be-used")
 
-        # First call fails, second succeeds
+        # Probe 1 selects the candidate. The readiness gate then needs three
+        # CONSECUTIVE successes, so the transient failure at probe 2 resets the
+        # streak and probes 3-5 must all succeed before the service is ready.
         connection.get_engine_version = MagicMock(
-            side_effect=[Exception("Not ready"), {"version": "1.0"}]
+            side_effect=[
+                {"version": "1.0"},
+                Exception("Not ready"),
+                {"version": "1.0"},
+                {"version": "1.0"},
+                {"version": "1.0"},
+            ]
         )
 
         with patch("time.sleep", return_value=None):  # Skip sleep delay
             service_id = connection.ensure_service(reuse_existing=True, max_retries=5)
 
         assert service_id == "s1"
-        assert connection.get_engine_version.call_count == 2
+        connection.start_engine.assert_not_called()
+        assert connection.get_engine_version.call_count == 5
 
 
 class TestGetGAEConnection:

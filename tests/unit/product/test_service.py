@@ -1,6 +1,7 @@
 """Unit tests for product UI application services."""
 
 import hashlib
+import logging
 
 import pytest
 
@@ -40,6 +41,8 @@ from graph_analytics_ai.product.models import (
     DocumentStorageMode,
     UseCaseOrigin,
     UseCaseStatus,
+    create_analysis_template,
+    create_use_case,
 )
 from graph_analytics_ai.ai.schema.models import (
     CollectionSchema,
@@ -715,15 +718,17 @@ def test_workspace_overview_counts_and_recent_items():
 
 
 def test_workspace_overview_returns_all_requirement_versions_uncapped():
-    """FR-17c: every RequirementVersion must appear in the overview.
+    """Every navigable asset list must appear in the overview uncapped.
 
-    The consolidated Requirements asset and its canvas-side version dropdown
-    are projected from ``overview.latest_requirement_versions``. If that list
-    is truncated by ``recent_limit``, older versions silently disappear from
-    the dropdown even though the spec requires that "all historical versions
-    remain queryable and individually addressable". Other ``latest_*`` fields
-    (reports, workflow runs, etc.) must remain capped because they grow
-    unbounded and the cap is a UI affordance, not a correctness requirement.
+    The Assets panel is the ONLY entry point that can open these entities, so
+    a ``recent_limit`` slice is not a UI affordance — it is data loss. Anything
+    past the cap is permanently unreachable while ``counts`` keeps advertising
+    it. This bit FR-17c first (requirement versions: "all historical versions
+    remain queryable and individually addressable") and then FR-41 (reports:
+    ``counts.reports`` reported 10 while only 5 could be opened).
+
+    ``latest_audit_events`` is the one list that stays capped — it is a genuine
+    "recent activity" feed, not a navigable asset list.
     """
 
     repository = FakeProductRepository()
@@ -753,20 +758,54 @@ def test_workspace_overview_returns_all_requirement_versions_uncapped():
             )
         )
 
+    cap = 5
+    over_cap = cap + 3
+
     run = create_workflow_run(
         workspace_id=workspace.workspace_id,
         workflow_mode=WorkflowMode.AGENTIC,
     )
     repository.workflow_runs[run.run_id] = run
-    cap = 5
-    extra_reports = cap + 3
-    for index in range(extra_reports):
+    for _ in range(over_cap - 1):
+        extra_run = create_workflow_run(
+            workspace_id=workspace.workspace_id,
+            workflow_mode=WorkflowMode.AGENTIC,
+        )
+        repository.workflow_runs[extra_run.run_id] = extra_run
+
+    for index in range(over_cap):
         report = create_report_manifest(
             workspace_id=workspace.workspace_id,
             run_id=run.run_id,
             title=f"Report {index}",
         )
         repository.reports[report.report_id] = report
+
+        profile = create_connection_profile(
+            workspace_id=workspace.workspace_id,
+            name=f"connection-{index}",
+            deployment_mode=DeploymentMode.SELF_MANAGED,
+            endpoint="https://example.invalid:8529",
+            database="example",
+            username="root",
+        )
+        repository.connection_profiles.append(profile)
+
+        graph_profile = create_graph_profile(
+            workspace_id=workspace.workspace_id,
+            connection_profile_id=profile.connection_profile_id,
+            graph_name=f"graph-{index}",
+        )
+        repository.graph_profiles.append(graph_profile)
+
+        document = create_source_document(
+            workspace_id=workspace.workspace_id,
+            filename=f"doc-{index}.md",
+            mime_type="text/markdown",
+            sha256=f"{index:064d}",
+            storage_mode=DocumentStorageMode.INLINE,
+        )
+        repository.source_documents.append(document)
 
     overview = ProductService(repository).get_workspace_overview(
         workspace.workspace_id,
@@ -781,8 +820,24 @@ def test_workspace_overview_returns_all_requirement_versions_uncapped():
     assert returned_versions == sorted(returned_versions, reverse=True)
     assert returned_versions == list(range(total_versions, 0, -1))
 
-    assert len(overview.latest_reports) == cap
-    assert overview.counts["reports"] == extra_reports
+    # Every navigable asset list is uncapped, and each one matches the count
+    # the same overview advertises — a list shorter than its own count is
+    # exactly the "listed but unopenable" defect this guards against.
+    for field_name, count_key in (
+        ("latest_reports", "reports"),
+        ("latest_connection_profiles", "connection_profiles"),
+        ("latest_graph_profiles", "graph_profiles"),
+        ("latest_source_documents", "source_documents"),
+        ("latest_workflow_runs", "workflow_runs"),
+    ):
+        projected = getattr(overview, field_name)
+        assert len(projected) == over_cap, f"{field_name} was truncated"
+        assert overview.counts[count_key] == len(projected), (
+            f"{field_name} does not match counts[{count_key}]"
+        )
+
+    # The audit feed is the deliberate exception and stays capped.
+    assert len(overview.latest_audit_events) <= cap
 
 
 def test_workspace_health_identifies_missing_and_failed_metadata():
@@ -1266,9 +1321,25 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
             target_id=workspace.workspace_id,
         )
     )
+    # FR-51 names templates explicitly, and use cases became product records in
+    # the same FR-19..FR-26 work. The exporter predated both, so an "exported"
+    # workspace silently lost them and could not be restored intact.
+    use_case = create_use_case(
+        workspace_id=workspace.workspace_id,
+        title="Identify influential accounts",
+    )
+    source_repository.use_cases.append(use_case)
+    template = create_analysis_template(
+        workspace_id=workspace.workspace_id,
+        name="PageRank baseline",
+    )
+    source_repository.analysis_templates.append(template)
+
     bundle = ProductService(source_repository).export_workspace_bundle(
         workspace.workspace_id
     )
+    assert len(bundle.use_cases) == 1
+    assert len(bundle.analysis_templates) == 1
 
     target_repository = FakeProductRepository()
     result = ProductService(target_repository).import_workspace_bundle(bundle)
@@ -1282,6 +1353,14 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     assert result.counts["report_sections"] == 1
     assert result.counts["chart_specs"] == 1
     assert result.counts["audit_events"] == 0
+    assert result.counts["use_cases"] == 1
+    assert result.counts["analysis_templates"] == 1
+    assert [item.title for item in target_repository.use_cases] == [
+        "Identify influential accounts"
+    ]
+    assert [item.name for item in target_repository.analysis_templates] == [
+        "PageRank baseline"
+    ]
     assert target_repository.workspaces[workspace.workspace_id].project_name == (
         "Graph Analytics"
     )
@@ -2331,6 +2410,58 @@ def test_workflow_helper_rejects_invalid_dag_edges():
         assert "missing" in str(exc)
     else:
         raise AssertionError("Expected ValidationError for invalid DAG edge")
+
+
+def test_agentic_run_warns_when_discarding_caller_supplied_steps(caplog):
+    """FR-31a's step substitution must announce itself.
+
+    Agentic mode replaces caller-supplied steps with the canonical DAG, whose
+    steps start PENDING. A seeder that passes in COMPLETED steps and then marks
+    only the run completed produces a run rendering as finished with every step
+    "pending" — a self-contradictory screen. The discard is correct; being
+    silent about it is not.
+    """
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+
+    with caplog.at_level(logging.WARNING):
+        run = service.create_workflow_run_from_steps(
+            workspace_id="workspace-1",
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[
+                WorkflowStep(
+                    step_id="mine",
+                    label="My Step",
+                    status=WorkflowStepStatus.COMPLETED,
+                )
+            ],
+            dag_edges=[],
+        )
+
+    assert any(
+        "discarding" in record.message and "FR-31a" in record.message
+        for record in caplog.records
+    ), "expected a warning naming the discard"
+
+    # The substitution itself is unchanged: canonical steps, all pending.
+    assert [step.step_id for step in run.steps] != ["mine"]
+    assert all(step.status is WorkflowStepStatus.PENDING for step in run.steps)
+
+
+def test_agentic_run_does_not_warn_when_no_steps_supplied(caplog):
+    """Callers that supply nothing have nothing discarded — stay quiet."""
+
+    repository = FakeProductRepository()
+    with caplog.at_level(logging.WARNING):
+        ProductService(repository).create_workflow_run_from_steps(
+            workspace_id="workspace-1",
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[],
+            dag_edges=[],
+        )
+
+    assert not [r for r in caplog.records if "discarding" in r.message]
 
 
 def test_assign_graph_profile_collection_roles_happy_path():

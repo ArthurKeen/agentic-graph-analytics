@@ -632,7 +632,12 @@ PRODUCT_API_ENDPOINTS = [
     ),
     ProductAPIEndpoint(
         method="GET",
-        path="/api/catalog/stats",
+        # Workspace-scoped, so the workspace id must be in the path: path
+        # params are the only source of `workspace_id` for the dispatcher, and
+        # the previous unscoped "/api/catalog/stats" therefore invoked
+        # `get_analysis_catalog_stats()` with no arguments — an unconditional
+        # 500 (TypeError: missing 1 required positional argument).
+        path="/api/workspaces/{workspace_id}/catalog/stats",
         service_method="get_analysis_catalog_stats",
         summary="Get workspace-scoped Analysis Catalog statistics",
         tags=["analysis-catalog"],

@@ -222,6 +222,13 @@ class WorkspaceBundle:
     audit_events: List[Dict[str, Any]] = field(default_factory=list)
     analysis_epochs: List[Dict[str, Any]] = field(default_factory=list)
     analysis_executions: List[Dict[str, Any]] = field(default_factory=list)
+    # FR-51 names templates explicitly. Use cases and analysis templates became
+    # first-class product records in the FR-19..FR-26 work; this exporter
+    # predates them and was never extended, so exports silently omitted both
+    # and an "exported" workspace could not be restored intact. Defaulted so
+    # older bundles (schema_version < 0.3) still import.
+    use_cases: List[Dict[str, Any]] = field(default_factory=list)
+    analysis_templates: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert bundle to an API-friendly dictionary."""
@@ -239,6 +246,8 @@ class WorkspaceBundle:
             "audit_events": self.audit_events,
             "analysis_epochs": self.analysis_epochs,
             "analysis_executions": self.analysis_executions,
+            "use_cases": self.use_cases,
+            "analysis_templates": self.analysis_templates,
         }
 
 
@@ -846,38 +855,58 @@ class ProductService:
             "reports": len(reports),
         }
 
-        # FR-17c requires that "all historical versions remain queryable and
-        # individually addressable". The Assets panel surfaces ONE consolidated
-        # Requirements row whose canvas-side dropdown is populated from
-        # `latest_requirement_versions`, so capping this list silently hides
-        # older versions from the UI. Return the full set (sorted desc by
-        # version for convenience; the frontend re-sorts) and keep the
-        # `recent_limit` cap on the other latest_* fields where it is
-        # appropriate.
+        # The Assets panel is the ONLY entry point that can open any of these
+        # entities, so a `recent_limit` slice here is not a "recent" affordance
+        # — it is data loss at the UI layer. Anything past the cap becomes
+        # permanently unreachable while `counts` keeps advertising it (observed
+        # live: `counts.reports` said 10 while 5 were openable).
+        #
+        # This bit FR-17c first (requirement versions, "all historical versions
+        # remain queryable and individually addressable"), then FR-41 (reports).
+        # Rather than fix it a third time, every asset list is now returned in
+        # full, newest first. A `latest_*` list may only be capped once a second,
+        # uncapped navigation path to those entities exists.
+        #
+        # `latest_audit_events` stays capped: it is a genuine "recent activity"
+        # feed, not a navigable asset list, and the repository applies the limit
+        # in the query above.
         sorted_requirement_versions = sorted(
             requirement_versions,
             key=lambda v: (v.version, v.created_at),
             reverse=True,
         )
+        sorted_connection_profiles = sorted(
+            connection_profiles, key=lambda item: item.created_at, reverse=True
+        )
+        sorted_graph_profiles = sorted(
+            graph_profiles, key=lambda item: item.created_at, reverse=True
+        )
+        sorted_source_documents = sorted(
+            source_documents, key=lambda item: item.uploaded_at, reverse=True
+        )
+        sorted_workflow_runs = sorted(
+            workflow_runs, key=lambda item: item.created_at, reverse=True
+        )
+        sorted_reports = sorted(
+            reports, key=lambda item: item.created_at, reverse=True
+        )
         return WorkspaceOverview(
             workspace=workspace.to_dict(),
             counts=counts,
             latest_connection_profiles=[
-                profile.to_dict() for profile in connection_profiles[:recent_limit]
+                profile.to_dict() for profile in sorted_connection_profiles
             ],
             latest_graph_profiles=[
-                profile.to_dict() for profile in graph_profiles[:recent_limit]
+                profile.to_dict() for profile in sorted_graph_profiles
             ],
             latest_source_documents=[
-                document.to_dict() for document in source_documents[:recent_limit]
+                document.to_dict() for document in sorted_source_documents
             ],
             latest_requirement_versions=[
                 version.to_dict() for version in sorted_requirement_versions
             ],
-            latest_workflow_runs=[
-                run.to_dict() for run in workflow_runs[:recent_limit]
-            ],
-            latest_reports=[report.to_dict() for report in reports[:recent_limit]],
+            latest_workflow_runs=[run.to_dict() for run in sorted_workflow_runs],
+            latest_reports=[report.to_dict() for report in sorted_reports],
             latest_audit_events=[event.to_dict() for event in audit_events],
         )
 
@@ -996,6 +1025,24 @@ class ProductService:
         """
 
         if self.is_supervised_agentic_mode(workflow_mode):
+            # The substitution below is intentional, but it is *silent*, and
+            # that has bitten callers: a seeder built six fully-populated
+            # COMPLETED steps, passed them here, then stamped only the run as
+            # completed — so the canonical replacements stayed `pending` and
+            # the UI rendered a finished run whose every step read "pending".
+            # Warn loudly so the next caller discovers the discard from a log
+            # line instead of from a self-contradictory screen.
+            if steps or dag_edges:
+                logger.warning(
+                    "create_workflow_run_from_steps: discarding %d caller-supplied "
+                    "step(s) and %d edge(s) for %s mode — FR-31a substitutes the "
+                    "canonical agentic DAG, whose steps start as PENDING. Stamp "
+                    "status/timings on the RETURNED run.steps, not on the steps "
+                    "passed in.",
+                    len(steps),
+                    len(dag_edges),
+                    workflow_mode.value,
+                )
             steps, dag_edges = self._build_canonical_agentic_dag(
                 parallel=workflow_mode is WorkflowMode.PARALLEL_AGENTIC
             )
@@ -5245,6 +5292,8 @@ class ProductService:
         report_manifests = self.repository.list_report_manifests(workspace_id)
         analysis_epochs = self.repository.list_analysis_epochs(workspace_id)
         analysis_executions = self.repository.list_analysis_executions(workspace_id)
+        use_cases = self.list_use_cases(workspace_id)
+        analysis_templates = self.list_analysis_templates(workspace_id)
 
         reports = [
             self.get_report_bundle(report.report_id).to_dict()
@@ -5283,6 +5332,10 @@ class ProductService:
             analysis_epochs=[epoch.to_dict() for epoch in analysis_epochs],
             analysis_executions=[
                 execution.to_dict() for execution in analysis_executions
+            ],
+            use_cases=[use_case.to_dict() for use_case in use_cases],
+            analysis_templates=[
+                template.to_dict() for template in analysis_templates
             ],
         )
         self.repository.create_audit_event(
@@ -5341,6 +5394,17 @@ class ProductService:
         workflow_runs = [
             WorkflowRun.from_dict(run) for run in bundle_doc.get("workflow_runs", [])
         ]
+        # FR-51: absent from bundles written before use cases and analysis
+        # templates became product records, so both default to empty and older
+        # bundles still import cleanly.
+        use_cases = [
+            UseCase.from_dict(use_case)
+            for use_case in bundle_doc.get("use_cases", [])
+        ]
+        analysis_templates = [
+            AnalysisTemplate.from_dict(template)
+            for template in bundle_doc.get("analysis_templates", [])
+        ]
 
         for profile in connection_profiles:
             self.repository.create_connection_profile(profile)
@@ -5358,6 +5422,10 @@ class ProductService:
             self.repository.create_analysis_execution(execution)
         for run in workflow_runs:
             self.repository.create_workflow_run(run)
+        for use_case in use_cases:
+            self.repository.create_use_case(use_case)
+        for template in analysis_templates:
+            self.repository.create_analysis_template(template)
 
         report_count = 0
         section_count = 0
@@ -5409,6 +5477,8 @@ class ProductService:
                 "analysis_epochs": len(analysis_epochs),
                 "analysis_executions": len(analysis_executions),
                 "workflow_runs": len(workflow_runs),
+                "use_cases": len(use_cases),
+                "analysis_templates": len(analysis_templates),
                 "reports": report_count,
                 "report_sections": section_count,
                 "chart_specs": chart_count,
