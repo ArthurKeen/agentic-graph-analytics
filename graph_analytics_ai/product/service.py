@@ -887,9 +887,7 @@ class ProductService:
         sorted_workflow_runs = sorted(
             workflow_runs, key=lambda item: item.created_at, reverse=True
         )
-        sorted_reports = sorted(
-            reports, key=lambda item: item.created_at, reverse=True
-        )
+        sorted_reports = sorted(reports, key=lambda item: item.created_at, reverse=True)
         return WorkspaceOverview(
             workspace=workspace.to_dict(),
             counts=counts,
@@ -1229,8 +1227,7 @@ class ProductService:
         remaining = [
             canonical.step_id
             for canonical in AGENTIC_STEP_LAYOUT
-            if canonical.step_id
-            not in ("schema_analysis", "requirements_extraction")
+            if canonical.step_id not in ("schema_analysis", "requirements_extraction")
         ]
         edges = [
             WorkflowDAGEdge(
@@ -1245,9 +1242,7 @@ class ProductService:
             ),
         ]
         for previous, current in zip(remaining, remaining[1:]):
-            edges.append(
-                WorkflowDAGEdge(from_step_id=previous, to_step_id=current)
-            )
+            edges.append(WorkflowDAGEdge(from_step_id=previous, to_step_id=current))
         return steps, edges
 
     def start_workflow_run(
@@ -2192,7 +2187,9 @@ class ProductService:
             parameters = fields.get("parameters") or {}
             config = fields.get("config") or {}
             if not isinstance(parameters, dict):
-                raise ValidationError(f"templates[{index}].parameters must be an object")
+                raise ValidationError(
+                    f"templates[{index}].parameters must be an object"
+                )
             if not isinstance(config, dict):
                 raise ValidationError(f"templates[{index}].config must be an object")
 
@@ -2331,9 +2328,7 @@ class ProductService:
                 description=str(raw.get("description") or ""),
                 use_case_type=use_case_type,
                 priority=priority,
-                graph_algorithms=[
-                    str(item) for item in (raw.get("algorithms") or [])
-                ],
+                graph_algorithms=[str(item) for item in (raw.get("algorithms") or [])],
                 data_needs=[str(item) for item in (raw.get("data_needs") or [])],
                 expected_outputs=[
                     str(item) for item in (raw.get("expected_outputs") or [])
@@ -2361,7 +2356,9 @@ class ProductService:
                 continue
 
             linked_title = str(raw.get("use_case") or "").strip().lower()
-            use_case_id = use_case_ids_by_title.get(linked_title) if linked_title else None
+            use_case_id = (
+                use_case_ids_by_title.get(linked_title) if linked_title else None
+            )
             if linked_title and use_case_id is None:
                 warnings.append(
                     f"templates[{index}] references unknown use case "
@@ -2651,8 +2648,7 @@ class ProductService:
             template_config = getattr(template, "config", None)
             graph_config = (
                 template_config.to_dict()
-                if template_config is not None
-                and hasattr(template_config, "to_dict")
+                if template_config is not None and hasattr(template_config, "to_dict")
                 else {}
             )
             algorithm_params = getattr(
@@ -2699,9 +2695,7 @@ class ProductService:
                     or getattr(job, "error_message", None)
                 ),
                 catalog_execution_id=(
-                    (getattr(job, "metadata", {}) or {}).get(
-                        "catalog_execution_id"
-                    )
+                    (getattr(job, "metadata", {}) or {}).get("catalog_execution_id")
                 ),
                 started_at=(
                     getattr(job, "started_at", None)
@@ -2719,9 +2713,7 @@ class ProductService:
 
         return recorded
 
-    def get_analysis_execution(
-        self, analysis_execution_id: str
-    ) -> AnalysisExecution:
+    def get_analysis_execution(self, analysis_execution_id: str) -> AnalysisExecution:
         """Get one product-catalog execution."""
 
         return self.repository.get_analysis_execution(analysis_execution_id)
@@ -2750,10 +2742,7 @@ class ProductService:
                 (algorithm and execution.algorithm != algorithm)
                 or (normalized_status and execution.status != normalized_status)
                 or (epoch_id and execution.epoch_id != epoch_id)
-                or (
-                    graph_profile_id
-                    and execution.graph_profile_id != graph_profile_id
-                )
+                or (graph_profile_id and execution.graph_profile_id != graph_profile_id)
                 or (after and execution.started_at < after)
                 or (before and execution.started_at > before)
             )
@@ -2886,9 +2875,7 @@ class ProductService:
         execution = self.repository.get_analysis_execution(analysis_execution_id)
         reports = [
             report
-            for report in self.repository.list_report_manifests(
-                execution.workspace_id
-            )
+            for report in self.repository.list_report_manifests(execution.workspace_id)
             if analysis_execution_id in report.analysis_execution_ids
             or report.run_id == execution.run_id
         ]
@@ -4679,16 +4666,12 @@ class ProductService:
         owner: Dict[str, Optional[str]] = {}
         for profile in profiles:
             for name in list(profile.vertex_collections or []):
-                owner[name] = (
-                    None if name in owner else profile.graph_profile_id
-                )
+                owner[name] = None if name in owner else profile.graph_profile_id
 
         # Group edge collections by connection so each database is opened once.
         by_connection: Dict[str, List[GraphProfile]] = {}
         for profile in profiles:
-            by_connection.setdefault(profile.connection_profile_id, []).append(
-                profile
-            )
+            by_connection.setdefault(profile.connection_profile_id, []).append(profile)
 
         # (from_profile, to_profile, edge_collection) -> observed count
         hops: Dict[tuple, int] = {}
@@ -4773,10 +4756,7 @@ class ProductService:
         large payloads and none of it is needed to detect a hop.
         """
 
-        query = (
-            "FOR e IN @@edge LIMIT @limit "
-            "RETURN {f: e._from, t: e._to}"
-        )
+        query = "FOR e IN @@edge LIMIT @limit " "RETURN {f: e._from, t: e._to}"
         try:
             cursor = db.aql.execute(
                 query,
@@ -4958,9 +4938,7 @@ class ProductService:
 
         temp_path: Optional[str] = None
         try:
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix, delete=False
-            ) as temp_file:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
                 temp_file.write(raw_bytes)
                 temp_path = temp_file.name
             document = DocumentParser().parse(temp_path)
@@ -5527,9 +5505,7 @@ class ProductService:
                 execution.to_dict() for execution in analysis_executions
             ],
             use_cases=[use_case.to_dict() for use_case in use_cases],
-            analysis_templates=[
-                template.to_dict() for template in analysis_templates
-            ],
+            analysis_templates=[template.to_dict() for template in analysis_templates],
         )
         self.repository.create_audit_event(
             create_audit_event(
@@ -5591,8 +5567,7 @@ class ProductService:
         # templates became product records, so both default to empty and older
         # bundles still import cleanly.
         use_cases = [
-            UseCase.from_dict(use_case)
-            for use_case in bundle_doc.get("use_cases", [])
+            UseCase.from_dict(use_case) for use_case in bundle_doc.get("use_cases", [])
         ]
         analysis_templates = [
             AnalysisTemplate.from_dict(template)
@@ -6243,7 +6218,9 @@ class ProductService:
 
         links: List[Dict[str, Any]] = []
         for graph_set in graph_sets or []:
-            if graph_profile.graph_profile_id not in (graph_set.graph_profile_ids or []):
+            if graph_profile.graph_profile_id not in (
+                graph_set.graph_profile_ids or []
+            ):
                 continue
             for link in graph_set.cross_graph_links or []:
                 links.append(

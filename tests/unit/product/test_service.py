@@ -842,9 +842,9 @@ def test_workspace_overview_returns_all_requirement_versions_uncapped():
     ):
         projected = getattr(overview, field_name)
         assert len(projected) == over_cap, f"{field_name} was truncated"
-        assert overview.counts[count_key] == len(projected), (
-            f"{field_name} does not match counts[{count_key}]"
-        )
+        assert overview.counts[count_key] == len(
+            projected
+        ), f"{field_name} does not match counts[{count_key}]"
 
     # The audit feed is the deliberate exception and stays capped.
     assert len(overview.latest_audit_events) <= cap
@@ -1251,7 +1251,9 @@ def test_export_workspace_bundle_omits_connection_secret_refs():
     assert doc["audit_events"][0]["action"] == "export_workspace"
     # The export action itself is audited but not included in its own bundle.
     export_events = [
-        event for event in repository.audit_events if event.action == "export_workspace_bundle"
+        event
+        for event in repository.audit_events
+        if event.action == "export_workspace_bundle"
     ]
     assert len(export_events) == 1
     assert export_events[0].target_id == workspace.workspace_id
@@ -1296,9 +1298,7 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
         epoch_id=epoch.analysis_epoch_id,
         result_count=3,
     )
-    source_repository.analysis_executions[
-        execution.analysis_execution_id
-    ] = execution
+    source_repository.analysis_executions[execution.analysis_execution_id] = execution
     report = create_report_manifest(
         workspace_id=workspace.workspace_id,
         run_id=run.run_id,
@@ -1378,9 +1378,7 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     assert target_repository.reports[report.report_id].title == "Graph Report"
     assert target_repository.analysis_epochs[epoch.analysis_epoch_id].name == "Baseline"
     assert (
-        target_repository.analysis_executions[
-            execution.analysis_execution_id
-        ].algorithm
+        target_repository.analysis_executions[execution.analysis_execution_id].algorithm
         == "pagerank"
     )
     # The bundle's own historical audit events are not replayed (governed by
@@ -1555,9 +1553,7 @@ def test_verify_connection_profile_reports_gae_status_failure_without_blocking(
     def _raise():
         raise RuntimeError("GAE deployment unreachable")
 
-    monkeypatch.setattr(
-        "graph_analytics_ai.gae_connection.get_gae_connection", _raise
-    )
+    monkeypatch.setattr("graph_analytics_ai.gae_connection.get_gae_connection", _raise)
 
     repository, profile = _connection_profile_for_gae_test()
     result = ProductService(
@@ -1825,7 +1821,10 @@ def test_discover_graph_profile_bumps_version_on_rediscovery():
     )
 
     assert len(repository.graph_profiles) == 1
-    assert first.graph_profile["graph_profile_id"] == second.graph_profile["graph_profile_id"]
+    assert (
+        first.graph_profile["graph_profile_id"]
+        == second.graph_profile["graph_profile_id"]
+    )
     assert first.graph_profile["version"] == 1
     assert second.graph_profile["version"] == 2
 
@@ -2489,7 +2488,10 @@ def test_assign_graph_profile_collection_roles_happy_path():
 
     updated = ProductService(repository).assign_graph_profile_collection_roles(
         graph_profile.graph_profile_id,
-        collection_roles={"entity": ["Person", "Company"], "relationship": ["works_at"]},
+        collection_roles={
+            "entity": ["Person", "Company"],
+            "relationship": ["works_at"],
+        },
         actor="analyst@example.com",
     )
 
@@ -2855,12 +2857,8 @@ def test_record_analysis_execution_updates_run_epoch_and_search():
     )
     stats = service.get_analysis_catalog_stats(workspace.workspace_id)
 
-    assert persisted_run.analysis_execution_ids == [
-        execution.analysis_execution_id
-    ]
-    assert persisted_epoch.analysis_execution_ids == [
-        execution.analysis_execution_id
-    ]
+    assert persisted_run.analysis_execution_ids == [execution.analysis_execution_id]
+    assert persisted_epoch.analysis_execution_ids == [execution.analysis_execution_id]
     assert persisted_epoch.analysis_count == 1
     assert matches == [execution]
     assert stats["execution_count"] == 1
@@ -2905,8 +2903,7 @@ def test_compare_and_lineage_cover_report_to_requirement_chain():
 
     assert comparison["deltas"][1]["result_count"] == 6
     assert (
-        comparison["deltas"][1]["performance_metrics"]["execution_time_seconds"]
-        == -2.0
+        comparison["deltas"][1]["performance_metrics"]["execution_time_seconds"] == -2.0
     )
     assert lineage["reports"][0]["report_id"] == report.report_id
     assert lineage["template_id"] == "template-2"
@@ -2993,9 +2990,7 @@ def test_create_use_case_starts_as_draft_and_audits():
     assert use_case.origin is UseCaseOrigin.MANUAL
     assert use_case.priority == "high"
     assert repository.use_cases[0].use_case_id == use_case.use_case_id
-    assert any(
-        event.action == "create_use_case" for event in repository.audit_events
-    )
+    assert any(event.action == "create_use_case" for event in repository.audit_events)
 
 
 def test_use_case_review_lifecycle_and_terminal_archive():
@@ -3121,9 +3116,7 @@ def test_editing_an_approved_template_creates_a_new_version():
     assert [item.version for item in versions] == [1, 2]
     # Superseded rows are hidden from the default listing.
     listed = service.list_analysis_templates(workspace.workspace_id)
-    assert [item.analysis_template_id for item in listed] == [
-        v2.analysis_template_id
-    ]
+    assert [item.analysis_template_id for item in listed] == [v2.analysis_template_id]
 
 
 def test_only_draft_templates_can_be_approved():
@@ -3190,7 +3183,9 @@ def test_import_template_dictionary_rejects_malformed_entries():
     with pytest.raises(ValidationError):
         service.import_analysis_templates(
             workspace_id=workspace.workspace_id,
-            templates=[{"name": "X", "algorithm": "wcc", "parameters": "not-an-object"}],
+            templates=[
+                {"name": "X", "algorithm": "wcc", "parameters": "not-an-object"}
+            ],
         )
 
 
@@ -3322,10 +3317,18 @@ def _document_with_extraction(repository, workspace, payload):
 _EXTRACTION_PAYLOAD = {
     "summary": "Build an identity graph.",
     "objectives": [
-        {"id": "OBJ-1", "text": "Achieve data autonomy", "source": "document_extraction"}
+        {
+            "id": "OBJ-1",
+            "text": "Achieve data autonomy",
+            "source": "document_extraction",
+        }
     ],
     "requirements": [
-        {"id": "REQ-1", "text": "Stitch devices to IPs", "source": "document_extraction"}
+        {
+            "id": "REQ-1",
+            "text": "Stitch devices to IPs",
+            "source": "document_extraction",
+        }
     ],
     "constraints": [
         {"id": "CON-1", "text": "Must run on GAE", "source": "document_extraction"}
