@@ -8,6 +8,13 @@ connection or LLM API key is required.
 from unittest.mock import MagicMock, patch
 import pytest
 
+# The MCP server is an optional extra (`pip install ".[mcp]"`), and CI installs
+# the package without extras. Importing these tools without it raises
+# ModuleNotFoundError at import time, which failed the suite in exactly the
+# configuration the packaging says is supported. Skip instead, so "no mcp
+# installed" reads as "not exercised" rather than "broken".
+pytest.importorskip("mcp", reason="optional 'mcp' extra is not installed")
+
 # ---------------------------------------------------------------------------
 # graph.py tools
 # ---------------------------------------------------------------------------
