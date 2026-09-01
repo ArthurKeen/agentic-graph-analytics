@@ -486,15 +486,22 @@ def build() -> pathlib.Path:
     s = new_slide(prs, number=10, section="Verticals")
     y = eyebrow(s, "Time to value")
     y = headline(s, "Start from a vertical, not from zero", y)
-    y = lede(s, "Import a portable project bundle carrying a domain’s use cases and analysis "
-                "templates in one file.", y)
+    y = lede(s, "Five industry verticals ship with specialised analysis prompts and pattern "
+                "detectors. Custom verticals can be generated per project, and a domain’s use "
+                "cases and templates travel as a portable project bundle.", y)
+    # Five cards share the content width, so the copy here is deliberately
+    # terser than the HTML deck's — long bodies wrap badly at ~1.9in.
     y = card_row(s, [
-        ("AdTech & identity graphs",
-         "Audience overlap, identity resolution, influence ranking across the ad supply chain."),
-        ("Clinical trials & CRO networks",
-         "Site clustering, investigator networks, enrolment-path analysis."),
-        ("Open source intelligence",
-         "Entity linkage, indirect-exposure discovery, community structure."),
+        ("Ad-Tech & identity",
+         "Audience overlap, identity stitching, influence ranking."),
+        ("FinTech",
+         "Exposure paths, counterparty networks, concentration risk."),
+        ("Fraud intelligence",
+         "Mule-account rings, device and IP clustering."),
+        ("Social networks",
+         "Community structure, influence, information flow."),
+        ("Generic",
+         "A sensible default for any other domain."),
     ], y + Inches(0.1))
     lede(s, "Bundles import as drafts, never as approved work — a starter pack is a starting "
             "point, not something that quietly starts running. Importing cannot execute code: "

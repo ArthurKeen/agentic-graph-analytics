@@ -52,6 +52,19 @@ graph LR
 - Prioritized recommendations with effort/impact estimates
 - Multiple formats (Markdown, JSON, HTML, Text)
 
+**Workspace UI**
+
+A point-and-click surface over the same engine, for people who will not
+drive it from Python.
+- Per-project asset explorer: connections, graph profiles, requirements,
+  documents, runs, reports
+- Operational DAG with live status, retry, and cooperative cancel
+- Dynamic reports with interactive Plotly charts, exportable to HTML/Markdown
+- Requirements lifecycle: upload a BRD → promote extracted requirements to a
+  draft → approve
+- Light/dark themes, light by default
+- See [Product UI / Workspace](#product-ui--workspace)
+
 **Analysis Catalog** (NEW v3.2.0)
 
 Comprehensive tracking system for all analysis executions with complete lineage and time-series capabilities.
@@ -659,13 +672,32 @@ if test_connection():
 
 ---
 
-##  Product UI / Workspace API (FR-31a Phase 1)
+##  Product UI / Workspace
 
 The platform ships with a Next.js workspace UI backed by a FastAPI
-adapter (`graph_analytics_ai.product.fastapi_app`). The API mirrors
-the visualizer assets — workspaces, connection profiles, graph
-profiles, requirement versions, workflow runs, reports — and exposes
-two FR-31a Phase 1 endpoints that wire the agentic pipeline end to end:
+adapter (`graph_analytics_ai.product.fastapi_app`). Where the library
+sections above are for driving the pipeline from Python, the workspace
+is the point-and-click surface over the same engine.
+
+**What the workspace gives you**
+
+- **Asset explorer** — connection profiles, graph profiles, requirements,
+  source documents, runs, and reports for a customer project, each with
+  its own canvas.
+- **Operational DAG** — the agentic run rendered as its canonical steps
+  with live status, retry, and cooperative cancel.
+- **Dynamic reports** — report sections plus interactive Plotly charts
+  rendered from stored records, exportable to HTML or Markdown.
+- **Requirements lifecycle** — upload a BRD, promote its extracted
+  requirements into a draft version, approve it to supersede the prior
+  active set (FR-15).
+- **Artifact links** — a step's detail panel links to what that step
+  produced; clicking a report opens its canvas (FR-37).
+- **Light and dark themes** — light by default, with a toggle at the
+  top right whose choice is remembered per device.
+
+The API mirrors those assets and exposes three endpoints that wire the
+agentic pipeline end to end:
 
 | Endpoint                              | Purpose                                                                     |
 | ------------------------------------- | --------------------------------------------------------------------------- |
@@ -713,20 +745,42 @@ shutdown it signals cancel and drains the worker pool best-effort.
 
 ### Running the API + UI locally
 
+The workspace keeps its **own metadata database**, separate from the
+graph you are analysing. `ARANGO_DATABASE` in `.env` points at the
+analytics graph (e.g. `addtech-knowledge-graph`); the product API must
+be started against the workspace database instead, or it will come up
+empty:
+
 ```bash
 # Backend (terminal 1) — bypass any sandbox proxy that might block ArangoDB
 env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    ARANGO_DATABASE=aga_workspace \
     AGA_ENABLE_AGENTIC_SUPERVISOR=1 \
-    gaai-product-api
+    gaai-product-api serve
 
 # Frontend (terminal 2)
 cd frontend && npm run dev
 ```
 
-The UI auto-discovers the API at `http://localhost:8000`. When it
-finds a live run in `agentic` mode, it polls `/status` every ~3
-seconds and shows executor + supervisor metadata in a panel above the
-DAG.
+The UI defaults to the API at `http://localhost:8000`; override with
+`NEXT_PUBLIC_PRODUCT_API_BASE_URL`. When it finds a live run in
+`agentic` mode it polls `/status` every ~3 seconds and shows executor
++ supervisor metadata in a panel above the DAG.
+
+> **If the UI shows "Failed to fetch. Showing demo data."** the API is
+> reachable but rejecting the browser's origin. CORS is allow-listed to
+> `localhost`/`127.0.0.1` on ports **3000** and **3010** only, so a
+> frontend that landed on any other port (Next picks the next free one
+> when 3000 is taken) is blocked. Either free port 3000 or tell the API
+> about the port you got:
+>
+> ```bash
+> AGA_PRODUCT_CORS_ORIGINS="http://localhost:3002,http://127.0.0.1:3002" gaai-product-api serve
+> ```
+>
+> The banner at the top of the workspace reads `LIVE` when it is really
+> talking to the API, and `DEMO`/`ERROR` when it has fallen back — check
+> it before concluding the data is wrong.
 
 ---
 
@@ -1265,12 +1319,22 @@ graph-analytics-ai/
 
 ##  Documentation
 
-- **[Architecture Overview](docs/ARCHITECTURE.md)** - System design
-- **[API Reference](docs/API.md)** - Complete API documentation
-- **[Workflow Guide](docs/WORKFLOW_ORCHESTRATION.md)** - Workflow details
-- **[Agent System](docs/AGENTS.md)** - Agentic architecture
-- ** [Parallel Execution Guide](docs/PARALLEL_EXECUTION_GUIDE.md)** - Async/parallel workflow (40-60% faster!)
+**Reference**
+
+- **[Documentation index](docs/README.md)** - Everything below, organised
+- **[Product PRD](docs/PRD_AGENTIC_GRAPH_ANALYTICS_UI.md)** - Source of truth for what the workspace must do
+- **[API Reference](docs/api-reference/)** - Result management, collection selection, orchestration
+- **[Workflow Guide](docs/api-reference/WORKFLOW_ORCHESTRATION.md)** - Workflow details
+- **[Agentic Workflow](docs/user-guide/AGENTIC_WORKFLOW.md)** - Agent system and autonomous execution
+- **[Parallel Execution Guide](docs/PARALLEL_EXECUTION_GUIDE.md)** - Async/parallel workflow (40-60% faster!)
+- **[Custom Verticals Quick Start](docs/guides/CUSTOM_VERTICALS_QUICKSTART.md)** - Per-project industry verticals
 - **[Examples](examples/)** - Code examples
+
+**Explaining it to other people**
+
+- **[One-pager](docs/one-pager-agentic-graph-analytics.md)** - What it is, who it is for, what it costs to try
+- **[Medium article draft](docs/medium-draft-agentic-graph-analytics.md)** - Long-form narrative for a non-graph audience
+- **[Intro deck](docs/deck-agentic-graph-analytics.html)** - Slides ([editable PowerPoint](docs/agentic-graph-analytics.pptx))
 
 ---
 

@@ -103,11 +103,15 @@ A few things that only matter once you're past the demo:
 
 ## Start from a vertical, not from zero
 
-Some domains ask the same questions repeatedly. Rather than rediscovering them each time, you can import a **project bundle** — a portable file carrying a vertical's use cases and analysis templates in one go.
+Some domains ask the same questions repeatedly. Rather than rediscovering them each time, the product ships five industry verticals with specialised analysis prompts and pattern detectors:
 
-- **AdTech / identity graphs** — audience overlap, identity resolution, influence ranking across the ad supply chain.
-- **Clinical trials and CRO networks** — site clustering, investigator networks, enrolment-path analysis.
-- **Open source intelligence** — entity linkage, indirect-exposure discovery, community structure.
+- **Ad-Tech / identity resolution** — audience overlap, identity stitching, influence ranking across the ad supply chain.
+- **FinTech / financial services** — exposure paths, counterparty networks, concentration risk.
+- **Fraud intelligence** — mule-account rings, device and IP clustering, coordinated-behaviour detection.
+- **Social networks** — community structure, influence, information flow.
+- **Generic** — a sensible default when your domain is none of the above.
+
+Custom verticals can also be generated per project, and a domain's use cases and analysis templates travel as a portable **project bundle** you can import in one go.
 
 Bundles import as **drafts**, never as approved work, so a starter pack is a starting point rather than something that quietly starts running. Importing cannot execute code — bundles are parsed strictly, and a file that tries to smuggle executable content is rejected rather than run.
 
