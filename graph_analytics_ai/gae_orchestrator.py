@@ -830,9 +830,7 @@ class GAEOrchestrator:
             result.projection = {
                 "strategy": "collections_fallback",
                 "logical_types": [
-                    p.get("logical_type")
-                    for p in projections
-                    if isinstance(p, dict)
+                    p.get("logical_type") for p in projections if isinstance(p, dict)
                 ],
             }
         return graph_info

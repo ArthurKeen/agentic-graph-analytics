@@ -48,9 +48,7 @@ class _Repo:
 
     # requirement versions
     def list_requirement_versions(self, workspace_id):
-        return [
-            v for v in self.requirement_versions if v.workspace_id == workspace_id
-        ]
+        return [v for v in self.requirement_versions if v.workspace_id == workspace_id]
 
     def create_requirement_version(self, version):
         self.requirement_versions.append(version)
@@ -78,13 +76,17 @@ class _Repo:
         return []
 
     def list_graph_profiles(self, workspace_id):
-        return [p for p in self.graph_profiles.values() if p.workspace_id == workspace_id]
+        return [
+            p for p in self.graph_profiles.values() if p.workspace_id == workspace_id
+        ]
 
     def list_source_documents(self, workspace_id):
         return []
 
     def list_workflow_runs(self, workspace_id):
-        return [r for r in self.workflow_runs.values() if r.workspace_id == workspace_id]
+        return [
+            r for r in self.workflow_runs.values() if r.workspace_id == workspace_id
+        ]
 
     def list_report_manifests(self, workspace_id):
         return []

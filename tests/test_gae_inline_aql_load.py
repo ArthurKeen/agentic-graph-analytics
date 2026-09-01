@@ -19,7 +19,6 @@ from graph_analytics_ai.gae_orchestrator import (
     build_aql_load_phases,
 )
 
-
 # --------------------------------------------------------------------------
 # build_aql_load_phases
 # --------------------------------------------------------------------------
@@ -105,11 +104,15 @@ def test_load_graph_aql_payload(mock_get_config, mock_env_self_managed):
         captured["payload"] = payload
         return {"job_id": "j1", "graph_id": "g1"}
 
-    phases = [{"queries": [{"query": "FOR v IN c RETURN {vertices: [v]}", "bind_vars": {}}]}]
+    phases = [
+        {"queries": [{"query": "FOR v IN c RETURN {vertices: [v]}", "bind_vars": {}}]}
+    ]
 
-    with patch.object(gae, "_make_request", side_effect=fake_make_request), patch.object(
-        gae, "_get_engine_url", return_value="http://engine"
-    ), patch.object(gae, "_get_headers", return_value={}):
+    with patch.object(
+        gae, "_make_request", side_effect=fake_make_request
+    ), patch.object(gae, "_get_engine_url", return_value="http://engine"), patch.object(
+        gae, "_get_headers", return_value={}
+    ):
         result = gae.load_graph_aql(database="testdb", phases=phases, parallelism=8)
 
     assert captured["method"] == "POST"
@@ -141,7 +144,9 @@ def test_load_graph_aql_requires_phases(mock_get_config, mock_env_self_managed):
 
 
 @patch("graph_analytics_ai.gae_connection.get_arango_config")
-def test_supports_aql_load_env_toggle(mock_get_config, mock_env_self_managed, monkeypatch):
+def test_supports_aql_load_env_toggle(
+    mock_get_config, mock_env_self_managed, monkeypatch
+):
     from graph_analytics_ai.gae_connection import GenAIGAEConnection
 
     mock_get_config.return_value = {

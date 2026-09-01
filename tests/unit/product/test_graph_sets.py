@@ -598,9 +598,7 @@ def test_edge_probe_reports_observed_cross_graph_hops():
 
     links = service.discover_cross_graph_links("gs-1")
 
-    observed = [
-        link for link in links if link["link_type"] == "edge_traversal"
-    ]
+    observed = [link for link in links if link["link_type"] == "edge_traversal"]
     assert len(observed) == 1
     hop = observed[0]
     assert hop["from_graph_profile_id"] == "gp-kg"

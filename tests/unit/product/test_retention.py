@@ -51,7 +51,9 @@ class _RetentionRepository(FakeProductRepository):
         return [r for r in self.reports.values() if r.workspace_id == workspace_id]
 
     def list_workflow_runs(self, workspace_id):
-        return [r for r in self.workflow_runs.values() if r.workspace_id == workspace_id]
+        return [
+            r for r in self.workflow_runs.values() if r.workspace_id == workspace_id
+        ]
 
     def list_audit_events(self, workspace_id, limit=100):
         return self.audit_events[:limit]
@@ -66,9 +68,7 @@ def _aged(days: int):
 
 
 def _workspace(repository):
-    workspace = create_workspace(
-        customer_name="C", project_name="P", environment="dev"
-    )
+    workspace = create_workspace(customer_name="C", project_name="P", environment="dev")
     repository.workspaces[workspace.workspace_id] = workspace
     return workspace
 

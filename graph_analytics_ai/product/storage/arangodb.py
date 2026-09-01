@@ -234,9 +234,7 @@ class ProductArangoStorage:
             executions.add_hash_index(
                 fields=["workspace_id", "algorithm"], unique=False
             )
-            executions.add_hash_index(
-                fields=["workspace_id", "status"], unique=False
-            )
+            executions.add_hash_index(fields=["workspace_id", "status"], unique=False)
             executions.add_hash_index(fields=["graph_profile_id"], unique=False)
             executions.add_skiplist_index(fields=["started_at"], unique=False)
 
@@ -827,9 +825,7 @@ class ProductArangoStorage:
     def insert_analysis_template(self, template: AnalysisTemplate) -> str:
         """Insert a workspace-scoped analysis template."""
 
-        return self._insert_document(
-            ANALYSIS_TEMPLATES_COLLECTION, template.to_dict()
-        )
+        return self._insert_document(ANALYSIS_TEMPLATES_COLLECTION, template.to_dict())
 
     def get_analysis_template(self, analysis_template_id: str) -> AnalysisTemplate:
         """Get an analysis template by ID."""
@@ -842,9 +838,7 @@ class ProductArangoStorage:
         """Update an analysis template."""
 
         template.updated_at = datetime.now(timezone.utc)
-        return self._update_document(
-            ANALYSIS_TEMPLATES_COLLECTION, template.to_dict()
-        )
+        return self._update_document(ANALYSIS_TEMPLATES_COLLECTION, template.to_dict())
 
     def list_analysis_templates(self, workspace_id: str) -> List[AnalysisTemplate]:
         """List a workspace's analysis templates, newest first."""
@@ -861,17 +855,13 @@ class ProductArangoStorage:
     def insert_retention_policy(self, policy: RetentionPolicy) -> str:
         """Insert a workspace retention policy."""
 
-        return self._insert_document(
-            RETENTION_POLICIES_COLLECTION, policy.to_dict()
-        )
+        return self._insert_document(RETENTION_POLICIES_COLLECTION, policy.to_dict())
 
     def update_retention_policy(self, policy: RetentionPolicy) -> str:
         """Update a workspace retention policy."""
 
         policy.updated_at = datetime.now(timezone.utc)
-        return self._update_document(
-            RETENTION_POLICIES_COLLECTION, policy.to_dict()
-        )
+        return self._update_document(RETENTION_POLICIES_COLLECTION, policy.to_dict())
 
     def get_retention_policy(self, workspace_id: str) -> Optional[RetentionPolicy]:
         """Return a workspace's retention policy, or None when unset."""
