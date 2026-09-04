@@ -14,7 +14,6 @@ from graph_analytics_ai.product.models import AnalysisTemplateStatus, UseCaseSta
 
 from test_service import FakeProductRepository
 
-
 ADTECH_BUNDLE = """
 vertical: adtech
 name: Audience Planning
@@ -49,9 +48,7 @@ templates:
 
 
 def _workspace(repository):
-    workspace = create_workspace(
-        customer_name="C", project_name="P", environment="dev"
-    )
+    workspace = create_workspace(customer_name="C", project_name="P", environment="dev")
     repository.workspaces[workspace.workspace_id] = workspace
     return workspace
 

@@ -35,9 +35,15 @@ class TestGetDBConnection:
         # Test
         db = get_db_connection()
 
-        # Verify
+        # Verify. The client is constructed with an explicit request_timeout
+        # (python-arango's own 60s default is too low for large graphs), so
+        # assert on the endpoint and that a positive timeout was supplied
+        # rather than pinning the exact default.
         assert db is not None
-        mock_client_class.assert_called_once_with(hosts="https://test:8529")
+        mock_client_class.assert_called_once()
+        _, kwargs = mock_client_class.call_args
+        assert kwargs["hosts"] == "https://test:8529"
+        assert kwargs["request_timeout"] > 0
         assert mock_client.db.call_count == 2  # _system and testdb
 
     @patch("graph_analytics_ai.db_connection.ArangoClient")

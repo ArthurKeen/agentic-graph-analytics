@@ -176,9 +176,7 @@ class AnalysisExecutor:
                 # Surface typed-projection provenance from the orchestrator
                 # result onto the job so it lands in the catalog execution
                 # row (PRD v0.7 / FR-71, FR-74).
-                analysis_result = getattr(self, "_analysis_results", {}).get(
-                    job.job_id
-                )
+                analysis_result = getattr(self, "_analysis_results", {}).get(job.job_id)
                 projection = getattr(analysis_result, "projection", None)
                 if projection:
                     job.metadata["projection"] = projection

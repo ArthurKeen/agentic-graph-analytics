@@ -61,6 +61,15 @@ import type {
   SourceDocumentSummary,
   UseCase,
   UseCaseStatus,
+  RetentionPolicy,
+  RetentionSweepResult,
+  SetRetentionPolicyInput,
+  ShardingProfile,
+  VerticalProjectImportResult,
+  RawRetentionPolicy,
+  RawRetentionSweepResult,
+  RawShardingProfile,
+  RawVerticalProjectImportResult,
   StartRequirementsCopilotInput,
   UpdateWorkspaceInput,
   UploadSourceDocumentInput,
@@ -72,6 +81,7 @@ import type {
   WorkflowRunSummary,
   WorkflowStepStatus,
   WorkflowStepUpdateResult,
+  WorkflowArtifactRef,
   WorkspaceAsset,
   WorkspaceBundle,
   WorkspaceHealth,
@@ -295,6 +305,62 @@ export function createProductAPIClient(
       );
       return (raw ?? []).map(mapAnalysisTemplate);
     },
+    async getRetentionPolicy(workspaceId: string): Promise<RetentionPolicy> {
+      return mapRetentionPolicy(
+        await getJSON<RawRetentionPolicy>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/retention-policy`
+        )
+      );
+    },
+    async setRetentionPolicy(
+      workspaceId: string,
+      input: SetRetentionPolicyInput
+    ): Promise<RetentionPolicy> {
+      // Only send fields the admin actually set, so a partial edit cannot
+      // silently reset the other windows to 0.
+      const payload: Record<string, unknown> = {};
+      if (input.enabled !== undefined) payload.enabled = input.enabled;
+      if (input.draftRetentionDays !== undefined)
+        payload.draft_retention_days = input.draftRetentionDays;
+      if (input.runRetentionDays !== undefined)
+        payload.run_retention_days = input.runRetentionDays;
+      if (input.documentRetentionDays !== undefined)
+        payload.document_retention_days = input.documentRetentionDays;
+      if (input.reportSnapshotRetentionDays !== undefined)
+        payload.report_snapshot_retention_days = input.reportSnapshotRetentionDays;
+      if (input.auditLogRetentionDays !== undefined)
+        payload.audit_log_retention_days = input.auditLogRetentionDays;
+
+      return mapRetentionPolicy(
+        await putJSON<RawRetentionPolicy>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/retention-policy`,
+          payload
+        )
+      );
+    },
+    async applyRetentionPolicy(
+      workspaceId: string,
+      dryRun = true
+    ): Promise<RetentionSweepResult> {
+      return mapRetentionSweepResult(
+        await postJSON<RawRetentionSweepResult>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/retention-policy/apply`,
+          { dry_run: dryRun }
+        )
+      );
+    },
+    async importVerticalProject(
+      workspaceId: string,
+      document: string,
+      documentFormat = "yaml"
+    ): Promise<VerticalProjectImportResult> {
+      return mapVerticalProjectImportResult(
+        await postJSON<RawVerticalProjectImportResult>(
+          `${normalizedBaseUrl}/api/workspaces/${workspaceId}/vertical-projects/import`,
+          { document, document_format: documentFormat }
+        )
+      );
+    },
     async browseAnalysisCatalog(workspaceId: string): Promise<AnalysisCatalogView> {
       return mapAnalysisCatalogView(
         await getJSON<RawAnalysisCatalogView>(
@@ -435,6 +501,30 @@ export function createProductAPIClient(
         await postJSON<RawRequirementsDraftResult>(
           `${normalizedBaseUrl}/api/requirements-copilot/sessions/${requirementInterviewId}/generate-draft`,
           {}
+        )
+      );
+    },
+    /** FR-15: turn a document's extracted requirements into a DRAFT version. */
+    async promoteExtractedRequirements(
+      documentId: string,
+      actor = "workspace-ui"
+    ): Promise<RequirementVersion> {
+      return mapRequirementVersion(
+        await postJSON<RawRequirementVersion>(
+          `${normalizedBaseUrl}/api/documents/${documentId}/promote-requirements`,
+          { actor }
+        )
+      );
+    },
+    /** FR-15: activate a DRAFT version, superseding the prior approved set. */
+    async approveRequirementVersion(
+      requirementVersionId: string,
+      approvedBy = "workspace-ui"
+    ): Promise<RequirementVersion> {
+      return mapRequirementVersion(
+        await postJSON<RawRequirementVersion>(
+          `${normalizedBaseUrl}/api/requirement-versions/${requirementVersionId}/approve`,
+          { approved_by: approvedBy }
         )
       );
     },
@@ -645,6 +735,13 @@ export async function postJSON<T>(url: string, body: Record<string, unknown>): P
   });
 }
 
+export async function putJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  return requestJSON<T>(url, {
+    method: "PUT",
+    body: JSON.stringify(body)
+  });
+}
+
 export async function patchJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {
   return requestJSON<T>(url, {
     method: "PATCH",
@@ -817,6 +914,64 @@ export function mapAnalysisEpoch(raw: RawAnalysisEpoch): AnalysisEpoch {
   };
 }
 
+export function mapShardingProfile(raw: RawShardingProfile): ShardingProfile {
+  return {
+    deploymentKind: raw.deployment_kind ?? "unknown",
+    isOneShard: raw.is_one_shard ?? false,
+    isMultitenant: raw.is_multitenant ?? false,
+    tenantKey: raw.tenant_key,
+    shardKeys: raw.shard_keys ?? [],
+    smartGraphAttributes: raw.smart_graph_attributes ?? [],
+    maxNumberOfShards: raw.max_number_of_shards ?? 0,
+    minReplicationFactor: raw.min_replication_factor,
+    satelliteCollections: raw.satellite_collections ?? [],
+    warnings: raw.warnings ?? []
+  };
+}
+
+export function mapRetentionPolicy(raw: RawRetentionPolicy): RetentionPolicy {
+  return {
+    workspaceId: raw.workspace_id,
+    configured: raw.configured ?? false,
+    enabled: raw.enabled ?? false,
+    draftRetentionDays: raw.draft_retention_days ?? 0,
+    runRetentionDays: raw.run_retention_days ?? 0,
+    documentRetentionDays: raw.document_retention_days ?? 0,
+    reportSnapshotRetentionDays: raw.report_snapshot_retention_days ?? 0,
+    auditLogRetentionDays: raw.audit_log_retention_days ?? 0,
+    lastAppliedAt: raw.last_applied_at
+  };
+}
+
+export function mapRetentionSweepResult(
+  raw: RawRetentionSweepResult
+): RetentionSweepResult {
+  return {
+    workspaceId: raw.workspace_id,
+    // Default to true: treating an unknown response as "deleted" would be the
+    // safe reading for a UI that warns about destructive actions.
+    deleted: raw.deleted ?? true,
+    enabled: raw.enabled ?? false,
+    reason: raw.reason,
+    counts: raw.counts ?? {},
+    candidates: raw.candidates ?? {},
+    protected: raw.protected ?? {},
+    removed: raw.removed
+  };
+}
+
+export function mapVerticalProjectImportResult(
+  raw: RawVerticalProjectImportResult
+): VerticalProjectImportResult {
+  return {
+    workspaceId: raw.workspace_id,
+    vertical: raw.vertical ?? "unspecified",
+    projectName: raw.project_name ?? "",
+    counts: raw.counts ?? { use_cases: 0, templates: 0 },
+    warnings: raw.warnings ?? []
+  };
+}
+
 export function mapUseCase(raw: RawUseCase): UseCase {
   return {
     useCaseId: raw.use_case_id,
@@ -950,7 +1105,10 @@ export function mapGraphProfileSummary(raw: RawGraphProfileSummary): GraphProfil
     edgeCollections: raw.edge_collections ?? [],
     edgeDefinitions: raw.edge_definitions ?? [],
     collectionRoles: raw.collection_roles ?? {},
-    counts: raw.counts ?? {}
+    counts: raw.counts ?? {},
+    shardingProfile: raw.analyzer_metadata?.sharding_profile
+      ? mapShardingProfile(raw.analyzer_metadata.sharding_profile)
+      : null
   };
 }
 
@@ -1174,6 +1332,13 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     description: "Author, review, and version analysis templates"
   };
 
+  const retentionAsset: WorkspaceAsset = {
+    id: `retention:${overview.workspace.workspace_id}`,
+    kind: "retention" as const,
+    label: "Retention",
+    description: "Configure retention windows and preview a sweep"
+  };
+
   return [
     ...connectionProfileAssets,
     ...graphProfileAssets,
@@ -1182,7 +1347,8 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     ...runAssets,
     ...reportAssets,
     analysisCatalogAsset,
-    useCaseAsset
+    useCaseAsset,
+    retentionAsset
   ];
 }
 
@@ -1340,4 +1506,48 @@ function mapWorkflowEdge(raw: RawWorkflowDAGView["edges"][number]): WorkflowDAGE
     to: raw.to,
     label: raw.label
   };
+}
+
+/**
+ * FR-37: route a workflow step's artifact reference to the asset that shows it.
+ *
+ * Refs carry a backend `type` (`report`, `graph_profile`, …) while the Assets
+ * panel keys off UI `kind`s, and the two do not use the same vocabulary. Some
+ * assets are per-record and match by id; others are synthetic singletons
+ * (Requirements, Use Cases & Templates, Analysis Catalog) whose ids are
+ * workspace-scoped strings, so those match on kind alone and the ref's id is
+ * used afterwards to focus the right row inside the canvas.
+ *
+ * Returns null when nothing can show the ref, so the caller can leave it as
+ * plain text rather than rendering a control that does nothing.
+ */
+export function resolveArtifactAsset(
+  ref: WorkflowArtifactRef,
+  assets: WorkspaceAsset[]
+): WorkspaceAsset | null {
+  const byId: Record<string, WorkspaceAsset["kind"]> = {
+    report: "report",
+    graph_profile: "graph-profile",
+    connection_profile: "connection-profile",
+    source_document: "document",
+    run: "run"
+  };
+  const bySingleton: Record<string, WorkspaceAsset["kind"]> = {
+    requirement_version: "requirements",
+    use_case: "use-cases",
+    analysis_template: "use-cases",
+    analysis_execution: "analysis-catalog"
+  };
+
+  const idKind = byId[ref.type];
+  if (idKind) {
+    return assets.find((asset) => asset.kind === idKind && asset.id === ref.id) ?? null;
+  }
+
+  const singletonKind = bySingleton[ref.type];
+  if (singletonKind) {
+    return assets.find((asset) => asset.kind === singletonKind) ?? null;
+  }
+
+  return null;
 }

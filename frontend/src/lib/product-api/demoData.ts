@@ -37,6 +37,28 @@ export const demoAssets: WorkspaceAsset[] = [
     kind: "report",
     label: "Dynamic Graph Analytics Report",
     description: "Structured report bundle"
+  },
+  // The three consolidated workspace rows. `workspaceAssetsFromOverview`
+  // always appends these in live mode; demo mode omitted them, which left the
+  // Analysis Catalog (FR-45..48), Use Cases & Templates (FR-19..26), and
+  // Retention (FR-54) canvases unreachable without a backend.
+  {
+    id: "analysis-catalog:workspace-demo",
+    kind: "analysis-catalog",
+    label: "Analysis Catalog",
+    description: "Executions, epochs, comparison, and lineage"
+  },
+  {
+    id: "use-cases:workspace-demo",
+    kind: "use-cases",
+    label: "Use Cases & Templates",
+    description: "Author, review, and version analysis templates"
+  },
+  {
+    id: "retention:workspace-demo",
+    kind: "retention",
+    label: "Retention",
+    description: "Configure retention windows and preview a sweep"
   }
 ];
 
@@ -152,6 +174,23 @@ export const demoGraphProfile: GraphProfileSummary = {
     accounts: 1250,
     devices: 780,
     transactions: 6240
+  },
+  // FR-65: the demo deployment is deliberately a tenant-sharded cluster so the
+  // sharding badge and the cross-tenant run confirmation are both reachable
+  // without a real cluster to connect to.
+  shardingProfile: {
+    deploymentKind: "cluster",
+    isOneShard: false,
+    isMultitenant: true,
+    tenantKey: "tenant_id",
+    shardKeys: ["tenant_id"],
+    smartGraphAttributes: [],
+    maxNumberOfShards: 6,
+    minReplicationFactor: 2,
+    satelliteCollections: ["currency_lookup"],
+    warnings: [
+      "Collections are sharded by 'tenant_id'; a cross-tenant analysis will span shards and may mix tenants. Scope the analysis to one tenant unless that is intended."
+    ]
   }
 };
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { AnalysisCatalogCanvas } from "./AnalysisCatalogCanvas";
+import { RetentionAdminCanvas } from "./RetentionAdminCanvas";
 import { UseCaseTemplateCanvas } from "./UseCaseTemplateCanvas";
 import { CanvasLensLegend } from "./CanvasLensLegend";
 import { ConnectionProfileCanvas } from "./ConnectionProfileCanvas";
@@ -35,10 +36,15 @@ import type {
   RequirementInterview,
   RequirementVersion,
   SourceDocumentSummary,
+  WorkflowArtifactRef,
   WorkflowDAGNode,
   WorkflowDAGView,
   WorkflowRunStatusView,
-  WorkspaceAsset
+  WorkspaceAsset,
+  RetentionPolicy,
+  RetentionSweepResult,
+  SetRetentionPolicyInput,
+  VerticalProjectImportResult
 } from "@/lib/product-api/types";
 
 interface WorkspaceCanvasProps {
@@ -73,6 +79,17 @@ interface WorkspaceCanvasProps {
   approvedRequirementVersion: RequirementVersion | null;
   showHelp: boolean;
   isAssetInfoOpen: boolean;
+  /** FR-37: whether an artifact ref resolves to an asset this workspace can
+   * show. Kept separate from `onOpenArtifact` so render stays side-effect
+   * free — the predicate decides link-vs-text, the handler does the work. */
+  /** FR-15: promote a document's extracted requirements into a draft. */
+  onPromoteRequirements?: (documentId: string) => void;
+  isPromotingRequirements?: boolean;
+  promoteRequirementsErrorMessage?: string | null;
+  canOpenArtifact?: (ref: WorkflowArtifactRef) => boolean;
+  /** FR-37: open the asset a step artifact refers to. Optional so the canvas
+   * still renders (as plain text) where the shell has not wired routing. */
+  onOpenArtifact?: (ref: WorkflowArtifactRef) => void;
   onSelectStep: (step: WorkflowDAGNode) => void;
   onRetryWorkflowStep: (step: WorkflowDAGNode) => void;
   /** FR-31a: cooperative cancel for the currently displayed agentic
@@ -130,6 +147,15 @@ interface WorkspaceCanvasProps {
   ) => Promise<AnalysisTemplate>;
   onApproveAnalysisTemplate?: (id: string) => Promise<AnalysisTemplate>;
   onGetAnalysisTemplateVersions?: (id: string) => Promise<AnalysisTemplate[]>;
+  onImportVerticalProject?: (
+    document: string,
+    documentFormat?: string
+  ) => Promise<VerticalProjectImportResult>;
+  onGetRetentionPolicy?: () => Promise<RetentionPolicy>;
+  onSetRetentionPolicy?: (
+    input: SetRetentionPolicyInput
+  ) => Promise<RetentionPolicy>;
+  onApplyRetentionPolicy?: (dryRun?: boolean) => Promise<RetentionSweepResult>;
   onImportAnalysisTemplates?: (
     templates: Array<Record<string, unknown>>
   ) => Promise<AnalysisTemplate[]>;
@@ -192,6 +218,11 @@ export function WorkspaceCanvas({
   approvedRequirementVersion,
   showHelp,
   isAssetInfoOpen,
+  onPromoteRequirements,
+  isPromotingRequirements,
+  promoteRequirementsErrorMessage,
+  canOpenArtifact,
+  onOpenArtifact,
   onSelectStep,
   onRetryWorkflowStep,
   onCancelWorkflowRun,
@@ -218,6 +249,10 @@ export function WorkspaceCanvas({
   onApproveAnalysisTemplate,
   onGetAnalysisTemplateVersions,
   onImportAnalysisTemplates,
+  onImportVerticalProject,
+  onGetRetentionPolicy,
+  onSetRetentionPolicy,
+  onApplyRetentionPolicy,
   onFitCanvas,
   onCenterCanvas,
   onViewOperationalDAG,
@@ -250,7 +285,9 @@ export function WorkspaceCanvas({
                 ? "Analysis Catalog"
                 : selectedAsset?.kind === "use-cases"
                   ? "Use Cases & Templates"
-                  : "Operational DAG";
+                  : selectedAsset?.kind === "retention"
+                    ? "Retention"
+                    : "Operational DAG";
   const canvasMenuItems = () =>
     buildCanvasContextMenu({
       onCreateWorkspace: onRequestCreateWorkspace,
@@ -334,7 +371,12 @@ export function WorkspaceCanvas({
           onDiscoverGraph={onRequestDiscoverGraph}
         />
       ) : sourceDocument && selectedAsset.kind === "document" ? (
-        <SourceDocumentCanvas document={sourceDocument} />
+        <SourceDocumentCanvas
+          document={sourceDocument}
+          onPromoteRequirements={onPromoteRequirements}
+          isPromotingRequirements={isPromotingRequirements}
+          promoteRequirementsErrorMessage={promoteRequirementsErrorMessage}
+        />
       ) : graphProfile && selectedAsset.kind === "graph-profile" ? (
         <GraphProfileCanvas
           graphProfile={graphProfile}
@@ -369,7 +411,8 @@ export function WorkspaceCanvas({
         onUpdateAnalysisTemplate &&
         onApproveAnalysisTemplate &&
         onGetAnalysisTemplateVersions &&
-        onImportAnalysisTemplates ? (
+        onImportAnalysisTemplates &&
+        onImportVerticalProject ? (
         <UseCaseTemplateCanvas
           onBrowse={onBrowseAnalysisCatalog}
           onCreateUseCase={onCreateUseCase}
@@ -380,6 +423,16 @@ export function WorkspaceCanvas({
           onApproveTemplate={onApproveAnalysisTemplate}
           onGetTemplateVersions={onGetAnalysisTemplateVersions}
           onImportTemplates={onImportAnalysisTemplates}
+          onImportVerticalProject={onImportVerticalProject}
+        />
+      ) : selectedAsset.kind === "retention" &&
+        onGetRetentionPolicy &&
+        onSetRetentionPolicy &&
+        onApplyRetentionPolicy ? (
+        <RetentionAdminCanvas
+          onLoad={onGetRetentionPolicy}
+          onSave={onSetRetentionPolicy}
+          onApply={onApplyRetentionPolicy}
         />
       ) : dagView && selectedAsset.kind === "run" ? (
         <section
@@ -513,11 +566,31 @@ export function WorkspaceCanvas({
           <p>Artifacts: {selectedStep.artifactCount}</p>
           {selectedStep.artifactRefs && selectedStep.artifactRefs.length > 0 ? (
             <ul className="copilot-question-list">
-              {selectedStep.artifactRefs.map((ref, index) => (
-                <li key={`${ref.type}-${ref.id}-${index}`}>
-                  {ref.label ?? `${ref.type}: ${ref.id}`}
-                </li>
-              ))}
+              {selectedStep.artifactRefs.map((ref, index) => {
+                const text = ref.label ?? `${ref.type}: ${ref.id}`;
+                // Only render a control when the shell can actually open the
+                // ref; an unroutable type stays plain text rather than a
+                // button that does nothing when clicked.
+                const canOpen = (canOpenArtifact?.(ref) ?? false) && Boolean(onOpenArtifact);
+                return (
+                  <li key={`${ref.type}-${ref.id}-${index}`}>
+                    {canOpen ? (
+                      <button
+                        type="button"
+                        className="artifact-link"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpenArtifact?.(ref);
+                        }}
+                      >
+                        {text}
+                      </button>
+                    ) : (
+                      text
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
           <p>Warnings: {selectedStep.warningCount}</p>

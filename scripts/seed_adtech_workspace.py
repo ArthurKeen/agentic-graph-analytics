@@ -716,6 +716,19 @@ def main() -> None:
     run.status = WorkflowRunStatus.COMPLETED
     run.started_at = base_time
     run.completed_at = base_time
+    # FR-31a: agentic runs discard the steps supplied above and substitute the
+    # canonical six-step DAG, which is created `pending`. Marking only the run
+    # completed leaves the visualizer showing a finished run whose every step
+    # still reads "pending", so stamp the canonical steps too. The canonical
+    # order matches WORKFLOW_STEP_PLAN 1:1, so agent names map by index.
+    for offset, step in enumerate(run.steps):
+        step.status = WorkflowStepStatus.COMPLETED
+        step.started_at = base_time
+        step.completed_at = base_time
+        step.duration_ms = 2_000
+        if offset < len(WORKFLOW_STEP_PLAN):
+            step.agent_name = WORKFLOW_STEP_PLAN[offset][2]
+        step.metadata = {**(step.metadata or {}), "index": offset}
     service.repository.update_workflow_run(run)
     print(f"Workflow run: {run.run_id}  ({len(workflow_steps)} steps, completed)")
 

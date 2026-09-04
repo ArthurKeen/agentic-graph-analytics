@@ -98,9 +98,7 @@ class ShardingProfile:
         }
 
 
-def detect_sharding_profile(
-    db: Any, sample_limit: int = 200
-) -> ShardingProfile:
+def detect_sharding_profile(db: Any, sample_limit: int = 200) -> ShardingProfile:
     """Read the deployment's sharding layout from ArangoDB itself.
 
     Never raises: any driver failure yields an ``unknown`` profile carrying a

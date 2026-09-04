@@ -113,7 +113,16 @@ class TestGAEConfig:
             "GAE_DEPLOYMENT_MODE": "amp",
         }
         with patch.dict(os.environ, env_vars, clear=False):
-            # Mock load_env_vars to prevent loading from .env file
+            # Patching load_env_vars stops THIS call from reading .env, but an
+            # earlier test in a full-suite run may already have called the real
+            # one — and load_dotenv() mutates os.environ for the whole process.
+            # The developer's .env defines ARANGO_GRAPH_API_KEY_ID, so the key
+            # this test needs absent was present and no ValueError was raised.
+            # Passing alone and failing in a full run is the signature of that
+            # leak; delete the keys explicitly so the test states its own
+            # preconditions. patch.dict restores them on exit.
+            os.environ.pop("ARANGO_GRAPH_API_KEY_ID", None)
+            os.environ.pop("ARANGO_GRAPH_API_KEY_SECRET", None)
             with patch("graph_analytics_ai.config.load_env_vars"):
                 with pytest.raises(ValueError, match="ARANGO_GRAPH_API_KEY_ID"):
                     GAEConfig()

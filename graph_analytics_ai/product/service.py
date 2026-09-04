@@ -16,7 +16,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..ai.schema.acquire import (
     SchemaAcquisitionBundle,
@@ -222,6 +222,13 @@ class WorkspaceBundle:
     audit_events: List[Dict[str, Any]] = field(default_factory=list)
     analysis_epochs: List[Dict[str, Any]] = field(default_factory=list)
     analysis_executions: List[Dict[str, Any]] = field(default_factory=list)
+    # FR-51 names templates explicitly. Use cases and analysis templates became
+    # first-class product records in the FR-19..FR-26 work; this exporter
+    # predates them and was never extended, so exports silently omitted both
+    # and an "exported" workspace could not be restored intact. Defaulted so
+    # older bundles (schema_version < 0.3) still import.
+    use_cases: List[Dict[str, Any]] = field(default_factory=list)
+    analysis_templates: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert bundle to an API-friendly dictionary."""
@@ -239,6 +246,8 @@ class WorkspaceBundle:
             "audit_events": self.audit_events,
             "analysis_epochs": self.analysis_epochs,
             "analysis_executions": self.analysis_executions,
+            "use_cases": self.use_cases,
+            "analysis_templates": self.analysis_templates,
         }
 
 
@@ -846,38 +855,56 @@ class ProductService:
             "reports": len(reports),
         }
 
-        # FR-17c requires that "all historical versions remain queryable and
-        # individually addressable". The Assets panel surfaces ONE consolidated
-        # Requirements row whose canvas-side dropdown is populated from
-        # `latest_requirement_versions`, so capping this list silently hides
-        # older versions from the UI. Return the full set (sorted desc by
-        # version for convenience; the frontend re-sorts) and keep the
-        # `recent_limit` cap on the other latest_* fields where it is
-        # appropriate.
+        # The Assets panel is the ONLY entry point that can open any of these
+        # entities, so a `recent_limit` slice here is not a "recent" affordance
+        # — it is data loss at the UI layer. Anything past the cap becomes
+        # permanently unreachable while `counts` keeps advertising it (observed
+        # live: `counts.reports` said 10 while 5 were openable).
+        #
+        # This bit FR-17c first (requirement versions, "all historical versions
+        # remain queryable and individually addressable"), then FR-41 (reports).
+        # Rather than fix it a third time, every asset list is now returned in
+        # full, newest first. A `latest_*` list may only be capped once a second,
+        # uncapped navigation path to those entities exists.
+        #
+        # `latest_audit_events` stays capped: it is a genuine "recent activity"
+        # feed, not a navigable asset list, and the repository applies the limit
+        # in the query above.
         sorted_requirement_versions = sorted(
             requirement_versions,
             key=lambda v: (v.version, v.created_at),
             reverse=True,
         )
+        sorted_connection_profiles = sorted(
+            connection_profiles, key=lambda item: item.created_at, reverse=True
+        )
+        sorted_graph_profiles = sorted(
+            graph_profiles, key=lambda item: item.created_at, reverse=True
+        )
+        sorted_source_documents = sorted(
+            source_documents, key=lambda item: item.uploaded_at, reverse=True
+        )
+        sorted_workflow_runs = sorted(
+            workflow_runs, key=lambda item: item.created_at, reverse=True
+        )
+        sorted_reports = sorted(reports, key=lambda item: item.created_at, reverse=True)
         return WorkspaceOverview(
             workspace=workspace.to_dict(),
             counts=counts,
             latest_connection_profiles=[
-                profile.to_dict() for profile in connection_profiles[:recent_limit]
+                profile.to_dict() for profile in sorted_connection_profiles
             ],
             latest_graph_profiles=[
-                profile.to_dict() for profile in graph_profiles[:recent_limit]
+                profile.to_dict() for profile in sorted_graph_profiles
             ],
             latest_source_documents=[
-                document.to_dict() for document in source_documents[:recent_limit]
+                document.to_dict() for document in sorted_source_documents
             ],
             latest_requirement_versions=[
                 version.to_dict() for version in sorted_requirement_versions
             ],
-            latest_workflow_runs=[
-                run.to_dict() for run in workflow_runs[:recent_limit]
-            ],
-            latest_reports=[report.to_dict() for report in reports[:recent_limit]],
+            latest_workflow_runs=[run.to_dict() for run in sorted_workflow_runs],
+            latest_reports=[report.to_dict() for report in sorted_reports],
             latest_audit_events=[event.to_dict() for event in audit_events],
         )
 
@@ -967,7 +994,7 @@ class ProductService:
             workspace_id=run.workspace_id,
             status=run.status.value,
             workflow_mode=run.workflow_mode.value,
-            nodes=[self._workflow_step_node(step) for step in run.steps],
+            nodes=[self._workflow_step_node(step, run) for step in run.steps],
             edges=[self._workflow_edge(edge) for edge in run.dag_edges],
             warnings=run.warnings,
             errors=run.errors,
@@ -996,6 +1023,24 @@ class ProductService:
         """
 
         if self.is_supervised_agentic_mode(workflow_mode):
+            # The substitution below is intentional, but it is *silent*, and
+            # that has bitten callers: a seeder built six fully-populated
+            # COMPLETED steps, passed them here, then stamped only the run as
+            # completed — so the canonical replacements stayed `pending` and
+            # the UI rendered a finished run whose every step read "pending".
+            # Warn loudly so the next caller discovers the discard from a log
+            # line instead of from a self-contradictory screen.
+            if steps or dag_edges:
+                logger.warning(
+                    "create_workflow_run_from_steps: discarding %d caller-supplied "
+                    "step(s) and %d edge(s) for %s mode — FR-31a substitutes the "
+                    "canonical agentic DAG, whose steps start as PENDING. Stamp "
+                    "status/timings on the RETURNED run.steps, not on the steps "
+                    "passed in.",
+                    len(steps),
+                    len(dag_edges),
+                    workflow_mode.value,
+                )
             steps, dag_edges = self._build_canonical_agentic_dag(
                 parallel=workflow_mode is WorkflowMode.PARALLEL_AGENTIC
             )
@@ -1182,8 +1227,7 @@ class ProductService:
         remaining = [
             canonical.step_id
             for canonical in AGENTIC_STEP_LAYOUT
-            if canonical.step_id
-            not in ("schema_analysis", "requirements_extraction")
+            if canonical.step_id not in ("schema_analysis", "requirements_extraction")
         ]
         edges = [
             WorkflowDAGEdge(
@@ -1198,9 +1242,7 @@ class ProductService:
             ),
         ]
         for previous, current in zip(remaining, remaining[1:]):
-            edges.append(
-                WorkflowDAGEdge(from_step_id=previous, to_step_id=current)
-            )
+            edges.append(WorkflowDAGEdge(from_step_id=previous, to_step_id=current))
         return steps, edges
 
     def start_workflow_run(
@@ -2145,7 +2187,9 @@ class ProductService:
             parameters = fields.get("parameters") or {}
             config = fields.get("config") or {}
             if not isinstance(parameters, dict):
-                raise ValidationError(f"templates[{index}].parameters must be an object")
+                raise ValidationError(
+                    f"templates[{index}].parameters must be an object"
+                )
             if not isinstance(config, dict):
                 raise ValidationError(f"templates[{index}].config must be an object")
 
@@ -2284,9 +2328,7 @@ class ProductService:
                 description=str(raw.get("description") or ""),
                 use_case_type=use_case_type,
                 priority=priority,
-                graph_algorithms=[
-                    str(item) for item in (raw.get("algorithms") or [])
-                ],
+                graph_algorithms=[str(item) for item in (raw.get("algorithms") or [])],
                 data_needs=[str(item) for item in (raw.get("data_needs") or [])],
                 expected_outputs=[
                     str(item) for item in (raw.get("expected_outputs") or [])
@@ -2314,7 +2356,9 @@ class ProductService:
                 continue
 
             linked_title = str(raw.get("use_case") or "").strip().lower()
-            use_case_id = use_case_ids_by_title.get(linked_title) if linked_title else None
+            use_case_id = (
+                use_case_ids_by_title.get(linked_title) if linked_title else None
+            )
             if linked_title and use_case_id is None:
                 warnings.append(
                     f"templates[{index}] references unknown use case "
@@ -2604,8 +2648,7 @@ class ProductService:
             template_config = getattr(template, "config", None)
             graph_config = (
                 template_config.to_dict()
-                if template_config is not None
-                and hasattr(template_config, "to_dict")
+                if template_config is not None and hasattr(template_config, "to_dict")
                 else {}
             )
             algorithm_params = getattr(
@@ -2652,9 +2695,7 @@ class ProductService:
                     or getattr(job, "error_message", None)
                 ),
                 catalog_execution_id=(
-                    (getattr(job, "metadata", {}) or {}).get(
-                        "catalog_execution_id"
-                    )
+                    (getattr(job, "metadata", {}) or {}).get("catalog_execution_id")
                 ),
                 started_at=(
                     getattr(job, "started_at", None)
@@ -2672,9 +2713,7 @@ class ProductService:
 
         return recorded
 
-    def get_analysis_execution(
-        self, analysis_execution_id: str
-    ) -> AnalysisExecution:
+    def get_analysis_execution(self, analysis_execution_id: str) -> AnalysisExecution:
         """Get one product-catalog execution."""
 
         return self.repository.get_analysis_execution(analysis_execution_id)
@@ -2703,10 +2742,7 @@ class ProductService:
                 (algorithm and execution.algorithm != algorithm)
                 or (normalized_status and execution.status != normalized_status)
                 or (epoch_id and execution.epoch_id != epoch_id)
-                or (
-                    graph_profile_id
-                    and execution.graph_profile_id != graph_profile_id
-                )
+                or (graph_profile_id and execution.graph_profile_id != graph_profile_id)
                 or (after and execution.started_at < after)
                 or (before and execution.started_at > before)
             )
@@ -2839,9 +2875,7 @@ class ProductService:
         execution = self.repository.get_analysis_execution(analysis_execution_id)
         reports = [
             report
-            for report in self.repository.list_report_manifests(
-                execution.workspace_id
-            )
+            for report in self.repository.list_report_manifests(execution.workspace_id)
             if analysis_execution_id in report.analysis_execution_ids
             or report.run_id == execution.run_id
         ]
@@ -4632,16 +4666,12 @@ class ProductService:
         owner: Dict[str, Optional[str]] = {}
         for profile in profiles:
             for name in list(profile.vertex_collections or []):
-                owner[name] = (
-                    None if name in owner else profile.graph_profile_id
-                )
+                owner[name] = None if name in owner else profile.graph_profile_id
 
         # Group edge collections by connection so each database is opened once.
         by_connection: Dict[str, List[GraphProfile]] = {}
         for profile in profiles:
-            by_connection.setdefault(profile.connection_profile_id, []).append(
-                profile
-            )
+            by_connection.setdefault(profile.connection_profile_id, []).append(profile)
 
         # (from_profile, to_profile, edge_collection) -> observed count
         hops: Dict[tuple, int] = {}
@@ -4726,10 +4756,7 @@ class ProductService:
         large payloads and none of it is needed to detect a hop.
         """
 
-        query = (
-            "FOR e IN @@edge LIMIT @limit "
-            "RETURN {f: e._from, t: e._to}"
-        )
+        query = "FOR e IN @@edge LIMIT @limit " "RETURN {f: e._from, t: e._to}"
         try:
             cursor = db.aql.execute(
                 query,
@@ -4857,9 +4884,15 @@ class ProductService:
             metadata["extraction_errors"] = extraction_errors
 
         if extract_requirements and parsed_document and extracted_text.strip():
-            summary = self._extract_requirements_summary(parsed_document)
-            if summary is not None:
-                metadata["extracted_requirements"] = summary
+            extracted = self._extract_requirements(parsed_document)
+            if extracted is not None:
+                # The summary stays for at-a-glance display; the draft payload
+                # is what `promote_extracted_requirements` needs, because the
+                # summary is lossy by design (counts, not requirement text).
+                metadata["extracted_requirements"] = extracted.to_summary_dict()
+                metadata["extracted_requirements_draft"] = (
+                    self._extracted_requirements_payload(extracted)
+                )
 
         document = create_source_document(
             workspace_id=workspace_id,
@@ -4905,9 +4938,7 @@ class ProductService:
 
         temp_path: Optional[str] = None
         try:
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix, delete=False
-            ) as temp_file:
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
                 temp_file.write(raw_bytes)
                 temp_path = temp_file.name
             document = DocumentParser().parse(temp_path)
@@ -4924,8 +4955,12 @@ class ProductService:
                     pass
 
     @staticmethod
-    def _extract_requirements_summary(parsed_document: Any) -> Optional[Dict[str, Any]]:
+    def _extract_requirements(parsed_document: Any) -> Optional[Any]:
         """Run LLM requirements extraction (FR-15), or return None.
+
+        Returns the ``ExtractedRequirements`` itself rather than its summary:
+        the caller needs the full content to build a promotable draft, and
+        ``to_summary_dict()`` discards requirement text.
 
         Requires a configured LLM provider; returns ``None`` whenever
         that is unavailable or extraction fails, so document upload
@@ -4935,8 +4970,7 @@ class ProductService:
         try:
             from ..ai.documents.extractor import RequirementsExtractor
 
-            extracted = RequirementsExtractor().extract([parsed_document])
-            return extracted.to_summary_dict()
+            return RequirementsExtractor().extract([parsed_document])
         except Exception:  # noqa: BLE001 — extraction is best-effort
             logger.info(
                 "Requirements extraction unavailable for uploaded document; "
@@ -4944,6 +4978,195 @@ class ProductService:
                 exc_info=True,
             )
             return None
+
+    @staticmethod
+    def _extracted_requirements_payload(extracted: Any) -> Dict[str, Any]:
+        """Serialise extraction output into RequirementVersion shape (FR-15).
+
+        ``ExtractedRequirements.to_summary_dict()`` is built for LLM prompting:
+        it reports *counts* (``requirements_by_type``,
+        ``success_criteria_count``) and drops requirement text entirely. That
+        is unusable as the basis of a requirement version, which is why the
+        extracted requirements could be stored but never promoted. This keeps
+        the content — text, priority, type, success criteria — in the same
+        ``{id, text, source}``-cored item shape the Copilot path produces, so
+        both origins yield versions the rest of the product can read
+        identically.
+        """
+
+        def _value(field: Any) -> Optional[str]:
+            return getattr(field, "value", field) if field is not None else None
+
+        objectives = [
+            {
+                "id": objective.id or f"OBJ-{index}",
+                "text": objective.title,
+                "source": "document_extraction",
+                "description": objective.description,
+                "priority": _value(objective.priority),
+                "success_criteria": list(objective.success_criteria or []),
+            }
+            for index, objective in enumerate(extracted.objectives or [], start=1)
+        ]
+        requirements = [
+            {
+                "id": requirement.id or f"REQ-{index}",
+                "text": requirement.text,
+                "source": "document_extraction",
+                "type": _value(requirement.requirement_type),
+                "priority": _value(requirement.priority),
+                "stakeholders": list(requirement.stakeholders or []),
+                "source_document": requirement.source_document,
+            }
+            for index, requirement in enumerate(extracted.requirements or [], start=1)
+        ]
+        constraints = [
+            {
+                "id": f"CON-{index}",
+                "text": constraint,
+                "source": "document_extraction",
+            }
+            for index, constraint in enumerate(extracted.constraints or [], start=1)
+        ]
+        return {
+            "summary": extracted.summary or "",
+            "objectives": objectives,
+            "requirements": requirements,
+            "constraints": constraints,
+        }
+
+    def promote_extracted_requirements(
+        self,
+        document_id: str,
+        actor: Optional[str] = None,
+    ) -> RequirementVersion:
+        """Promote a document's extracted requirements into a DRAFT version.
+
+        FR-15: extraction ran on upload and the result was persisted, but
+        nothing could consume it — there was no path from an uploaded document
+        to an approvable ``RequirementVersion``, so the extracted requirements
+        were effectively write-only.
+
+        A DRAFT (not APPROVED) is created deliberately: machine extraction is
+        a proposal, and the workspace's single active version should only
+        change once a human approves it via ``approve_requirement_version``.
+        """
+
+        document = self.repository.get_source_document(document_id)
+        payload = (document.metadata or {}).get("extracted_requirements_draft")
+        if not payload:
+            raise ValidationError(
+                "This document has no extracted requirements to promote. "
+                "Requirements extraction requires a configured LLM provider at "
+                "upload time; re-upload the document once one is available."
+            )
+
+        existing_versions = self.repository.list_requirement_versions(
+            document.workspace_id
+        )
+        next_version = max({v.version for v in existing_versions}, default=0) + 1
+
+        requirement_version = create_requirement_version(
+            workspace_id=document.workspace_id,
+            version=next_version,
+            status=RequirementVersionStatus.DRAFT,
+            document_ids=[document.document_id],
+            summary=payload.get("summary") or f"Extracted from {document.filename}",
+            objectives=payload.get("objectives") or [],
+            requirements=payload.get("requirements") or [],
+            constraints=payload.get("constraints") or [],
+            metadata={
+                "source": "document_extraction",
+                "source_document_id": document.document_id,
+                "source_filename": document.filename,
+                "promoted_by": actor,
+            },
+        )
+        self.repository.create_requirement_version(requirement_version)
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=document.workspace_id,
+                actor=actor or "system",
+                action="promote_extracted_requirements",
+                target_type="requirement_version",
+                target_id=requirement_version.requirement_version_id,
+                details={
+                    "document_id": document.document_id,
+                    "version": next_version,
+                },
+            )
+        )
+        return requirement_version
+
+    def approve_requirement_version(
+        self,
+        requirement_version_id: str,
+        approved_by: Optional[str] = None,
+    ) -> RequirementVersion:
+        """Approve an existing DRAFT requirement version (FR-15/FR-17).
+
+        The Copilot had the only approval path, and it approves *from an
+        interview*. A version promoted from document extraction has no
+        interview, so without this it could be created but never activated.
+        """
+
+        requirement_version = self.repository.get_requirement_version(
+            requirement_version_id
+        )
+        if requirement_version.status is RequirementVersionStatus.APPROVED:
+            return requirement_version
+        if requirement_version.status is not RequirementVersionStatus.DRAFT:
+            raise ValidationError(
+                "Only DRAFT requirement versions can be approved; "
+                f"v{requirement_version.version} is "
+                f"{requirement_version.status.value}."
+            )
+
+        requirement_version.status = RequirementVersionStatus.APPROVED
+        requirement_version.approved_at = current_timestamp()
+        requirement_version.metadata = {
+            **(requirement_version.metadata or {}),
+            "approved_by": approved_by,
+        }
+        self.repository.update_requirement_version(requirement_version)
+
+        self._supersede_prior_approved_versions(
+            workspace_id=requirement_version.workspace_id,
+            new_version_id=requirement_version.requirement_version_id,
+        )
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=requirement_version.workspace_id,
+                actor=approved_by or "system",
+                action="approve_requirement_version",
+                target_type="requirement_version",
+                target_id=requirement_version.requirement_version_id,
+                details={"version": requirement_version.version},
+            )
+        )
+        return requirement_version
+
+    def _supersede_prior_approved_versions(
+        self,
+        workspace_id: str,
+        new_version_id: str,
+    ) -> None:
+        """Flip other APPROVED versions to SUPERSEDED.
+
+        Keeps the workspace invariant of exactly one active requirement set.
+        """
+
+        for prior in self.repository.list_requirement_versions(workspace_id):
+            if prior.requirement_version_id == new_version_id:
+                continue
+            if prior.status is RequirementVersionStatus.APPROVED:
+                prior.status = RequirementVersionStatus.SUPERSEDED
+                prior.metadata = {
+                    **(prior.metadata or {}),
+                    "superseded_by": new_version_id,
+                    "superseded_at": current_timestamp().isoformat(),
+                }
+                self.repository.update_requirement_version(prior)
 
     def list_source_documents(self, workspace_id: str) -> List[SourceDocument]:
         """List uploaded source documents for a workspace (FR-13/FR-14)."""
@@ -5200,15 +5423,10 @@ class ProductService:
 
         # Flip any prior APPROVED versions to SUPERSEDED so the workspace has
         # exactly one active set of requirements.
-        for prior in existing_versions:
-            if prior.status is RequirementVersionStatus.APPROVED:
-                prior.status = RequirementVersionStatus.SUPERSEDED
-                prior.metadata = {
-                    **(prior.metadata or {}),
-                    "superseded_by": requirement_version.requirement_version_id,
-                    "superseded_at": current_timestamp().isoformat(),
-                }
-                self.repository.update_requirement_version(prior)
+        self._supersede_prior_approved_versions(
+            workspace_id=interview.workspace_id,
+            new_version_id=requirement_version.requirement_version_id,
+        )
 
         interview.status = RequirementInterviewStatus.APPROVED
         self.repository.update_requirement_interview(interview)
@@ -5245,6 +5463,8 @@ class ProductService:
         report_manifests = self.repository.list_report_manifests(workspace_id)
         analysis_epochs = self.repository.list_analysis_epochs(workspace_id)
         analysis_executions = self.repository.list_analysis_executions(workspace_id)
+        use_cases = self.list_use_cases(workspace_id)
+        analysis_templates = self.list_analysis_templates(workspace_id)
 
         reports = [
             self.get_report_bundle(report.report_id).to_dict()
@@ -5284,6 +5504,8 @@ class ProductService:
             analysis_executions=[
                 execution.to_dict() for execution in analysis_executions
             ],
+            use_cases=[use_case.to_dict() for use_case in use_cases],
+            analysis_templates=[template.to_dict() for template in analysis_templates],
         )
         self.repository.create_audit_event(
             create_audit_event(
@@ -5341,6 +5563,16 @@ class ProductService:
         workflow_runs = [
             WorkflowRun.from_dict(run) for run in bundle_doc.get("workflow_runs", [])
         ]
+        # FR-51: absent from bundles written before use cases and analysis
+        # templates became product records, so both default to empty and older
+        # bundles still import cleanly.
+        use_cases = [
+            UseCase.from_dict(use_case) for use_case in bundle_doc.get("use_cases", [])
+        ]
+        analysis_templates = [
+            AnalysisTemplate.from_dict(template)
+            for template in bundle_doc.get("analysis_templates", [])
+        ]
 
         for profile in connection_profiles:
             self.repository.create_connection_profile(profile)
@@ -5358,6 +5590,10 @@ class ProductService:
             self.repository.create_analysis_execution(execution)
         for run in workflow_runs:
             self.repository.create_workflow_run(run)
+        for use_case in use_cases:
+            self.repository.create_use_case(use_case)
+        for template in analysis_templates:
+            self.repository.create_analysis_template(template)
 
         report_count = 0
         section_count = 0
@@ -5409,6 +5645,8 @@ class ProductService:
                 "analysis_epochs": len(analysis_epochs),
                 "analysis_executions": len(analysis_executions),
                 "workflow_runs": len(workflow_runs),
+                "use_cases": len(use_cases),
+                "analysis_templates": len(analysis_templates),
                 "reports": report_count,
                 "report_sections": section_count,
                 "chart_specs": chart_count,
@@ -5470,9 +5708,89 @@ class ProductService:
             snapshots=[snapshot.to_dict() for snapshot in snapshots],
         )
 
-    def _workflow_step_node(self, step: WorkflowStep) -> Dict[str, Any]:
+    #: FR-37 — which run-level artifact each canonical agentic step produces.
+    #: Keyed by canonical step id (see ``_build_canonical_agentic_dag``); the
+    #: value is the ``WorkflowRun`` attribute and the ref ``type`` the UI
+    #: routes on. ``use_case_generation`` has no entry because the run record
+    #: does not carry use-case ids.
+    _STEP_ARTIFACT_SOURCES: Dict[str, Tuple[str, str]] = {
+        "schema_analysis": ("graph_profile_id", "graph_profile"),
+        "requirements_extraction": ("requirement_version_id", "requirement_version"),
+        "template_generation": ("template_ids", "analysis_template"),
+        "execution": ("analysis_execution_ids", "analysis_execution"),
+        "reporting": ("report_ids", "report"),
+    }
+
+    def _derive_step_artifact_refs(
+        self, step: WorkflowStep, run: WorkflowRun
+    ) -> List[Dict[str, str]]:
+        """Attribute the run's artifacts to the step that produced them.
+
+        FR-37 requires step details to link to what the step produced, but
+        nothing in the product code ever wrote ``WorkflowStep.artifact_refs``
+        — only tests did. Every step therefore reported "Artifacts: 0" for
+        every real run, which is exactly the test-only shape the drift policy
+        calls deceptive.
+
+        The run itself already records what was produced (`report_ids`,
+        `analysis_execution_ids`, and friends), and the canonical agentic DAG
+        fixes which step produces which kind (FR-31a), so the mapping is
+        knowable without the executor writing anything. Derive it here rather
+        than backfilling stored rows, so runs completed before this existed
+        also link correctly.
+
+        Explicitly stored refs always win: a future executor that records real
+        per-step provenance should not be second-guessed by this fallback.
+        """
+
+        source = self._STEP_ARTIFACT_SOURCES.get(step.step_id)
+        if source is None:
+            return []
+
+        attribute, ref_type = source
+        value = getattr(run, attribute, None)
+        if value:
+            ids = value if isinstance(value, list) else [value]
+            return [
+                {"type": ref_type, "id": artifact_id}
+                for artifact_id in ids
+                if artifact_id
+            ]
+
+        # The run's own back-references are not always filled in — the seeded
+        # AdTech run has ten reports and an empty `report_ids`. Reports and
+        # executions each carry `run_id` themselves, so that reverse edge is
+        # the linkage that actually exists; fall back to it and label reports
+        # with their titles, which beats showing the user a bare UUID.
+        if ref_type == "report":
+            return [
+                {"type": ref_type, "id": report.report_id, "label": report.title}
+                for report in self.repository.list_report_manifests(run.workspace_id)
+                if getattr(report, "run_id", None) == run.run_id
+            ]
+
+        if ref_type == "analysis_execution":
+            return [
+                {"type": ref_type, "id": execution.analysis_execution_id}
+                for execution in self.repository.list_analysis_executions(
+                    run.workspace_id
+                )
+                if getattr(execution, "run_id", None) == run.run_id
+            ]
+
+        return []
+
+    def _workflow_step_node(
+        self, step: WorkflowStep, run: Optional[WorkflowRun] = None
+    ) -> Dict[str, Any]:
         node = step.to_dict()
         node["id"] = step.step_id
+        if run is not None and not node.get("artifact_refs"):
+            refs = self._derive_step_artifact_refs(step, run)
+            if refs:
+                node["artifact_refs"] = refs
+                # artifact_count is what the panel headlines; keep it honest.
+                node["artifact_count"] = len(refs)
         return node
 
     def _workflow_edge(self, edge: WorkflowDAGEdge) -> Dict[str, Any]:
@@ -5900,7 +6218,9 @@ class ProductService:
 
         links: List[Dict[str, Any]] = []
         for graph_set in graph_sets or []:
-            if graph_profile.graph_profile_id not in (graph_set.graph_profile_ids or []):
+            if graph_profile.graph_profile_id not in (
+                graph_set.graph_profile_ids or []
+            ):
                 continue
             for link in graph_set.cross_graph_links or []:
                 links.append(

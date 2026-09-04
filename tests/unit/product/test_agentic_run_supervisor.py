@@ -1233,9 +1233,7 @@ def test_step_end_outputs_carry_gae_job_ids():
     supervisor.submit(run.run_id).future.result(timeout=10)
 
     stored = repository.get_workflow_run(run.run_id)
-    execution_step = next(
-        step for step in stored.steps if step.step_id == "execution"
-    )
+    execution_step = next(step for step in stored.steps if step.step_id == "execution")
     assert execution_step.status is WorkflowStepStatus.COMPLETED
     assert execution_step.outputs["gae_job_ids"] == ["job-abc", "job-def"]
     assert execution_step.outputs["result_collections"] == ["pagerank_results"]

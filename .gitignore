@@ -92,3 +92,7 @@ CLAUDE.md
 .cursor/.shared-memory-sessions/
 .cursor/hooks.json.pre-update.*
 .cursor/hooks/*.pre-update.*
+
+# Generated demo screenshots and their archive (large binaries, not source).
+screenshots/
+screenshots.zip

@@ -72,7 +72,13 @@ export function DynamicReportCanvas({ report, onExport }: DynamicReportCanvasPro
           {exportError}
         </p>
       ) : null}
-      {report.manifest.summary ? <p>{report.manifest.summary}</p> : null}
+      {/* The summary is authored as markdown by the report generators (it
+          carries the "**Generated:** <timestamp>" preamble), so it must go
+          through the same renderer the sections use. Rendering it as plain
+          text leaked literal asterisks into every report. */}
+      {report.manifest.summary ? (
+        <MarkdownView text={report.manifest.summary} className="report-text" />
+      ) : null}
 
       <div className="report-sections">
         {report.sections.map((section) => (

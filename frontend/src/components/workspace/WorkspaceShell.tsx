@@ -7,6 +7,7 @@ import { ContextMenu } from "./ContextMenu";
 import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay";
 import { CreateWorkspaceOverlay } from "./CreateWorkspaceOverlay";
 import { CreateWorkflowRunOverlay } from "./CreateWorkflowRunOverlay";
+import { CrossTenantRunConfirmationOverlay } from "./CrossTenantRunConfirmationOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { EditWorkspaceOverlay } from "./EditWorkspaceOverlay";
@@ -16,6 +17,7 @@ import { UploadSourceDocumentOverlay } from "./UploadSourceDocumentOverlay";
 import { PublishReportConfirmationOverlay } from "./PublishReportConfirmationOverlay";
 import { QuickAnalysisOverlay } from "./QuickAnalysisOverlay";
 import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverlay";
+import { ThemeToggle } from "./ThemeToggle";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -29,6 +31,7 @@ import type {
   WorkspaceAsset,
   WorkspaceSummary
 } from "@/lib/product-api/types";
+import { resolveArtifactAsset } from "@/lib/product-api/client";
 
 interface WorkspaceShellProps {
   initialWorkspaceId?: string;
@@ -74,6 +77,10 @@ export function WorkspaceShell({
     approveAnalysisTemplate,
     getAnalysisTemplateVersions,
     importAnalysisTemplates,
+    importVerticalProject,
+    getRetentionPolicy,
+    setRetentionPolicy,
+    applyRetentionPolicy,
     listAnalysisExecutions,
     compareAnalysisExecutions,
     getAnalysisLineage,
@@ -96,6 +103,7 @@ export function WorkspaceShell({
     updateWorkflowStep,
     requirementVersions,
     approvedRequirementVersion: activeApprovedRequirementVersion,
+    promoteExtractedRequirements,
     refreshOverview
   } = useWorkspaceData({
     initialWorkspaceId,
@@ -112,6 +120,10 @@ export function WorkspaceShell({
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
+  // FR-65: a run on a tenant-sharded deployment is confirmed once before it
+  // launches; `null` means no confirmation is pending.
+  const [pendingCrossTenantRun, setPendingCrossTenantRun] =
+    useState<WorkspaceAsset | null>(null);
   // When non-null, the start overlay is invoked in "reopen" mode; the
   // basedOnVersion is passed through to the backend so the new interview is
   // pre-populated from this approved RequirementVersion and the prior version
@@ -281,6 +293,9 @@ export function WorkspaceShell({
   // view without forcing the user to re-pick. URL deep-links seed this with
   // an explicit id; the URL is rewritten whenever the user picks a different
   // version (see effect below).
+  const [isPromotingRequirements, setIsPromotingRequirements] = useState(false);
+  const [promoteRequirementsErrorMessage, setPromoteRequirementsErrorMessage] =
+    useState<string | null>(null);
   const [selectedRequirementVersionId, setSelectedRequirementVersionId] = useState<
     string | null
   >(initialRequirementVersionId ?? null);
@@ -507,6 +522,29 @@ export function WorkspaceShell({
     });
   }, [graphProfileById, overview]);
 
+  const launchWorkflowRun = useCallback(
+    (asset: WorkspaceAsset) => {
+      setRunActionMessage(null);
+      setRunActionErrorMessage(null);
+      setStartingRunId(asset.id);
+      void startWorkflowRun(asset.id)
+        .then((workflowRun) => {
+          setSelectedAsset({
+            ...asset,
+            description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
+          });
+          setRunActionMessage(`Started run ${workflowRun.runId}.`);
+        })
+        .catch((error) =>
+          setRunActionErrorMessage(
+            error instanceof Error ? error.message : "Failed to start workflow run"
+          )
+        )
+        .finally(() => setStartingRunId(null));
+    },
+    [startWorkflowRun]
+  );
+
   const [activeGraphSelectorErrorMessage, setActiveGraphSelectorErrorMessage] =
     useState<string | null>(null);
   const [isSettingActiveGraphProfile, setIsSettingActiveGraphProfile] = useState(false);
@@ -552,6 +590,9 @@ export function WorkspaceShell({
 
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
+      {/* Fixed to the viewport rather than placed in the canvas header, so the
+          toggle is reachable in every canvas state including the empty one. */}
+      <ThemeToggle />
       <DataSourceBanner
         status={status}
         errorMessage={errorMessage}
@@ -647,23 +688,11 @@ export function WorkspaceShell({
           }
         }}
         onStartRun={(asset) => {
-          setRunActionMessage(null);
-          setRunActionErrorMessage(null);
-          setStartingRunId(asset.id);
-          void startWorkflowRun(asset.id)
-            .then((workflowRun) => {
-              setSelectedAsset({
-                ...asset,
-                description: `${workflowRun.workflowMode} workflow (${workflowRun.status})`
-              });
-              setRunActionMessage(`Started run ${workflowRun.runId}.`);
-            })
-            .catch((error) =>
-              setRunActionErrorMessage(
-                error instanceof Error ? error.message : "Failed to start workflow run"
-              )
-            )
-            .finally(() => setStartingRunId(null));
+          if (activeGraphProfile?.shardingProfile?.isMultitenant) {
+            setPendingCrossTenantRun(asset);
+            return;
+          }
+          launchWorkflowRun(asset);
         }}
         onOpenReport={(reportId) => {
           const report = visibleAssets.find((asset) => asset.id === reportId);
@@ -749,6 +778,46 @@ export function WorkspaceShell({
         activeRequirementInterview={activeRequirementInterview}
         approvedRequirementVersion={approvedRequirementVersion}
         showHelp={showHelp}
+        isPromotingRequirements={isPromotingRequirements}
+        promoteRequirementsErrorMessage={promoteRequirementsErrorMessage}
+        onPromoteRequirements={(documentId) => {
+          setPromoteRequirementsErrorMessage(null);
+          setIsPromotingRequirements(true);
+          promoteExtractedRequirements(documentId)
+            .then((version) => {
+              // Land the user on the draft they just created, rather than
+              // leaving them on the document wondering whether it worked.
+              setSelectedRequirementVersionId(version.requirementVersionId);
+              const requirementsAsset = visibleAssets.find(
+                (asset) => asset.kind === "requirements"
+              );
+              if (requirementsAsset) {
+                setSelectedAsset(requirementsAsset);
+                setSelectedStep(null);
+              }
+            })
+            .catch((error: unknown) => {
+              setPromoteRequirementsErrorMessage(
+                error instanceof Error ? error.message : String(error)
+              );
+            })
+            .finally(() => setIsPromotingRequirements(false));
+        }}
+        canOpenArtifact={(ref) => resolveArtifactAsset(ref, visibleAssets) !== null}
+        onOpenArtifact={(ref) => {
+          const target = resolveArtifactAsset(ref, visibleAssets);
+          if (!target) {
+            return;
+          }
+          setSelectedAsset(target);
+          setSelectedStep(null);
+          // Requirements is one consolidated row covering every version, so
+          // selecting it is not enough — point the canvas dropdown at the
+          // version the step actually produced.
+          if (ref.type === "requirement_version") {
+            setSelectedRequirementVersionId(ref.id);
+          }
+        }}
         onSelectStep={setSelectedStep}
         onRetryWorkflowStep={(step) => {
           if (selectedAsset?.kind !== "run") {
@@ -890,6 +959,10 @@ export function WorkspaceShell({
         onApproveAnalysisTemplate={approveAnalysisTemplate}
         onGetAnalysisTemplateVersions={getAnalysisTemplateVersions}
         onImportAnalysisTemplates={importAnalysisTemplates}
+        onImportVerticalProject={importVerticalProject}
+        onGetRetentionPolicy={getRetentionPolicy}
+        onSetRetentionPolicy={setRetentionPolicy}
+        onApplyRetentionPolicy={applyRetentionPolicy}
         onFitCanvas={() => {
           setCanvasActionMessage("Fit All requested. The current workspace layout is already fit to visible assets.");
         }}
@@ -1382,6 +1455,18 @@ export function WorkspaceShell({
             } finally {
               setStartingCopilotGraphProfileId(null);
             }
+          }}
+        />
+      ) : null}
+      {pendingCrossTenantRun && activeGraphProfile?.shardingProfile ? (
+        <CrossTenantRunConfirmationOverlay
+          asset={pendingCrossTenantRun}
+          sharding={activeGraphProfile.shardingProfile}
+          onCancel={() => setPendingCrossTenantRun(null)}
+          onConfirm={() => {
+            const asset = pendingCrossTenantRun;
+            setPendingCrossTenantRun(null);
+            launchWorkflowRun(asset);
           }}
         />
       ) : null}

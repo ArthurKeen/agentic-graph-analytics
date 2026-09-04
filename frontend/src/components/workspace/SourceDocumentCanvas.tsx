@@ -5,6 +5,18 @@ import { MarkdownView } from "./MarkdownView";
 
 interface SourceDocumentCanvasProps {
   document: SourceDocumentSummary;
+  /** FR-15: promote this document's extracted requirements into a draft
+   * requirement version. Optional so the canvas renders without the shell. */
+  onPromoteRequirements?: (documentId: string) => void;
+  isPromotingRequirements?: boolean;
+  promoteRequirementsErrorMessage?: string | null;
+}
+
+/** FR-15: extraction needs an LLM provider at upload time, so a document may
+ * legitimately have none. Only offer the action when there is something to
+ * promote, rather than surfacing a button that always errors. */
+function hasExtractedRequirements(doc: SourceDocumentSummary): boolean {
+  return Boolean(doc.metadata?.["extracted_requirements_draft"]);
 }
 
 function isMarkdown(doc: SourceDocumentSummary): boolean {
@@ -15,7 +27,13 @@ function isMarkdown(doc: SourceDocumentSummary): boolean {
   return /\.(md|markdown)$/i.test(doc.filename ?? "");
 }
 
-export function SourceDocumentCanvas({ document }: SourceDocumentCanvasProps) {
+export function SourceDocumentCanvas({
+  document,
+  onPromoteRequirements,
+  isPromotingRequirements = false,
+  promoteRequirementsErrorMessage = null
+}: SourceDocumentCanvasProps) {
+  const canPromote = hasExtractedRequirements(document) && Boolean(onPromoteRequirements);
   return (
     <section className="source-document-canvas" aria-label="Source document">
       <header>
@@ -23,8 +41,30 @@ export function SourceDocumentCanvas({ document }: SourceDocumentCanvasProps) {
           <p className="muted">{document.mimeType}</p>
           <h3>{document.filename}</h3>
         </div>
-        <span>{document.storageMode}</span>
+        <div className="workspace-header-actions">
+          {canPromote ? (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={isPromotingRequirements}
+              onClick={(event) => {
+                event.stopPropagation();
+                onPromoteRequirements?.(document.documentId);
+              }}
+            >
+              {isPromotingRequirements
+                ? "Creating draft…"
+                : "Create Requirements Draft"}
+            </button>
+          ) : null}
+          <span>{document.storageMode}</span>
+        </div>
       </header>
+      {promoteRequirementsErrorMessage ? (
+        <p className="inline-error" role="alert">
+          {promoteRequirementsErrorMessage}
+        </p>
+      ) : null}
 
       <section className="source-document-card">
         <h4>Document Metadata</h4>

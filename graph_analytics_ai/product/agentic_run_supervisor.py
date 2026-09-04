@@ -98,9 +98,7 @@ AGENTIC_STEP_LAYOUT: List[CanonicalStep] = [
     # (record_workflow_analysis_executions), not inside the agent runner, so
     # no trace event will ever carry this phase. CATALOG_PERSISTENCE_PHASE is
     # a product-owned sentinel and the supervisor drives this row directly.
-    CanonicalStep(
-        "catalog_persistence", "Catalog Persistence", "catalog_persistence"
-    ),
+    CanonicalStep("catalog_persistence", "Catalog Persistence", "catalog_persistence"),
 ]
 
 # The step the supervisor updates itself rather than via a runner trace event.
@@ -692,9 +690,7 @@ class AgenticRunSupervisor:
                 logger.exception(
                     "Failed to record Analysis Catalog rows for run %s", run_id
                 )
-                self._update_catalog_step(
-                    run_id, "failed", errors=[str(catalog_exc)]
-                )
+                self._update_catalog_step(run_id, "failed", errors=[str(catalog_exc)])
                 current = self._service.repository.get_workflow_run(run_id)
                 current.warnings = list(current.warnings or []) + [
                     f"Analysis Catalog persistence failed: {catalog_exc}"

@@ -1,6 +1,7 @@
 """Unit tests for product UI application services."""
 
 import hashlib
+import logging
 
 import pytest
 
@@ -33,13 +34,19 @@ from graph_analytics_ai.product import (
     create_workflow_run,
     create_workspace,
 )
-from graph_analytics_ai.product.exceptions import ConflictError, ValidationError
+from graph_analytics_ai.product.exceptions import (
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
 from graph_analytics_ai.product.models import (
     AnalysisTemplateStatus,
     DeploymentMode,
     DocumentStorageMode,
     UseCaseOrigin,
     UseCaseStatus,
+    create_analysis_template,
+    create_use_case,
 )
 from graph_analytics_ai.ai.schema.models import (
     CollectionSchema,
@@ -191,6 +198,12 @@ class FakeProductRepository:
     def create_source_document(self, document):
         self.source_documents.append(document)
         return document.document_id
+
+    def get_source_document(self, document_id):
+        for document in self.source_documents:
+            if document.document_id == document_id:
+                return document
+        raise NotFoundError(f"Source document {document_id} not found")
 
     def list_requirement_versions(self, workspace_id):
         return [
@@ -715,15 +728,17 @@ def test_workspace_overview_counts_and_recent_items():
 
 
 def test_workspace_overview_returns_all_requirement_versions_uncapped():
-    """FR-17c: every RequirementVersion must appear in the overview.
+    """Every navigable asset list must appear in the overview uncapped.
 
-    The consolidated Requirements asset and its canvas-side version dropdown
-    are projected from ``overview.latest_requirement_versions``. If that list
-    is truncated by ``recent_limit``, older versions silently disappear from
-    the dropdown even though the spec requires that "all historical versions
-    remain queryable and individually addressable". Other ``latest_*`` fields
-    (reports, workflow runs, etc.) must remain capped because they grow
-    unbounded and the cap is a UI affordance, not a correctness requirement.
+    The Assets panel is the ONLY entry point that can open these entities, so
+    a ``recent_limit`` slice is not a UI affordance — it is data loss. Anything
+    past the cap is permanently unreachable while ``counts`` keeps advertising
+    it. This bit FR-17c first (requirement versions: "all historical versions
+    remain queryable and individually addressable") and then FR-41 (reports:
+    ``counts.reports`` reported 10 while only 5 could be opened).
+
+    ``latest_audit_events`` is the one list that stays capped — it is a genuine
+    "recent activity" feed, not a navigable asset list.
     """
 
     repository = FakeProductRepository()
@@ -753,20 +768,54 @@ def test_workspace_overview_returns_all_requirement_versions_uncapped():
             )
         )
 
+    cap = 5
+    over_cap = cap + 3
+
     run = create_workflow_run(
         workspace_id=workspace.workspace_id,
         workflow_mode=WorkflowMode.AGENTIC,
     )
     repository.workflow_runs[run.run_id] = run
-    cap = 5
-    extra_reports = cap + 3
-    for index in range(extra_reports):
+    for _ in range(over_cap - 1):
+        extra_run = create_workflow_run(
+            workspace_id=workspace.workspace_id,
+            workflow_mode=WorkflowMode.AGENTIC,
+        )
+        repository.workflow_runs[extra_run.run_id] = extra_run
+
+    for index in range(over_cap):
         report = create_report_manifest(
             workspace_id=workspace.workspace_id,
             run_id=run.run_id,
             title=f"Report {index}",
         )
         repository.reports[report.report_id] = report
+
+        profile = create_connection_profile(
+            workspace_id=workspace.workspace_id,
+            name=f"connection-{index}",
+            deployment_mode=DeploymentMode.SELF_MANAGED,
+            endpoint="https://example.invalid:8529",
+            database="example",
+            username="root",
+        )
+        repository.connection_profiles.append(profile)
+
+        graph_profile = create_graph_profile(
+            workspace_id=workspace.workspace_id,
+            connection_profile_id=profile.connection_profile_id,
+            graph_name=f"graph-{index}",
+        )
+        repository.graph_profiles.append(graph_profile)
+
+        document = create_source_document(
+            workspace_id=workspace.workspace_id,
+            filename=f"doc-{index}.md",
+            mime_type="text/markdown",
+            sha256=f"{index:064d}",
+            storage_mode=DocumentStorageMode.INLINE,
+        )
+        repository.source_documents.append(document)
 
     overview = ProductService(repository).get_workspace_overview(
         workspace.workspace_id,
@@ -781,8 +830,24 @@ def test_workspace_overview_returns_all_requirement_versions_uncapped():
     assert returned_versions == sorted(returned_versions, reverse=True)
     assert returned_versions == list(range(total_versions, 0, -1))
 
-    assert len(overview.latest_reports) == cap
-    assert overview.counts["reports"] == extra_reports
+    # Every navigable asset list is uncapped, and each one matches the count
+    # the same overview advertises — a list shorter than its own count is
+    # exactly the "listed but unopenable" defect this guards against.
+    for field_name, count_key in (
+        ("latest_reports", "reports"),
+        ("latest_connection_profiles", "connection_profiles"),
+        ("latest_graph_profiles", "graph_profiles"),
+        ("latest_source_documents", "source_documents"),
+        ("latest_workflow_runs", "workflow_runs"),
+    ):
+        projected = getattr(overview, field_name)
+        assert len(projected) == over_cap, f"{field_name} was truncated"
+        assert overview.counts[count_key] == len(
+            projected
+        ), f"{field_name} does not match counts[{count_key}]"
+
+    # The audit feed is the deliberate exception and stays capped.
+    assert len(overview.latest_audit_events) <= cap
 
 
 def test_workspace_health_identifies_missing_and_failed_metadata():
@@ -1186,7 +1251,9 @@ def test_export_workspace_bundle_omits_connection_secret_refs():
     assert doc["audit_events"][0]["action"] == "export_workspace"
     # The export action itself is audited but not included in its own bundle.
     export_events = [
-        event for event in repository.audit_events if event.action == "export_workspace_bundle"
+        event
+        for event in repository.audit_events
+        if event.action == "export_workspace_bundle"
     ]
     assert len(export_events) == 1
     assert export_events[0].target_id == workspace.workspace_id
@@ -1231,9 +1298,7 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
         epoch_id=epoch.analysis_epoch_id,
         result_count=3,
     )
-    source_repository.analysis_executions[
-        execution.analysis_execution_id
-    ] = execution
+    source_repository.analysis_executions[execution.analysis_execution_id] = execution
     report = create_report_manifest(
         workspace_id=workspace.workspace_id,
         run_id=run.run_id,
@@ -1266,9 +1331,25 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
             target_id=workspace.workspace_id,
         )
     )
+    # FR-51 names templates explicitly, and use cases became product records in
+    # the same FR-19..FR-26 work. The exporter predated both, so an "exported"
+    # workspace silently lost them and could not be restored intact.
+    use_case = create_use_case(
+        workspace_id=workspace.workspace_id,
+        title="Identify influential accounts",
+    )
+    source_repository.use_cases.append(use_case)
+    template = create_analysis_template(
+        workspace_id=workspace.workspace_id,
+        name="PageRank baseline",
+    )
+    source_repository.analysis_templates.append(template)
+
     bundle = ProductService(source_repository).export_workspace_bundle(
         workspace.workspace_id
     )
+    assert len(bundle.use_cases) == 1
+    assert len(bundle.analysis_templates) == 1
 
     target_repository = FakeProductRepository()
     result = ProductService(target_repository).import_workspace_bundle(bundle)
@@ -1282,6 +1363,14 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     assert result.counts["report_sections"] == 1
     assert result.counts["chart_specs"] == 1
     assert result.counts["audit_events"] == 0
+    assert result.counts["use_cases"] == 1
+    assert result.counts["analysis_templates"] == 1
+    assert [item.title for item in target_repository.use_cases] == [
+        "Identify influential accounts"
+    ]
+    assert [item.name for item in target_repository.analysis_templates] == [
+        "PageRank baseline"
+    ]
     assert target_repository.workspaces[workspace.workspace_id].project_name == (
         "Graph Analytics"
     )
@@ -1289,9 +1378,7 @@ def test_import_workspace_bundle_recreates_exported_metadata_without_audit_by_de
     assert target_repository.reports[report.report_id].title == "Graph Report"
     assert target_repository.analysis_epochs[epoch.analysis_epoch_id].name == "Baseline"
     assert (
-        target_repository.analysis_executions[
-            execution.analysis_execution_id
-        ].algorithm
+        target_repository.analysis_executions[execution.analysis_execution_id].algorithm
         == "pagerank"
     )
     # The bundle's own historical audit events are not replayed (governed by
@@ -1466,9 +1553,7 @@ def test_verify_connection_profile_reports_gae_status_failure_without_blocking(
     def _raise():
         raise RuntimeError("GAE deployment unreachable")
 
-    monkeypatch.setattr(
-        "graph_analytics_ai.gae_connection.get_gae_connection", _raise
-    )
+    monkeypatch.setattr("graph_analytics_ai.gae_connection.get_gae_connection", _raise)
 
     repository, profile = _connection_profile_for_gae_test()
     result = ProductService(
@@ -1736,7 +1821,10 @@ def test_discover_graph_profile_bumps_version_on_rediscovery():
     )
 
     assert len(repository.graph_profiles) == 1
-    assert first.graph_profile["graph_profile_id"] == second.graph_profile["graph_profile_id"]
+    assert (
+        first.graph_profile["graph_profile_id"]
+        == second.graph_profile["graph_profile_id"]
+    )
     assert first.graph_profile["version"] == 1
     assert second.graph_profile["version"] == 2
 
@@ -2333,6 +2421,58 @@ def test_workflow_helper_rejects_invalid_dag_edges():
         raise AssertionError("Expected ValidationError for invalid DAG edge")
 
 
+def test_agentic_run_warns_when_discarding_caller_supplied_steps(caplog):
+    """FR-31a's step substitution must announce itself.
+
+    Agentic mode replaces caller-supplied steps with the canonical DAG, whose
+    steps start PENDING. A seeder that passes in COMPLETED steps and then marks
+    only the run completed produces a run rendering as finished with every step
+    "pending" — a self-contradictory screen. The discard is correct; being
+    silent about it is not.
+    """
+
+    repository = FakeProductRepository()
+    service = ProductService(repository)
+
+    with caplog.at_level(logging.WARNING):
+        run = service.create_workflow_run_from_steps(
+            workspace_id="workspace-1",
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[
+                WorkflowStep(
+                    step_id="mine",
+                    label="My Step",
+                    status=WorkflowStepStatus.COMPLETED,
+                )
+            ],
+            dag_edges=[],
+        )
+
+    assert any(
+        "discarding" in record.message and "FR-31a" in record.message
+        for record in caplog.records
+    ), "expected a warning naming the discard"
+
+    # The substitution itself is unchanged: canonical steps, all pending.
+    assert [step.step_id for step in run.steps] != ["mine"]
+    assert all(step.status is WorkflowStepStatus.PENDING for step in run.steps)
+
+
+def test_agentic_run_does_not_warn_when_no_steps_supplied(caplog):
+    """Callers that supply nothing have nothing discarded — stay quiet."""
+
+    repository = FakeProductRepository()
+    with caplog.at_level(logging.WARNING):
+        ProductService(repository).create_workflow_run_from_steps(
+            workspace_id="workspace-1",
+            workflow_mode=WorkflowMode.AGENTIC,
+            steps=[],
+            dag_edges=[],
+        )
+
+    assert not [r for r in caplog.records if "discarding" in r.message]
+
+
 def test_assign_graph_profile_collection_roles_happy_path():
     """PRD FR-10: users can assign analytical roles to a profile's collections."""
 
@@ -2348,7 +2488,10 @@ def test_assign_graph_profile_collection_roles_happy_path():
 
     updated = ProductService(repository).assign_graph_profile_collection_roles(
         graph_profile.graph_profile_id,
-        collection_roles={"entity": ["Person", "Company"], "relationship": ["works_at"]},
+        collection_roles={
+            "entity": ["Person", "Company"],
+            "relationship": ["works_at"],
+        },
         actor="analyst@example.com",
     )
 
@@ -2549,7 +2692,7 @@ def test_upload_source_document_extracts_text_and_audits(monkeypatch):
     # FR-15 extraction needs an LLM provider; force the unavailable path
     # so this test covers upload + text extraction deterministically.
     monkeypatch.setattr(
-        ProductService, "_extract_requirements_summary", staticmethod(lambda _doc: None)
+        ProductService, "_extract_requirements", staticmethod(lambda _doc: None)
     )
 
     repository = FakeProductRepository()
@@ -2714,12 +2857,8 @@ def test_record_analysis_execution_updates_run_epoch_and_search():
     )
     stats = service.get_analysis_catalog_stats(workspace.workspace_id)
 
-    assert persisted_run.analysis_execution_ids == [
-        execution.analysis_execution_id
-    ]
-    assert persisted_epoch.analysis_execution_ids == [
-        execution.analysis_execution_id
-    ]
+    assert persisted_run.analysis_execution_ids == [execution.analysis_execution_id]
+    assert persisted_epoch.analysis_execution_ids == [execution.analysis_execution_id]
     assert persisted_epoch.analysis_count == 1
     assert matches == [execution]
     assert stats["execution_count"] == 1
@@ -2764,8 +2903,7 @@ def test_compare_and_lineage_cover_report_to_requirement_chain():
 
     assert comparison["deltas"][1]["result_count"] == 6
     assert (
-        comparison["deltas"][1]["performance_metrics"]["execution_time_seconds"]
-        == -2.0
+        comparison["deltas"][1]["performance_metrics"]["execution_time_seconds"] == -2.0
     )
     assert lineage["reports"][0]["report_id"] == report.report_id
     assert lineage["template_id"] == "template-2"
@@ -2852,9 +2990,7 @@ def test_create_use_case_starts_as_draft_and_audits():
     assert use_case.origin is UseCaseOrigin.MANUAL
     assert use_case.priority == "high"
     assert repository.use_cases[0].use_case_id == use_case.use_case_id
-    assert any(
-        event.action == "create_use_case" for event in repository.audit_events
-    )
+    assert any(event.action == "create_use_case" for event in repository.audit_events)
 
 
 def test_use_case_review_lifecycle_and_terminal_archive():
@@ -2980,9 +3116,7 @@ def test_editing_an_approved_template_creates_a_new_version():
     assert [item.version for item in versions] == [1, 2]
     # Superseded rows are hidden from the default listing.
     listed = service.list_analysis_templates(workspace.workspace_id)
-    assert [item.analysis_template_id for item in listed] == [
-        v2.analysis_template_id
-    ]
+    assert [item.analysis_template_id for item in listed] == [v2.analysis_template_id]
 
 
 def test_only_draft_templates_can_be_approved():
@@ -3049,7 +3183,9 @@ def test_import_template_dictionary_rejects_malformed_entries():
     with pytest.raises(ValidationError):
         service.import_analysis_templates(
             workspace_id=workspace.workspace_id,
-            templates=[{"name": "X", "algorithm": "wcc", "parameters": "not-an-object"}],
+            templates=[
+                {"name": "X", "algorithm": "wcc", "parameters": "not-an-object"}
+            ],
         )
 
 
@@ -3075,3 +3211,238 @@ def test_browse_catalog_returns_real_templates_and_use_cases():
     assert [item["name"] for item in catalog["templates"]] == ["PageRank"]
     assert catalog["unresolved_template_ids"] == []
     assert catalog["unresolved_use_case_ids"] == []
+
+
+def test_workflow_dag_view_derives_step_artifact_refs():
+    """FR-37: step nodes link to the artifacts that step produced.
+
+    Nothing in the product code ever wrote ``WorkflowStep.artifact_refs`` —
+    only tests did — so every step of every real run reported "Artifacts: 0".
+    The DAG view now derives the refs from the run's own record.
+    """
+
+    repository = FakeProductRepository()
+    run = create_workflow_run(
+        workspace_id="workspace-1",
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=WorkflowRunStatus.COMPLETED,
+        graph_profile_id="graph-profile-1",
+        steps=[
+            WorkflowStep(step_id="schema_analysis", label="Schema Analysis"),
+            WorkflowStep(step_id="reporting", label="Reporting"),
+        ],
+        dag_edges=[
+            WorkflowDAGEdge(from_step_id="schema_analysis", to_step_id="reporting")
+        ],
+    )
+    repository.workflow_runs[run.run_id] = run
+
+    # Reports carry `run_id` themselves; the run's own `report_ids` is empty,
+    # which is exactly the shape the seeded AdTech workspace has.
+    for index in range(3):
+        manifest = create_report_manifest(
+            workspace_id="workspace-1",
+            run_id=run.run_id,
+            title=f"Report {index}",
+        )
+        repository.reports[manifest.report_id] = manifest
+    unrelated = create_report_manifest(
+        workspace_id="workspace-1",
+        run_id="run-somewhere-else",
+        title="Not this run",
+    )
+    repository.reports[unrelated.report_id] = unrelated
+
+    view = ProductService(repository).get_workflow_dag_view(run.run_id)
+    nodes = {node["id"]: node for node in view.nodes}
+
+    assert nodes["schema_analysis"]["artifact_refs"] == [
+        {"type": "graph_profile", "id": "graph-profile-1"}
+    ]
+    assert nodes["schema_analysis"]["artifact_count"] == 1
+
+    reporting_refs = nodes["reporting"]["artifact_refs"]
+    assert len(reporting_refs) == 3
+    assert {ref["type"] for ref in reporting_refs} == {"report"}
+    assert unrelated.report_id not in {ref["id"] for ref in reporting_refs}
+    # Titles beat bare UUIDs in the step detail panel.
+    assert {ref["label"] for ref in reporting_refs} == {
+        "Report 0",
+        "Report 1",
+        "Report 2",
+    }
+    assert nodes["reporting"]["artifact_count"] == 3
+
+
+def test_workflow_dag_view_prefers_stored_artifact_refs():
+    """Derivation is a fallback: real per-step provenance is never overwritten."""
+
+    repository = FakeProductRepository()
+    stored = [{"type": "analysis_execution", "id": "execution-explicit"}]
+    run = create_workflow_run(
+        workspace_id="workspace-1",
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=WorkflowRunStatus.COMPLETED,
+        graph_profile_id="graph-profile-1",
+        steps=[
+            WorkflowStep(
+                step_id="schema_analysis",
+                label="Schema Analysis",
+                artifact_refs=stored,
+            )
+        ],
+        dag_edges=[],
+    )
+    repository.workflow_runs[run.run_id] = run
+
+    view = ProductService(repository).get_workflow_dag_view(run.run_id)
+
+    assert view.nodes[0]["artifact_refs"] == stored
+
+
+def _document_with_extraction(repository, workspace, payload):
+    document = create_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="brd.md",
+        mime_type="text/markdown",
+        sha256="abc123",
+        storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+        extracted_text="# Requirements",
+        metadata={"extracted_requirements_draft": payload},
+    )
+    repository.create_source_document(document)
+    return document
+
+
+_EXTRACTION_PAYLOAD = {
+    "summary": "Build an identity graph.",
+    "objectives": [
+        {
+            "id": "OBJ-1",
+            "text": "Achieve data autonomy",
+            "source": "document_extraction",
+        }
+    ],
+    "requirements": [
+        {
+            "id": "REQ-1",
+            "text": "Stitch devices to IPs",
+            "source": "document_extraction",
+        }
+    ],
+    "constraints": [
+        {"id": "CON-1", "text": "Must run on GAE", "source": "document_extraction"}
+    ],
+}
+
+
+def test_promote_extracted_requirements_creates_approvable_draft():
+    """FR-15: extracted requirements reach an approvable RequirementVersion.
+
+    Extraction ran on upload and was persisted, but nothing could consume it —
+    there was no path from an uploaded document to a requirement version, so
+    the extracted content was effectively write-only.
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    document = _document_with_extraction(repository, workspace, _EXTRACTION_PAYLOAD)
+    service = ProductService(repository)
+
+    version = service.promote_extracted_requirements(
+        document.document_id, actor="arthur"
+    )
+
+    # DRAFT, not APPROVED: machine extraction is a proposal, so the
+    # workspace's single active version must not change without a human.
+    assert version.status is RequirementVersionStatus.DRAFT
+    assert version.version == 1
+    assert version.document_ids == [document.document_id]
+    assert version.summary == "Build an identity graph."
+    # The content survives — the lossy to_summary_dict() shape could not have
+    # produced this, which is what blocked promotion before.
+    assert [item["text"] for item in version.requirements] == ["Stitch devices to IPs"]
+    assert [item["text"] for item in version.objectives] == ["Achieve data autonomy"]
+    assert [item["text"] for item in version.constraints] == ["Must run on GAE"]
+    assert version.metadata["source"] == "document_extraction"
+    assert version.metadata["source_document_id"] == document.document_id
+
+
+def test_promote_extracted_requirements_without_extraction_is_actionable():
+    """No LLM at upload time means nothing to promote — say so clearly."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    document = create_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="brd.md",
+        mime_type="text/markdown",
+        sha256="abc123",
+        storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+        extracted_text="# Requirements",
+    )
+    repository.create_source_document(document)
+
+    with pytest.raises(ValidationError, match="no extracted requirements"):
+        ProductService(repository).promote_extracted_requirements(document.document_id)
+
+
+def test_approve_requirement_version_supersedes_the_prior_active_set():
+    """A promoted draft can be activated, keeping exactly one APPROVED version.
+
+    The Copilot's approve path works from an interview, so a version promoted
+    from document extraction had no way to be activated at all.
+    """
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    prior = create_requirement_version(
+        workspace_id=workspace.workspace_id,
+        version=1,
+        status=RequirementVersionStatus.APPROVED,
+        summary="Earlier approved set",
+    )
+    repository.create_requirement_version(prior)
+    document = _document_with_extraction(repository, workspace, _EXTRACTION_PAYLOAD)
+    service = ProductService(repository)
+
+    draft = service.promote_extracted_requirements(document.document_id)
+    assert draft.version == 2
+
+    approved = service.approve_requirement_version(
+        draft.requirement_version_id, approved_by="arthur"
+    )
+
+    assert approved.status is RequirementVersionStatus.APPROVED
+    assert approved.approved_at is not None
+    assert approved.metadata["approved_by"] == "arthur"
+
+    refreshed_prior = repository.get_requirement_version(prior.requirement_version_id)
+    assert refreshed_prior.status is RequirementVersionStatus.SUPERSEDED
+    assert refreshed_prior.metadata["superseded_by"] == draft.requirement_version_id
+
+    active = [
+        version
+        for version in repository.list_requirement_versions(workspace.workspace_id)
+        if version.status is RequirementVersionStatus.APPROVED
+    ]
+    assert len(active) == 1
+
+
+def test_approve_requirement_version_rejects_non_draft():
+    """Superseded/archived versions must not be silently reactivated."""
+
+    repository = FakeProductRepository()
+    workspace = _workspace_for_upload(repository)
+    superseded = create_requirement_version(
+        workspace_id=workspace.workspace_id,
+        version=1,
+        status=RequirementVersionStatus.SUPERSEDED,
+        summary="Old",
+    )
+    repository.create_requirement_version(superseded)
+
+    with pytest.raises(ValidationError, match="Only DRAFT"):
+        ProductService(repository).approve_requirement_version(
+            superseded.requirement_version_id
+        )

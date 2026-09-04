@@ -22,6 +22,25 @@ from .specialized import (
 from .constants import AgentNames
 
 
+def _display_label(value: Any) -> str:
+    """Render an enum-or-string field as human-readable report text.
+
+    Interpolating an ``Enum`` directly yields its ``repr``-ish form
+    (``InsightType.KEY_FINDING``), which leaked into every generated report and
+    then into the UI. Take ``.value`` when present, then turn the snake_case
+    token into title case so the markdown reads "Key Finding", not
+    "key_finding".
+    """
+
+    if value is None:
+        return ""
+    raw = getattr(value, "value", value)
+    text = str(raw).strip()
+    if not text:
+        return ""
+    return text.replace("_", " ").replace("-", " ").title()
+
+
 class AgenticWorkflowRunner:
     """
     High-level runner for agentic workflow.
@@ -377,7 +396,7 @@ class AgenticWorkflowRunner:
                     for j, insight in enumerate(report.insights, 1):
                         f.write(f"### {j}. {insight.title}\n\n")
                         f.write(f"{insight.description}\n\n")
-                        f.write(f"- **Type:** {insight.insight_type}\n")
+                        f.write(f"- **Type:** {_display_label(insight.insight_type)}\n")
                         f.write(f"- **Confidence:** {insight.confidence:.0%}\n")
                         if insight.business_impact:
                             f.write(
@@ -390,7 +409,7 @@ class AgenticWorkflowRunner:
                     for j, rec in enumerate(report.recommendations, 1):
                         f.write(f"### {j}. {rec.title}\n\n")
                         f.write(f"{rec.description}\n\n")
-                        f.write(f"- **Priority:** {rec.priority}\n")
+                        f.write(f"- **Priority:** {_display_label(rec.priority)}\n")
                         if hasattr(rec, "effort_estimate") and rec.effort_estimate:
                             f.write(f"- **Effort:** {rec.effort_estimate}\n")
                         if hasattr(rec, "expected_impact") and rec.expected_impact:

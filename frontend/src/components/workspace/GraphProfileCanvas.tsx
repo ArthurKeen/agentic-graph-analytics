@@ -1,6 +1,6 @@
 "use client";
 
-import type { GraphProfileSummary } from "@/lib/product-api/types";
+import type { GraphProfileSummary, ShardingProfile } from "@/lib/product-api/types";
 
 interface GraphProfileCanvasProps {
   graphProfile: GraphProfileSummary;
@@ -22,6 +22,9 @@ export function GraphProfileCanvas({
         </div>
         <div className="graph-profile-header-actions">
           <span>{graphProfile.status}</span>
+          {graphProfile.shardingProfile ? (
+            <ShardingBadge sharding={graphProfile.shardingProfile} />
+          ) : null}
           <button
             className="primary-button"
             type="button"
@@ -32,6 +35,12 @@ export function GraphProfileCanvas({
           </button>
         </div>
       </header>
+
+      {graphProfile.shardingProfile?.warnings.length ? (
+        <p className="error-text" role="status">
+          {graphProfile.shardingProfile.warnings.join(" ")}
+        </p>
+      ) : null}
 
       <div className="graph-profile-grid">
         <CollectionList
@@ -59,6 +68,10 @@ export function GraphProfileCanvas({
           <p className="muted">No collection counts have been captured yet.</p>
         )}
       </section>
+
+      {graphProfile.shardingProfile ? (
+        <ShardingCard sharding={graphProfile.shardingProfile} />
+      ) : null}
 
       <section className="graph-profile-card">
         <h4>Edge Definitions</h4>
@@ -91,6 +104,78 @@ function CollectionList({
       ) : (
         <p className="muted">No collections discovered.</p>
       )}
+    </section>
+  );
+}
+
+export const DEPLOYMENT_LABELS: Record<string, string> = {
+  single_server: "Single server",
+  cluster: "Cluster",
+  one_shard: "OneShard",
+  unknown: "Sharding unknown"
+};
+
+function ShardingBadge({ sharding }: { sharding: ShardingProfile }) {
+  const label = DEPLOYMENT_LABELS[sharding.deploymentKind] ?? sharding.deploymentKind;
+  return (
+    <span
+      className={
+        sharding.isMultitenant ? "sharding-badge is-multitenant" : "sharding-badge"
+      }
+      title={
+        sharding.isMultitenant
+          ? `Sharded by ${sharding.tenantKey} — analyses may span tenants`
+          : "Deployment sharding profile"
+      }
+    >
+      {label}
+      {sharding.isMultitenant ? ` · multi-tenant (${sharding.tenantKey})` : ""}
+    </span>
+  );
+}
+
+function ShardingCard({ sharding }: { sharding: ShardingProfile }) {
+  return (
+    <section className="graph-profile-card">
+      <h4>Sharding &amp; Tenancy</h4>
+      <dl className="detail-list">
+        <div>
+          <dt>Deployment</dt>
+          <dd>
+            {DEPLOYMENT_LABELS[sharding.deploymentKind] ?? sharding.deploymentKind}
+          </dd>
+        </div>
+        <div>
+          <dt>Multi-tenant</dt>
+          <dd>{sharding.isMultitenant ? `yes (${sharding.tenantKey})` : "no"}</dd>
+        </div>
+        <div>
+          <dt>Max shards</dt>
+          <dd>{sharding.maxNumberOfShards || "n/a"}</dd>
+        </div>
+        <div>
+          <dt>Replication factor</dt>
+          <dd>{sharding.minReplicationFactor ?? "n/a"}</dd>
+        </div>
+        {sharding.shardKeys.length > 0 ? (
+          <div>
+            <dt>Shard keys</dt>
+            <dd>{sharding.shardKeys.join(", ")}</dd>
+          </div>
+        ) : null}
+        {sharding.smartGraphAttributes.length > 0 ? (
+          <div>
+            <dt>SmartGraph attributes</dt>
+            <dd>{sharding.smartGraphAttributes.join(", ")}</dd>
+          </div>
+        ) : null}
+        {sharding.satelliteCollections.length > 0 ? (
+          <div>
+            <dt>Satellite collections</dt>
+            <dd>{sharding.satelliteCollections.join(", ")}</dd>
+          </div>
+        ) : null}
+      </dl>
     </section>
   );
 }

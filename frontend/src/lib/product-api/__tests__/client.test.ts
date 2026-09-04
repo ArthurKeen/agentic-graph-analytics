@@ -6,8 +6,10 @@ import {
   mapWorkflowDAGView,
   mapWorkspaceHealth,
   mapWorkspaceOverview,
+  resolveArtifactAsset,
   workspaceAssetsFromOverview
 } from "../client";
+import type { WorkspaceAsset } from "../types";
 
 describe("product API client mappers", () => {
   it("creates workspaces through the product API", async () => {
@@ -207,6 +209,15 @@ describe("product API client mappers", () => {
         kind: "use-cases",
         label: "Use Cases & Templates",
         description: "Author, review, and version analysis templates"
+      },
+      {
+        // FR-54: retention is an admin surface, so it is shown even when no
+        // policy is configured — "nothing configured" is the state an admin
+        // most needs to discover.
+        id: "retention:workspace-1",
+        kind: "retention",
+        label: "Retention",
+        description: "Configure retention windows and preview a sweep"
       }
     ]);
   });
@@ -1804,5 +1815,42 @@ describe("product API client mappers", () => {
     );
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe("resolveArtifactAsset", () => {
+  const assets: WorkspaceAsset[] = [
+    { id: "report-1", kind: "report", label: "Report One", description: "" },
+    { id: "graph-profile-1", kind: "graph-profile", label: "G", description: "" },
+    { id: "requirements:workspace-1", kind: "requirements", label: "Requirements", description: "" },
+    { id: "use-cases:workspace-1", kind: "use-cases", label: "Use Cases", description: "" },
+    { id: "analysis-catalog:workspace-1", kind: "analysis-catalog", label: "Catalog", description: "" }
+  ];
+
+  it("routes per-record refs by id", () => {
+    expect(resolveArtifactAsset({ type: "report", id: "report-1" }, assets)?.kind).toBe("report");
+    expect(
+      resolveArtifactAsset({ type: "graph_profile", id: "graph-profile-1" }, assets)?.kind
+    ).toBe("graph-profile");
+  });
+
+  it("routes singleton refs by kind, since their asset ids are workspace-scoped", () => {
+    // The ref id is a requirement-version id, which never equals the
+    // synthetic `requirements:<workspace>` asset id — matching on id here
+    // would silently fail to resolve.
+    expect(
+      resolveArtifactAsset({ type: "requirement_version", id: "requirement-version-9" }, assets)?.kind
+    ).toBe("requirements");
+    expect(
+      resolveArtifactAsset({ type: "analysis_template", id: "template-9" }, assets)?.kind
+    ).toBe("use-cases");
+    expect(
+      resolveArtifactAsset({ type: "analysis_execution", id: "execution-9" }, assets)?.kind
+    ).toBe("analysis-catalog");
+  });
+
+  it("returns null when nothing can show the ref, so it stays plain text", () => {
+    expect(resolveArtifactAsset({ type: "report", id: "missing" }, assets)).toBeNull();
+    expect(resolveArtifactAsset({ type: "unknown_kind", id: "x" }, assets)).toBeNull();
   });
 });

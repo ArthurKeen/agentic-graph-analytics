@@ -272,9 +272,7 @@ class ProductRepository:
 
         return self.storage.insert_analysis_execution(execution)
 
-    def get_analysis_execution(
-        self, analysis_execution_id: str
-    ) -> AnalysisExecution:
+    def get_analysis_execution(self, analysis_execution_id: str) -> AnalysisExecution:
         """Get an analysis execution."""
 
         return self.storage.get_analysis_execution(analysis_execution_id)

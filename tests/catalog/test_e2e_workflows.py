@@ -10,6 +10,21 @@ from datetime import datetime
 
 
 @pytest.fixture
+def runner_deps():
+    """Injected collaborators for AgenticWorkflowRunner.
+
+    The runner falls back to ``get_db_connection()`` and
+    ``create_llm_provider()`` when these are omitted, so constructing one
+    without them opens a real ArangoDB connection and needs real LLM
+    credentials. That passed on a developer machine with a populated ``.env``
+    and failed in CI against 127.0.0.1:8529 — the test was exercising the
+    network rather than the wiring it claims to check.
+    """
+
+    return {"db_connection": Mock(), "llm_provider": Mock()}
+
+
+@pytest.fixture
 def mock_catalog():
     """Create mock catalog that tracks calls."""
     catalog = Mock()
@@ -74,12 +89,12 @@ class TestEndToEndWorkflows:
         assert executor.auto_track is True
         assert executor.workflow_mode == "traditional"
 
-    def test_agentic_workflow_accepts_catalog(self, mock_catalog):
+    def test_agentic_workflow_accepts_catalog(self, mock_catalog, runner_deps):
         """Test agentic workflow runner accepts catalog parameter."""
         from graph_analytics_ai.ai.agents import AgenticWorkflowRunner
 
         # Create runner with catalog
-        runner = AgenticWorkflowRunner(catalog=mock_catalog)
+        runner = AgenticWorkflowRunner(catalog=mock_catalog, **runner_deps)
 
         assert runner.catalog is mock_catalog
 
@@ -102,12 +117,12 @@ class TestEndToEndWorkflows:
         assert hasattr(exec_agent.executor, "catalog")
         assert exec_agent.executor.catalog is mock_catalog
 
-    def test_agentic_workflow_without_catalog(self):
+    def test_agentic_workflow_without_catalog(self, runner_deps):
         """Test agentic workflow works without catalog (backward compatibility)."""
         from graph_analytics_ai.ai.agents import AgenticWorkflowRunner
 
         # Create runner without catalog
-        runner = AgenticWorkflowRunner()
+        runner = AgenticWorkflowRunner(**runner_deps)
 
         assert runner.catalog is None
 
@@ -191,7 +206,7 @@ class TestEndToEndWorkflows:
         exec_agent = ExecutionAgent(llm, catalog=mock_catalog)
         assert exec_agent.executor.workflow_mode == "agentic"
 
-    def test_catalog_optional_in_all_components(self):
+    def test_catalog_optional_in_all_components(self, runner_deps):
         """Test catalog is optional everywhere (backward compatibility)."""
         from graph_analytics_ai.ai.agents import AgenticWorkflowRunner
         from graph_analytics_ai.ai.execution import AnalysisExecutor
@@ -206,7 +221,7 @@ class TestEndToEndWorkflows:
         llm = Mock()
 
         # All should work without catalog
-        runner = AgenticWorkflowRunner()  # No error
+        runner = AgenticWorkflowRunner(**runner_deps)  # No error
         executor = AnalysisExecutor()  # No error
         req_agent = RequirementsAgent(llm)  # No error
         uc_agent = UseCaseAgent(llm)  # No error
@@ -314,12 +329,12 @@ class TestBackwardCompatibility:
         assert executor is not None
         assert executor.catalog is None
 
-    def test_existing_runner_code_works(self):
+    def test_existing_runner_code_works(self, runner_deps):
         """Test existing AgenticWorkflowRunner code works unchanged."""
         from graph_analytics_ai.ai.agents import AgenticWorkflowRunner
 
         # This is how users currently create runners
-        runner = AgenticWorkflowRunner()
+        runner = AgenticWorkflowRunner(**runner_deps)
 
         # Should work without errors
         assert runner is not None

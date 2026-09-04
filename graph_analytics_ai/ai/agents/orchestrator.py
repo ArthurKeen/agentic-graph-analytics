@@ -409,17 +409,13 @@ cost, and providing clear diagnostics on any failures."""
         except Exception:  # noqa: BLE001 - telemetry must not break the run
             pass
 
-    def _step_outputs_from_response(
-        self, response: AgentMessage
-    ) -> Dict[str, Any]:
+    def _step_outputs_from_response(self, response: AgentMessage) -> Dict[str, Any]:
         """Pull the whitelisted output fields off an agent response (FR-29)."""
 
         content = getattr(response, "content", None)
         if not isinstance(content, dict):
             return {}
-        return {
-            key: content[key] for key in self._STEP_OUTPUT_KEYS if key in content
-        }
+        return {key: content[key] for key in self._STEP_OUTPUT_KEYS if key in content}
 
     def _delegate_to_agent(
         self, step: str, original_message: AgentMessage, state: AgentState
@@ -484,9 +480,7 @@ cost, and providing clear diagnostics on any failures."""
         try:
             response = agent.process(task_message, state)
         except Exception as exc:
-            self._emit_step_event(
-                TraceEventType.AGENT_ERROR, step, error=str(exc)
-            )
+            self._emit_step_event(TraceEventType.AGENT_ERROR, step, error=str(exc))
             raise
         duration_ms = (time.monotonic() - step_started) * 1000.0
         if response.message_type == "error":

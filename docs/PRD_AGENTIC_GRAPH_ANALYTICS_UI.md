@@ -557,7 +557,7 @@ version without losing prior context, audit trail, or domain.
   the extracted text is persisted; the raw upload is staged in a temp file for parsing and
   deleted immediately, since ArangoDB is product-metadata storage, not a blob store. Parse
   failures are recorded on `metadata.extraction_errors` rather than losing the row.)*
-- **FR-15:** The system extracts structured requirements using existing document extraction logic.
+- **FR-15:** The system extracts structured requirements using existing document extraction logic, and those requirements can be promoted into an approvable `RequirementVersion`. *(Implemented. Extraction ran on upload and was persisted, but only as `ExtractedRequirements.to_summary_dict()` — a shape built for LLM prompting that reports **counts** (`requirements_by_type`, `success_criteria_count`) and drops requirement text entirely. Nothing read it, and it could not have seeded a requirement version even if something had: the content was gone. `_extracted_requirements_payload` now also stores a lossless payload under `metadata.extracted_requirements_draft`, in the same `{id, text, source}`-cored item shape the Copilot path emits, so both origins yield versions the rest of the product reads identically. `promote_extracted_requirements` (`POST /api/documents/{document_id}/promote-requirements`) turns that into a **DRAFT** version — deliberately not APPROVED, because machine extraction is a proposal and the workspace's single active version should only change once a human accepts it. `approve_requirement_version` (`POST /api/requirement-versions/{requirement_version_id}/approve`) then activates it and supersedes the prior approved set; the Copilot's approval path works *from an interview*, so without this an extraction-sourced version could be created but never activated. Both approval paths now share `_supersede_prior_approved_versions`, which keeps the one-active-version invariant in a single place. The UI surfaces "Create Requirements Draft" on the source-document canvas only when a promotable payload exists — extraction needs an LLM provider at upload time, so absence is legitimate and an always-failing button would be worse than none.)*
   *(Partial: `ProductService._extract_requirements_summary`
   (`graph_analytics_ai/product/service.py:3590`) invokes the existing
   `RequirementsExtractor` (`graph_analytics_ai/ai/documents/extractor.py`) on upload and
@@ -754,6 +754,17 @@ version without losing prior context, audit trail, or domain.
 remaining async/parallel and durable-executor work is tracked separately by
 FR-31b/FR-31c and FR-34.
 
+> **Caller note — the canonical-DAG substitution is silent.** In agentic and
+> parallel-agentic modes `create_workflow_run_from_steps` **discards** any
+> caller-supplied steps and edges and rebuilds the canonical layout, whose
+> steps are created `pending`. A caller that supplies fully-populated
+> `COMPLETED` steps and then stamps only `run.status` therefore persists a run
+> that renders as finished with every step reading "pending". Stamp status and
+> timings on the **returned** `run.steps`, not on the steps passed in.
+> `graph_analytics_ai/product/service.py` now logs a WARNING naming the
+> discard when a caller supplies steps, so this is discoverable from a log line
+> rather than from a self-contradictory screen.
+
 ### Agentic Workflow Visualizer
 
 - **FR-32:** The UI displays a run-level workflow DAG for every workflow run.
@@ -781,14 +792,29 @@ FR-31b/FR-31c and FR-34.
   exist. Sequential AGENTIC mode is unchanged, pinned by a test.)*
 - **FR-35:** Each node displays status: pending, running, completed, failed, skipped, or paused.
 - **FR-36:** Selecting a node opens step details, including agent name, inputs, outputs, warnings, errors, timing, retry count, checkpoint ID, and cost metadata when available. *(Implemented: fixed a raw/camelCase field-name mismatch where the frontend read nonexistent `artifact_count`/`warning_count`/`error_count` fields instead of the backend's real `artifact_refs`/`warnings`/`errors` arrays — those counts were silently `undefined` in production. `mapWorkflowNode` in `frontend/src/lib/product-api/client.ts:987` now derives counts from the real arrays and passes through agent name, timing, retry count, checkpoint ID, inputs, outputs, and cost; rendered in `FloatingDetailPanel` via `frontend/src/components/workspace/WorkspaceCanvas.tsx:392`. Verified in a browser against demo data.)*
-- **FR-37:** Step details link to produced artifacts, including requirement versions, use cases, templates, executions, result collections, and reports. *(Partial: artifact refs are now listed with type + id in the detail panel (previously always showed a count of `undefined` due to the FR-36 field-name bug) — see `frontend/src/components/workspace/WorkspaceCanvas.tsx:392`. Remaining gap: entries are informative text, not clickable navigation — there is no generic asset-router by `(type, id)` in the frontend, and several referenced types (use cases, templates, executions) have no dedicated view yet per FR-19/20/23/25/26/45/46/47/48.)*
+- **FR-37:** Step details link to produced artifacts, including requirement versions, use cases, templates, executions, result collections, and reports. *(Implemented. Two halves were missing. (1) Nothing in the product code ever wrote `WorkflowStep.artifact_refs` — only tests did — so every step of every real run reported "Artifacts: 0"; the field was test-only, which the drift policy calls deceptive. `ProductService._derive_step_artifact_refs` (`graph_analytics_ai/product/service.py`) now derives refs from the run's own record, keyed by canonical step id, since FR-31a fixes which step produces which artifact kind. Deriving at read time rather than backfilling means runs completed before this existed also link correctly, and explicitly stored refs always win so a future executor recording real per-step provenance is not second-guessed. Reports and executions are matched via their own `run_id` back-reference, because the run's `report_ids` is not reliably populated — the seeded AdTech run has ten reports and an empty `report_ids` — and reports carry their title as the ref label so the panel shows names, not UUIDs. (2) `resolveArtifactAsset` (`frontend/src/lib/product-api/client.ts`) maps a ref `type` to a workspace asset: per-record types (`report`, `graph_profile`, `connection_profile`, `source_document`, `run`) match by id, while the synthetic singletons (Requirements, Use Cases & Templates, Analysis Catalog) match by kind — their asset ids are workspace-scoped strings that never equal a record id. `WorkspaceCanvas` takes a `canOpenArtifact` predicate separately from the `onOpenArtifact` action so render stays side-effect free, and an unroutable ref stays plain text rather than becoming a control that does nothing. Opening a `requirement_version` also points the Requirements canvas dropdown at that version, since Requirements is one consolidated row.)*
 - **FR-38:** Failed or paused nodes expose supported recovery actions such as retry, resume, cancel, or open logs.
 - **FR-39:** The visualizer can be implemented with polling for MVP and must not require WebSocket/SSE delivery.
 
 ### Reports
 
-- **FR-40:** The system stores report manifests, sections, insights, recommendations, evidence, and chart specs as structured records.
-- **FR-41:** The UI renders reports dynamically from stored records.
+- **FR-40:** The system stores report manifests, sections, insights, recommendations, evidence, and chart specs as structured records. Report text is customer-facing prose: enum-valued fields MUST be rendered as human-readable labels ("Key Finding"), never as a Python enum repr. *(The agentic runner interpolated the enum object directly, so `InsightType.KEY_FINDING` reached every generated report and, through them, the UI. `_display_label` in `graph_analytics_ai/ai/agents/runner.py` now takes `.value` and title-cases it; `graph_analytics_ai/ai/reporting/generator.py` already used `.value`. The manifest summary is authored as markdown and is now rendered through the same markdown renderer the sections use — previously it was emitted as plain text, so its `**Generated:**` preamble surfaced as literal asterisks.)*
+- **FR-41:** The UI renders reports dynamically from stored records. *(Implemented: `DynamicReportCanvas` renders manifest, sections and Plotly chart specs from `GET /api/reports/{report_id}`. The workspace overview projection returns **all** report manifests, newest first, rather than a `recent_limit` slice — `graph_analytics_ai/product/service.py`. This is deliberate and must not be re-capped; see the projection rule below.)*
+
+> **Overview projection rule.** The Assets panel is the only entry point that
+> can open a connection profile, graph profile, source document, requirement
+> version, workflow run, or report. A `recent_limit` slice on any of those
+> `latest_*` lists is therefore not a "recent" affordance — it is data loss at
+> the UI layer: everything past the cap becomes permanently unreachable while
+> `counts` keeps advertising it (observed live: `counts.reports` reported 10
+> while 5 were openable). All six lists are returned in full, newest first. A
+> `latest_*` list may only be capped once a second, uncapped navigation path to
+> those entities exists. `latest_audit_events` is the deliberate exception — it
+> is a recent-activity feed, not a navigable asset list. This was fixed once
+> for requirement versions (FR-17c) and then had to be fixed again for reports
+> (FR-41) because the reasoning was never generalized;
+> `tests/unit/product/test_service.py` now asserts every list against its own
+> `counts` entry.
 - **FR-42:** Users can export reports to HTML, Markdown, JSON, and PDF. *(MVP scope: HTML and Markdown shipped; JSON and PDF deferred until use-case generation produces enough content to make them meaningfully different from the HTML/Markdown exports.)*
 - **FR-43:** Users can publish immutable report snapshots.
 - **FR-44:** Reports link to requirements, use cases, templates, executions, result collections, and graph profile versions.
@@ -857,13 +883,17 @@ FR-31b/FR-31c and FR-34.
 ### Import and Export
 
 - **FR-49:** The product supports import from AdTech-style YAML/docs projects.
-  *(**Partial — backend and API only, no import UI.** FR-26's generic template
-  dictionary import has an "Import Dictionary" button; this vertical importer
-  has no equivalent, so a user cannot reach it from the product. Held Partial
-  for consistency with how FR-26 was judged. Remaining work: a file picker that
-  posts the bundle, reusing the FR-26 control.
+  *(Implemented. UI: an "Import Project Bundle" file picker sits beside FR-26's
+  "Import Dictionary" control on the Use Cases & Templates canvas
+  (`frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:438`), posting
+  through `importVerticalProject`
+  (`frontend/src/lib/product-api/client.ts:351`). The picker accepts `.yaml`,
+  `.yml`, and `.json`; the extension only chooses which parser is tried first,
+  since the reader handles both. On success the canvas reports the vertical,
+  project name, and per-kind counts, and surfaces any degradation warnings
+  rather than reporting a silent success.
 
-  Backend complete: `import_vertical_project`
+  Backend: `import_vertical_project`
   (`graph_analytics_ai/product/service.py:2200`), exposed at
   `POST /api/workspaces/{workspace_id}/vertical-projects/import`. No concrete
   source format existed for this requirement — the sibling repos it referred to
@@ -872,7 +902,8 @@ FR-31b/FR-31c and FR-34.
   carries `use_cases` and `templates`, and templates resolve their use case by
   title. See FR-50 for why one format covers both.)*
 - **FR-50:** The product supports import from clinical trials/CRO and open source intelligence analysis template files.
-  *(**Partial — same UI gap as FR-49.** Implemented by the same importer.
+  *(Implemented by the same importer and the same UI control as FR-49
+  (`frontend/src/components/workspace/UseCaseTemplateCanvas.tsx:438`).
   FR-49 and FR-50 differ in domain
   vocabulary, not structure — both describe "here are the analytical questions
   and the algorithm configurations that answer them" — so a `vertical`
@@ -890,22 +921,43 @@ FR-31b/FR-31c and FR-34.
   everything lands as DRAFT — importing is not approving. Malformed entries and
   unknown enum values degrade with a reported warning rather than failing the
   whole bundle, but never silently.)*
-- **FR-51:** The product can export a workspace bundle with metadata, documents, templates, and report snapshots.
+- **FR-51:** The product can export a workspace bundle with metadata, documents, templates, and report snapshots. *(Implemented: `WorkspaceBundle` (`graph_analytics_ai/product/service.py:210`) now carries `use_cases` and `analysis_templates` alongside workspace, connection/graph profiles, source documents, requirement interviews and versions, workflow runs, reports, audit events, epochs and executions; both are re-created on import and counted in `WorkspaceImportResult`. Round-trip covered in `tests/unit/product/test_service.py`. Templates — which this requirement names explicitly — and use cases became product records in the FR-19..FR-26 work, and the exporter predated them, so exports silently omitted both and an "exported" workspace could not be restored intact. Both fields default to empty so bundles written before this change still import.)*
+  *(**Partial — templates are missing from the export.** `WorkspaceBundle`
+  (`graph_analytics_ai/product/service.py:210`) carries the workspace,
+  connection profiles, graph profiles, source documents, requirement interviews
+  and versions, workflow runs, reports, audit events, analysis epochs and
+  analysis executions — but no `use_cases` and no `analysis_templates`, which
+  this requirement names explicitly. Metadata, documents and report snapshots
+  are covered.
+
+  This is a never-rewired defect rather than an omission: use cases and
+  analysis templates only became product entities in the FR-19..FR-26 work, and
+  the exporter predates them, so it was never extended. No test caught it
+  because the export tests assert the fields the bundle already has. Both are
+  already listable (`list_use_cases`, `list_analysis_templates`), so the
+  remaining work is two fields on `WorkspaceBundle`, the matching import side,
+  and a round-trip test.)*
 - **FR-52:** Exported bundles exclude secret values.
 
 ### Administration and Audit
 
 - **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions. *(Implemented: `approve_requirement_version`, `export_workspace_bundle`, and `import_workspace_bundle` audit events added in `graph_analytics_ai/product/service.py` alongside the pre-existing create/update/launch/publish/archive events. There is no hard-delete method in the product service — only the already-audited soft-delete `archive_workspace` — so no action in this list is unaudited.)*
 - **FR-54:** Admins can configure retention for drafts, runs, documents, report
-  snapshots, and audit logs. *(**Partial — backend and API only, no admin UI.**
-  This requirement reads "**Admins can configure**", and nothing under
-  `frontend/src` calls the retention endpoints, so an admin cannot actually
-  configure retention from the product — only by calling the API directly.
-  Held Partial deliberately rather than claiming a user-facing capability no
-  user can reach. Remaining work: an admin screen for the windows plus a
-  dry-run preview of what a sweep would remove.
+  snapshots, and audit logs. *(Implemented. UI: a "Retention" admin canvas
+  (`frontend/src/components/workspace/RetentionAdminCanvas.tsx:52`), reached
+  from a consolidated workspace-level Assets row, exposes an enable toggle plus
+  all five windows, and runs the sweep through
+  `applyRetentionPolicy` (`frontend/src/lib/product-api/client.ts:340`).
 
-  Backend complete: a per-workspace `RetentionPolicy`
+  The UI preserves the backend's safety posture rather than re-deciding it.
+  Only the windows the admin actually edited are sent, so a partial edit cannot
+  silently reset the others to `0`. The sweep button is a **dry run** that
+  lists every candidate by name and reports what is protected; deleting takes
+  two further explicit clicks behind an "this cannot be undone" warning. An
+  ambiguous sweep response is read as *deleted* — the dangerous direction is
+  telling an admin nothing was removed when something was.
+
+  Backend: a per-workspace `RetentionPolicy`
   plus an on-demand sweep — `set_retention_policy`
   (`graph_analytics_ai/product/service.py:1385`) and `apply_retention_policy`
   (`:1451`). Deliberately NOT ArangoDB TTL indexes: retention has to be
@@ -1072,14 +1124,21 @@ older requirement, this section wins.
   to the Requirements Copilot so questions can be tenant-scoped
   automatically.
 
-  *(**Partial — backend only, no UI.** This requirement says the product
-  "surfaces them on the graph profile" and "(b) warns before running
-  cross-tenant analyses"; both are display behaviours, and no frontend file
-  reads `sharding_profile`. The profile is detected and persisted, and the
-  tenant hint does reach the Requirements Copilot's observations (c), but
-  nothing renders the sharding badge or the cross-tenant warning yet.
+  *(Implemented. UI: the graph profile canvas renders a deployment badge that
+  names the tenant key when multitenancy is inferred
+  (`frontend/src/components/workspace/GraphProfileCanvas.tsx:118`), a
+  "Sharding & Tenancy" card with shard count, replication factor, shard keys,
+  SmartGraph attributes, and satellite collections (`:137`), and the detector's
+  own warning text above the fold. Per (b), launching a run on a tenant-sharded
+  deployment is intercepted by a confirmation
+  (`frontend/src/components/workspace/CrossTenantRunConfirmationOverlay.tsx:18`),
+  wired at `frontend/src/components/workspace/WorkspaceShell.tsx:683`. It warns
+  and asks rather than blocking, because the detection is an inference from
+  shard keys, not a policy the product can enforce. A graph profile discovered
+  before this existed carries no sharding profile and reads as *unknown*, never
+  as single-tenant — otherwise the warning would silently stop firing.
 
-  Backend complete — and notably NOT via the analyzer. The precondition in the sentence
+  Backend — and notably NOT via the analyzer. The precondition in the sentence
   above never holds: `arango-schema-analyzer` emits neither field, so waiting
   for it would leave this permanently blocked. The information does not need
   the analyzer — ArangoDB reports it directly on `collection.properties()`
@@ -1188,22 +1247,26 @@ older requirement, this section wins.
     the `typeField == typeValue` filter expressed in the load AQL. No
     temp collection, no cleanup. Used whenever the engine supports
     `loaddataaql`.
-  - Fallback strategy: server-side AQL `view` collection or named-graph
-    materialization that selects only the matching `typeField ==
-    typeValue` rows; the projection's lifetime is the run.
+  - Fallback strategy: **`materialized`** — an idempotent server-side AQL
+    UPSERT of the matching `typeField == typeValue` rows into a
+    *deterministically named* collection, which is then loaded by name.
+    Because the target name is stable and the write is an UPSERT, a later run
+    over unchanged data re-runs as a no-op and reuses the same collection,
+    satisfying the "reusable across runs" half of this requirement.
+    *(Implemented: `_materialize_projections`,
+    `graph_analytics_ai/gae_orchestrator.py:657`; strategy chain resolved at
+    `gae_orchestrator.py:791`. A materialization failure falls through to the
+    next tier rather than failing the run.)*
 
-    *Implementation note:* the "view" wording is not achievable as written —
-    GAE's `loaddata` takes collection **names** and cannot load an
-    ArangoSearch view (see `GAEConnectionBase.load_graph`). The implemented
-    tier delivers the same intent through a mechanism the engine supports:
-    `_materialize_projections`
-    (`graph_analytics_ai/gae_orchestrator.py:657`) runs each projection's
-    idempotent UPSERT into a deterministic collection and loads that. Because
-    the target name is stable and the write is an UPSERT, a later run over
-    unchanged data re-runs it as a no-op and reuses the same collection —
-    which is also the "reusable across runs" half of this requirement. The
-    chain is `inline_aql` → `materialized` → whole collections, and a
-    materialization failure falls through rather than failing the run.
+    > **Superseded wording.** This fallback previously specified a
+    > "server-side AQL `view` collection". That is not implementable: GAE's
+    > `loaddata` takes collection **names** and cannot load an ArangoSearch
+    > view (see `GAEConnectionBase.load_graph`), so no conforming
+    > implementation could ever have existed. The `materialized` tier above
+    > delivers the same intent — a typed subset, materialized server-side,
+    > reusable across runs — through a mechanism the engine actually
+    > supports. Recorded rather than deleted so the constraint that ruled the
+    > view out is not rediscovered.
   - Fallback strategy (when permitted by deployment + dataset
     size): a lightweight GAE filter via per-projection vertex/edge
     collection `clone`s; the cost surfaces in the run cost estimate.
@@ -1355,6 +1418,39 @@ older requirement, this section wins.
 - **NFR-14:** Users should be able to create a workspace and verify a connection without editing files.
 - **NFR-15:** Generated recommendations must include explanations and assumptions.
 - **NFR-16:** Validation errors should identify the exact graph, collection, algorithm, or parameter issue.
+- **NFR-17 (Brand palette):** The UI MUST use the ArangoDB **application**
+  palette, not the arango.ai **marketing** palette. Concretely: a white page
+  canvas (`#ffffff`) with light-gray panels, tables and code blocks
+  (`#f8f8f8`), `#e5e5e5` borders, `#282828` body text, `#9a9a9a` muted text,
+  green reserved for primary actions and active states (`#006532`, hover
+  `#005329`, brand `#007339`, selected tint `#f4fef2`), red used sparingly for
+  destructive actions and errors (`#da1a20`), and Inter throughout.
+  *(Implemented: `frontend/src/app/styles.css`. The app previously shipped the
+  marketing scheme — electric lime `#b9ff3f` on a dark avocado gradient — which
+  is built for a landing page and reads as garish across a dense analytics UI.
+  Do not introduce shades outside these groups — add a token instead.)*
+- **NFR-18 (Light default, dark on request):** Light is the **default** theme
+  and the app MUST be uniformly themed — the asset-explorer rail and the canvas
+  always render in the same mode. A light/dark toggle sits at the top-right of
+  the viewport and the choice is remembered on the device.
+  *(Implemented: `ThemeToggle` (`frontend/src/components/workspace/ThemeToggle.tsx`)
+  is fixed to the viewport rather than placed in the canvas header, so it is
+  reachable in every canvas state including the empty one. It writes
+  `data-theme` on `<html>` and persists to `localStorage`; an inline script in
+  `app/layout.tsx` re-applies the stored value before first paint so dark-mode
+  users get no white flash. Dark mode is a **token-only** override —
+  `:root[data-theme="dark"]` redefines the `--aga-*` variables and every
+  existing rule follows, so there are no per-component dark overrides to keep
+  in sync. Two invariants worth preserving: (1) `--aga-accent` lightens in dark
+  for legibility as text/border, so filled buttons use the separate
+  `--aga-accent-fill` (true brand green, white text) in **both** themes rather
+  than inheriting a tint that would fail white-on-fill contrast; (2)
+  `--aga-panel` (elevated: rows, menus, overlays) and `--aga-panel-soft`
+  (recessed: rail, tables, code blocks) must stay distinct per theme, or rows
+  disappear into the rail. The wordmark in `arango-logo.png` is white and
+  vanishes on a light canvas, so `arango-logo-light.png` — the same asset with
+  only its white ink recoloured to `#282828`, avocado and sparkle untouched —
+  is shown in light mode and swapped by CSS.)*
 
 ---
 
@@ -1741,7 +1837,7 @@ The backend should expose versioned HTTP APIs. The exact framework is implementa
 - `GET /api/workspaces/{workspace_id}/graph-sets` / `GET /api/graph-sets/{graph_set_id}`.
 - `PATCH /api/graph-sets/{graph_set_id}/cross-graph-links` — confirm/reject candidate cross-graph links.
 - `POST /api/graph-sets/{graph_set_id}/discover-cross-graph-links` — re-run cross-graph link detection; useful after new collections are added.
-- `POST /api/graph-profiles/{graph_profile_id}/projections` — materialize a typed projection for a specific conceptual entity-or-relationship subset (FR-71). Body: `{entities?: string[], relationships?: string[], strategy: "view" | "clone", ttl_seconds?: int, name?: string}`. Returns the projection ID for use in workflow runs.
+- `POST /api/graph-profiles/{graph_profile_id}/projections` — materialize a typed projection for a specific conceptual entity-or-relationship subset (FR-71). Body: `{entities?: string[], relationships?: string[], strategy: "inline_aql" | "materialized" | "clone", ttl_seconds?: int, name?: string}`. Returns the projection ID for use in workflow runs. *(`"view"` was removed — see the superseded-wording note under FR-71: GAE's `loaddata` cannot load an ArangoSearch view.)*
 - `GET /api/graph-profiles/{graph_profile_id}/projections` / `DELETE /api/projections/{projection_id}`.
 
 ### Document and Requirement APIs
@@ -1799,7 +1895,12 @@ The backend should expose versioned HTTP APIs. The exact framework is implementa
 - `GET /api/workspaces/{workspace_id}/catalog/executions`
 - `GET /api/workspaces/{workspace_id}/catalog/epochs`
 - `GET /api/catalog/executions/{execution_id}/lineage`
-- `GET /api/catalog/stats`
+- `GET /api/workspaces/{workspace_id}/catalog/stats` *(workspace-scoped: the
+  stats are per-workspace, and a bodyless route can only source arguments from
+  its path — the earlier unscoped `/api/catalog/stats` was uninvocable and
+  returned 500 on every call. `tests/unit/product/test_api.py` now asserts that
+  every GET/DELETE route can actually supply its service method's required
+  arguments, rather than merely asserting the route exists.)*
 
 ### Import APIs
 
