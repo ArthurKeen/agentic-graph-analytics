@@ -37,11 +37,14 @@ from ..config import parse_ssl_verify
 from ..db_connection import connect_arango_database
 from .constants import (
     AUDIT_EVENTS_COLLECTION,
+    ANALYSIS_EXECUTIONS_COLLECTION,
+    CHART_SPECS_COLLECTION,
     CONNECTION_PROFILES_COLLECTION,
     GRAPH_PROFILES_COLLECTION,
     DOCUMENTS_COLLECTION,
     PRODUCT_SCHEMA_VERSION,
     REPORT_MANIFESTS_COLLECTION,
+    REPORT_SECTIONS_COLLECTION,
     REQUIREMENT_VERSIONS_COLLECTION,
     WORKFLOW_RUNS_COLLECTION,
 )
@@ -1062,6 +1065,111 @@ class ProductService:
             "connection_profile_id": connection_profile_id,
             "workspace_id": profile.workspace_id,
             "deleted": True,
+        }
+
+    def delete_workflow_run(
+        self,
+        run_id: str,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Delete a run and the analysis records it produced.
+
+        Replaces a UI action that only hid the row in local state: the run
+        reappeared on refresh while the dialog claimed "This is an irreversible
+        run action" (NFR-19).
+
+        Cascades rather than refusing on dependents. Reports and executions
+        exist *because of* the run and have no meaning without it, and there is
+        no way to delete a report on its own — refusing on them would make this
+        as unusable as connection-profile deletion was before graph profiles
+        could be removed. Report sections and chart specs go with their
+        manifest so no orphan rows survive.
+
+        Two absolute refusals:
+
+        * A **published** report (``published_snapshot_id`` set). FR-54 names
+          "runs behind a published report" as never removable at any age; a
+          published snapshot is a record someone may be relying on externally.
+        * A run still ``RUNNING`` or ``QUEUED``. Cancel it first — deleting the
+          record out from under an executing supervisor would leave work with
+          nothing to report back to.
+        """
+
+        run = self.repository.get_workflow_run(run_id)
+
+        if run.status in (WorkflowRunStatus.RUNNING, WorkflowRunStatus.QUEUED):
+            raise ConflictError(
+                f"Run {run_id} is {run.status.value}. Cancel it before deleting, "
+                f"so the executor is not left writing to a record that is gone."
+            )
+
+        reports = [
+            report
+            for report in self.repository.list_report_manifests(run.workspace_id)
+            if report.run_id == run_id
+        ]
+        published = [r for r in reports if r.published_snapshot_id]
+        if published:
+            titles = ", ".join(f"'{r.title or r.report_id}'" for r in published)
+            raise ConflictError(
+                f"Run {run_id} produced {len(published)} published report(s): "
+                f"{titles}. Published reports are never removed, so this run "
+                f"cannot be deleted."
+            )
+
+        executions = [
+            execution
+            for execution in self.repository.list_analysis_executions(run.workspace_id)
+            if execution.run_id == run_id
+        ]
+
+        # Cascade: sections and charts first, then their manifest, then the
+        # executions, then the run itself — so a failure part-way never leaves
+        # a manifest pointing at rows that are already gone.
+        deleted_sections = 0
+        deleted_charts = 0
+        for report in reports:
+            for section_id in report.section_ids or []:
+                if self.repository.delete_document_by_key(
+                    REPORT_SECTIONS_COLLECTION, section_id
+                ):
+                    deleted_sections += 1
+            for chart_id in report.chart_ids or []:
+                if self.repository.delete_document_by_key(
+                    CHART_SPECS_COLLECTION, chart_id
+                ):
+                    deleted_charts += 1
+            self.repository.delete_document_by_key(
+                REPORT_MANIFESTS_COLLECTION, report.report_id
+            )
+        for execution in executions:
+            self.repository.delete_document_by_key(
+                ANALYSIS_EXECUTIONS_COLLECTION, execution.analysis_execution_id
+            )
+        self.repository.delete_document_by_key(WORKFLOW_RUNS_COLLECTION, run_id)
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=run.workspace_id,
+                actor=actor or "system",
+                action="delete_workflow_run",
+                target_type="workflow_run",
+                target_id=run_id,
+                details={
+                    "status": getattr(run.status, "value", run.status),
+                    "reports_deleted": len(reports),
+                    "executions_deleted": len(executions),
+                    "sections_deleted": deleted_sections,
+                    "charts_deleted": deleted_charts,
+                },
+            )
+        )
+        return {
+            "run_id": run_id,
+            "workspace_id": run.workspace_id,
+            "deleted": True,
+            "reports_deleted": len(reports),
+            "executions_deleted": len(executions),
         }
 
     def delete_graph_profile(

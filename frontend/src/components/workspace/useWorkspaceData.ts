@@ -126,6 +126,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   listDefaultClusterDatabases: () => Promise<DefaultClusterDatabasesResult>;
   deleteConnectionProfile: (connectionProfileId: string) => Promise<void>;
   deleteGraphProfile: (graphProfileId: string) => Promise<void>;
+  deleteWorkflowRun: (runId: string) => Promise<void>;
   listClusterDatabases: (
     input: ListClusterDatabasesInput
   ) => Promise<ClusterDatabasesResult>;
@@ -752,6 +753,14 @@ export function useWorkspaceData({
   // An identity that changes every render re-runs those effects continuously,
   // which re-detected the cluster and undid the user's choice of a different
   // one, and re-fetched defaults over fields they had already edited.
+  const deleteWorkflowRun = async (runId: string): Promise<void> => {
+    if (!isLive) {
+      throw new Error("Connect to a workspace before deleting a run");
+    }
+    await apiClient.deleteWorkflowRun(runId);
+    await refreshOverview();
+  };
+
   const deleteGraphProfile = async (graphProfileId: string): Promise<void> => {
     if (!isLive) {
       throw new Error("Connect to a workspace before deleting a profile");
@@ -1459,6 +1468,7 @@ export function useWorkspaceData({
     listDefaultClusterDatabases,
     deleteConnectionProfile,
     deleteGraphProfile,
+    deleteWorkflowRun,
     getConnectionDefaults,
     uploadSourceDocument,
     createUseCase,

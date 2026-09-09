@@ -151,6 +151,14 @@ PRODUCT_API_ENDPOINTS = [
     ),
     ProductAPIEndpoint(
         method="DELETE",
+        path="/api/runs/{run_id}",
+        service_method="delete_workflow_run",
+        summary="Delete a run and the reports and executions it produced",
+        tags=["runs"],
+        response_model="WorkflowRunDeletion",
+    ),
+    ProductAPIEndpoint(
+        method="DELETE",
         path="/api/graph-profiles/{graph_profile_id}",
         service_method="delete_graph_profile",
         summary="Delete a graph profile that nothing references",
