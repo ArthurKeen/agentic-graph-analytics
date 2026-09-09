@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveWorkspaceConfirmationOverlay } from "./ArchiveWorkspaceConfirmationOverlay";
 import { AssetExplorer } from "./AssetExplorer";
 import { ContextMenu } from "./ContextMenu";
@@ -371,16 +371,34 @@ export function WorkspaceShell({
   // selects a different asset so stale data from a previous run never
   // leaks into the current view. Demo mode returns ``null`` from
   // ``getWorkflowRunStatus`` so this effect is a no-op there.
+  // `getWorkflowRunStatus` is rebuilt on every render of useWorkspaceData, so
+  // depending on its identity made the poll effect tear down and restart on
+  // every render — and since each poll calls setAgenticRunStatus, that render
+  // restarted the effect, which polled immediately, forever. The 3s/10s
+  // setTimeout never applied: this fired ~6 requests a second. Holding the
+  // callback in a ref keeps the effect keyed on values that actually change.
+  const getWorkflowRunStatusRef = useRef(getWorkflowRunStatus);
   useEffect(() => {
-    if (selectedAsset?.kind !== "run") {
-      setAgenticRunStatus(null);
-      return;
-    }
-    const runId = selectedAsset.id;
-    const dag = dagByRunId[runId];
+    getWorkflowRunStatusRef.current = getWorkflowRunStatus;
+  });
+
+  const selectedRunId = selectedAsset?.kind === "run" ? selectedAsset.id : null;
+  // `assets` is rebuilt from the live overview the moment the fetch lands, but
+  // `selectedAsset` still holds the demo seed for a tick after that. Polling on
+  // the stale selection sent the placeholder id to a real backend — two 404s on
+  // /api/runs/run-demo/status per cold load. This also covers a run deleted in
+  // another tab, and avoids hardcoding the demo id.
+  const selectedRunPresent =
+    selectedRunId !== null &&
+    assets.some((asset) => asset.kind === "run" && asset.id === selectedRunId);
+  const selectedRunDag = selectedRunId !== null ? dagByRunId[selectedRunId] : undefined;
+  const selectedRunMode = selectedRunDag?.workflowMode;
+  const selectedRunStatus = selectedRunDag?.status;
+
+  useEffect(() => {
     const isAgentic =
-      dag?.workflowMode === "agentic" || dag?.workflowMode === "parallel_agentic";
-    if (!isAgentic) {
+      selectedRunMode === "agentic" || selectedRunMode === "parallel_agentic";
+    if (selectedRunId === null || !selectedRunPresent || !isAgentic) {
       setAgenticRunStatus(null);
       return;
     }
@@ -393,7 +411,7 @@ export function WorkspaceShell({
         return;
       }
       try {
-        const snapshot = await getWorkflowRunStatus(runId);
+        const snapshot = await getWorkflowRunStatusRef.current(selectedRunId as string);
         if (!cancelled) {
           setAgenticRunStatus(snapshot);
         }
@@ -407,7 +425,7 @@ export function WorkspaceShell({
         return;
       }
       const nextDelayMs =
-        dag?.status === "running" || dag?.status === "queued" ? 3000 : 10000;
+        selectedRunStatus === "running" || selectedRunStatus === "queued" ? 3000 : 10000;
       timeoutId = setTimeout(poll, nextDelayMs);
     }
 
@@ -419,7 +437,7 @@ export function WorkspaceShell({
         clearTimeout(timeoutId);
       }
     };
-  }, [selectedAsset, dagByRunId, getWorkflowRunStatus]);
+  }, [selectedRunId, selectedRunPresent, selectedRunMode, selectedRunStatus]);
 
   useEffect(() => {
     function closePanels(event: KeyboardEvent) {
