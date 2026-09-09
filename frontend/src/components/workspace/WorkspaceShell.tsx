@@ -8,6 +8,7 @@ import { CreateConnectionProfileOverlay } from "./CreateConnectionProfileOverlay
 import { CreateWorkspaceOverlay } from "./CreateWorkspaceOverlay";
 import { CreateWorkflowRunOverlay } from "./CreateWorkflowRunOverlay";
 import { CrossTenantRunConfirmationOverlay } from "./CrossTenantRunConfirmationOverlay";
+import { DeleteConnectionProfileConfirmationOverlay } from "./DeleteConnectionProfileConfirmationOverlay";
 import { DeleteRunConfirmationOverlay } from "./DeleteRunConfirmationOverlay";
 import { DiscoverGraphProfileOverlay } from "./DiscoverGraphProfileOverlay";
 import { EditWorkspaceOverlay } from "./EditWorkspaceOverlay";
@@ -67,6 +68,7 @@ export function WorkspaceShell({
     createConnectionProfile,
     listClusterDatabases,
     listDefaultClusterDatabases,
+    deleteConnectionProfile,
     getConnectionDefaults,
     uploadSourceDocument,
     browseAnalysisCatalog,
@@ -118,6 +120,12 @@ export function WorkspaceShell({
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
+  const [pendingDeleteConnectionProfile, setPendingDeleteConnectionProfile] =
+    useState<WorkspaceAsset | null>(null);
+  const [isDeletingConnectionProfile, setIsDeletingConnectionProfile] = useState(false);
+  const [deleteConnectionProfileError, setDeleteConnectionProfileError] = useState<
+    string | null
+  >(null);
   const [pendingPublishReport, setPendingPublishReport] = useState<WorkspaceAsset | null>(null);
   const [pendingDiscoverGraph, setPendingDiscoverGraph] = useState<WorkspaceAsset | null>(null);
   const [pendingStartCopilot, setPendingStartCopilot] = useState<WorkspaceAsset | null>(null);
@@ -638,6 +646,10 @@ export function WorkspaceShell({
             setSelectedAsset(connectionAsset);
             setSelectedStep(null);
           }
+        }}
+        onRequestDeleteConnectionProfile={(asset) => {
+          setDeleteConnectionProfileError(null);
+          setPendingDeleteConnectionProfile(asset);
         }}
         onVerifyConnectionProfile={(connectionProfileId) => {
           const connectionAsset = visibleAssets.find((asset) => asset.id === connectionProfileId);
@@ -1504,6 +1516,37 @@ export function WorkspaceShell({
           }}
         />
       ) : null}
+      {pendingDeleteConnectionProfile ? (
+        <DeleteConnectionProfileConfirmationOverlay
+          connectionProfile={pendingDeleteConnectionProfile}
+          isDeleting={isDeletingConnectionProfile}
+          errorMessage={deleteConnectionProfileError}
+          onCancel={() => {
+            setPendingDeleteConnectionProfile(null);
+            setDeleteConnectionProfileError(null);
+          }}
+          onConfirm={async () => {
+            setDeleteConnectionProfileError(null);
+            setIsDeletingConnectionProfile(true);
+            try {
+              await deleteConnectionProfile(pendingDeleteConnectionProfile.id);
+              if (selectedAsset?.id === pendingDeleteConnectionProfile.id) {
+                setSelectedAsset(null);
+                setSelectedStep(null);
+              }
+              setPendingDeleteConnectionProfile(null);
+            } catch (error) {
+              // Keep the dialog open: the server refuses while a graph profile
+              // still uses this connection, and that reason is the useful part.
+              setDeleteConnectionProfileError(
+                error instanceof Error ? error.message : "Failed to delete profile"
+              );
+            } finally {
+              setIsDeletingConnectionProfile(false);
+            }
+          }}
+        />
+      ) : null}
       {pendingPublishReport ? (
         <PublishReportConfirmationOverlay
           report={pendingPublishReport}
@@ -1664,9 +1707,15 @@ function DataSourceBanner({
     return (
       <div className="data-source-banner data-source-banner-error" role="alert">
         <strong>Error</strong>
-        <span>{errorMessage ?? "Failed to load workspace from Product API"}. Showing demo data.</span>
+        {/* No longer says "Showing demo data": the loader now clears the
+            fixtures on failure, so the panel is empty rather than populated
+            with a workspace nobody created. Retrying happens automatically. */}
+        <span>
+          {errorMessage ?? "Failed to load workspace from Product API"}. Your
+          workspace is not shown — nothing has been deleted. Retrying…
+        </span>
         <button type="button" onClick={() => window.location.reload()}>
-          Retry
+          Retry now
         </button>
       </div>
     );

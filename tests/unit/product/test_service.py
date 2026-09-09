@@ -36,6 +36,7 @@ from graph_analytics_ai.product import (
 )
 from graph_analytics_ai.product.exceptions import (
     ConflictError,
+    DuplicateError,
     NotFoundError,
     ValidationError,
 )
@@ -356,6 +357,23 @@ class FakeProductRepository:
         return [
             snapshot for snapshot in self.snapshots if snapshot.report_id == report_id
         ]
+
+    def delete_document_by_key(self, collection_name, key):
+        collections = {
+            "aga_connection_profiles": (
+                self.connection_profiles,
+                "connection_profile_id",
+            ),
+            "aga_graph_profiles": (self.graph_profiles, "graph_profile_id"),
+        }
+        if collection_name not in collections:
+            raise KeyError(collection_name)
+        items, id_field = collections[collection_name]
+        for index, item in enumerate(items):
+            if getattr(item, id_field) == key:
+                del items[index]
+                return True
+        return False
 
     def create_audit_event(self, event):
         self.audit_events.append(event)
@@ -3446,3 +3464,157 @@ def test_approve_requirement_version_rejects_non_draft():
         ProductService(repository).approve_requirement_version(
             superseded.requirement_version_id
         )
+
+
+# --------------------------------------------------------------------------- #
+# Duplicate connection profiles                                               #
+# --------------------------------------------------------------------------- #
+
+
+def _connection_profile_args(**overrides):
+    args = {
+        "name": "IAM",
+        "deployment_mode": DeploymentMode.SELF_MANAGED,
+        "endpoint": "https://prod.demo.pilot.arango.ai",
+        "database": "IAM",
+        "username": "root",
+    }
+    args.update(overrides)
+    return args
+
+
+def test_create_connection_profile_rejects_a_duplicate_target():
+    """A second profile for the same cluster/database/user is refused.
+
+    Duplicates are indistinguishable in the Assets panel, and the product has
+    no delete path for connection profiles, so an accidental one is permanent.
+    """
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+
+    first = service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+
+    # DuplicateError maps to 409: the request was well-formed, the resource
+    # already exists.
+    with pytest.raises(DuplicateError) as excinfo:
+        service.create_connection_profile(
+            workspace_id=workspace.workspace_id, **_connection_profile_args()
+        )
+
+    # The message must name the profile to use instead.
+    assert first.connection_profile_id in str(excinfo.value)
+    assert first.name in str(excinfo.value)
+
+
+def test_duplicate_detection_ignores_name_and_endpoint_formatting():
+    """Identity is the connection target, not the label the user typed."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+
+    service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+
+    with pytest.raises(DuplicateError):
+        service.create_connection_profile(
+            workspace_id=workspace.workspace_id,
+            **_connection_profile_args(
+                # Different label, trailing slash, different case — same cluster.
+                name="IAM (second attempt)",
+                endpoint="https://PROD.demo.pilot.arango.ai/",
+            ),
+        )
+
+
+def test_create_connection_profile_allows_a_different_database():
+    """Same cluster, different database is a legitimately distinct profile."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+
+    service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+    second = service.create_connection_profile(
+        workspace_id=workspace.workspace_id,
+        **_connection_profile_args(name="AdTech", database="addtech-knowledge-graph"),
+    )
+
+    assert second.database == "addtech-knowledge-graph"
+    assert len(repository.list_connection_profiles(workspace.workspace_id)) == 2
+
+
+def test_delete_connection_profile_removes_it_and_audits():
+    """Deletion is real, and leaves a record of itself."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+    profile = service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+
+    result = service.delete_connection_profile(
+        profile.connection_profile_id, actor="arthur"
+    )
+
+    assert result["deleted"] is True
+    assert repository.list_connection_profiles(workspace.workspace_id) == []
+    actions = [event.action for event in repository.audit_events]
+    assert "delete_connection_profile" in actions
+
+
+def test_delete_connection_profile_refuses_while_a_graph_profile_uses_it():
+    """Removing the connection underneath a graph profile would strand it."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+    profile = service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+    graph_profile = create_graph_profile(
+        workspace_id=workspace.workspace_id,
+        connection_profile_id=profile.connection_profile_id,
+        graph_name="AdtechGraph",
+    )
+    repository.graph_profiles.append(graph_profile)
+
+    with pytest.raises(ConflictError) as excinfo:
+        service.delete_connection_profile(profile.connection_profile_id)
+
+    # The blocking profile is named so the user knows what to remove first.
+    assert "AdtechGraph" in str(excinfo.value)
+    assert len(repository.list_connection_profiles(workspace.workspace_id)) == 1

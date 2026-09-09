@@ -1,6 +1,7 @@
 import type {
   ChartSpec,
   ClusterDatabasesResult,
+  ConnectionProfileDeletion,
   DefaultClusterDatabasesResult,
   ConnectionDefaults,
   ConnectionGraphSummary,
@@ -429,6 +430,24 @@ export function createProductAPIClient(
       );
       return { endpoint: raw.endpoint, databases: raw.databases ?? [] };
     },
+    async deleteConnectionProfile(
+      connectionProfileId: string
+    ): Promise<ConnectionProfileDeletion> {
+      const raw = await deleteJSON<{
+        connection_profile_id: string;
+        workspace_id: string;
+        deleted?: boolean;
+      }>(
+        `${normalizedBaseUrl}/api/connection-profiles/${encodeURIComponent(
+          connectionProfileId
+        )}`
+      );
+      return {
+        connectionProfileId: raw.connection_profile_id,
+        workspaceId: raw.workspace_id,
+        deleted: raw.deleted ?? true
+      };
+    },
     async listDefaultClusterDatabases(): Promise<DefaultClusterDatabasesResult> {
       // No credentials in the payload: the server uses its own environment.
       const raw = await postJSON<{
@@ -751,6 +770,10 @@ export async function postJSON<T>(url: string, body: Record<string, unknown>): P
     method: "POST",
     body: JSON.stringify(body)
   });
+}
+
+export async function deleteJSON<T>(url: string): Promise<T> {
+  return requestJSON<T>(url, { method: "DELETE" });
 }
 
 export async function putJSON<T>(url: string, body: Record<string, unknown>): Promise<T> {

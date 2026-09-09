@@ -6,6 +6,7 @@ interface BuildConnectionProfileContextMenuArgs {
   onDiscoverGraph: () => void;
   onViewInfo: () => void;
   onCopyId: () => void;
+  onDelete: () => void;
 }
 
 export function buildConnectionProfileContextMenu({
@@ -13,7 +14,8 @@ export function buildConnectionProfileContextMenu({
   onVerifyConnection,
   onDiscoverGraph,
   onViewInfo,
-  onCopyId
+  onCopyId,
+  onDelete
 }: BuildConnectionProfileContextMenuArgs): ContextMenuItem[] {
   return [
     {
@@ -45,6 +47,12 @@ export function buildConnectionProfileContextMenu({
       label: "Copy ID",
       icon: "#",
       onSelect: onCopyId
+    },
+    {
+      id: "delete-connection-profile",
+      label: "Delete Connection Profile",
+      icon: "X",
+      onSelect: onDelete
     }
   ];
 }

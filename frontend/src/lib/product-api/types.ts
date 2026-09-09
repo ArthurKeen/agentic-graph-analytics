@@ -540,6 +540,12 @@ export interface ListClusterDatabasesInput {
   includeSystem?: boolean;
 }
 
+export interface ConnectionProfileDeletion {
+  connectionProfileId: string;
+  workspaceId: string;
+  deleted: boolean;
+}
+
 /** Zero-config connect: databases on the cluster the server is already
  * configured for, plus the non-secret context describing that connection. */
 export interface DefaultClusterDatabasesResult {
@@ -1050,6 +1056,9 @@ export interface ProductAPIClient {
   cancelWorkflowRun(runId: string, actor?: string): Promise<WorkflowRunSummary>;
   /** FR-31a: lightweight status poll (supervisor + executor metadata). */
   listDefaultClusterDatabases(): Promise<DefaultClusterDatabasesResult>;
+  deleteConnectionProfile(
+    connectionProfileId: string
+  ): Promise<ConnectionProfileDeletion>;
   getWorkflowRunStatus(runId: string): Promise<WorkflowRunStatusView>;
   updateWorkflowStep(
     runId: string,

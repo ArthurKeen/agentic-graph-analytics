@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createProductAPIClient, workspaceAssetsFromOverview } from "@/lib/product-api/client";
 import {
   demoAssets,
@@ -124,6 +124,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
   /** Two-step connect, part 1: list databases visible to cluster creds. */
   listDefaultClusterDatabases: () => Promise<DefaultClusterDatabasesResult>;
+  deleteConnectionProfile: (connectionProfileId: string) => Promise<void>;
   listClusterDatabases: (
     input: ListClusterDatabasesInput
   ) => Promise<ClusterDatabasesResult>;
@@ -261,6 +262,11 @@ export function useWorkspaceData({
     status: "demo"
   });
 
+  // Bumping this re-runs the loader. Used by the auto-retry below and by any
+  // caller that wants a full reload rather than refreshOverview()'s partial one.
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const retryAttemptRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
     setState((current) => ({ ...current, status: "loading", errorMessage: undefined }));
@@ -320,46 +326,34 @@ export function useWorkspaceData({
           return;
         }
 
+        // A real workspace shows its own contents, empty or not. Substituting
+        // demo fixtures when a section came back empty made a brand-new
+        // workspace look populated with a "Demo ArangoDB" connection nobody
+        // created — indistinguishable at a glance from real records.
         setState({
-          assets: assets.length > 0 ? assets : demoAssets,
-          connectionProfileById:
-            overview.latestConnectionProfiles.length > 0
-              ? Object.fromEntries(
-                  overview.latestConnectionProfiles.map((profile) => [
-                    profile.connectionProfileId,
-                    profile
-                  ])
-                )
-              : {
-                  [demoConnectionProfile.connectionProfileId]: demoConnectionProfile
-                },
-          graphProfileById:
-            overview.latestGraphProfiles.length > 0
-              ? Object.fromEntries(
-                  overview.latestGraphProfiles.map((profile) => [
-                    profile.graphProfileId,
-                    profile
-                  ])
-                )
-              : { [demoGraphProfile.graphProfileId]: demoGraphProfile },
-          documentById:
-            overview.latestSourceDocuments.length > 0
-              ? Object.fromEntries(
-                  overview.latestSourceDocuments.map((document) => [
-                    document.documentId,
-                    document
-                  ])
-                )
-              : { [demoSourceDocument.documentId]: demoSourceDocument },
-          dagByRunId: dag ? { [dag.runId]: dag } : { [demoDag.runId]: demoDag },
+          assets,
+          connectionProfileById: Object.fromEntries(
+            overview.latestConnectionProfiles.map((profile) => [
+              profile.connectionProfileId,
+              profile
+            ])
+          ),
+          graphProfileById: Object.fromEntries(
+            overview.latestGraphProfiles.map((profile) => [
+              profile.graphProfileId,
+              profile
+            ])
+          ),
+          documentById: Object.fromEntries(
+            overview.latestSourceDocuments.map((document) => [
+              document.documentId,
+              document
+            ])
+          ),
+          dagByRunId: dag ? { [dag.runId]: dag } : {},
           recoveryActionsByRunId:
-            firstRunId && recoveryActions
-              ? { [firstRunId]: recoveryActions }
-              : { [demoDag.runId]: demoRecoveryActions(demoDag) },
-          reportById:
-            Object.keys(reportById).length > 0
-              ? reportById
-              : { [demoReport.manifest.reportId]: demoReport },
+            firstRunId && recoveryActions ? { [firstRunId]: recoveryActions } : {},
+          reportById,
           overview,
           health,
           status: "ready"
@@ -369,11 +363,24 @@ export function useWorkspaceData({
           return;
         }
 
-        setState((current) => ({
-          ...current,
+        // Clear the seeded demo fixtures. Keeping them meant a failed load
+        // presented a different, fake workspace as though it were the one
+        // requested — a live connection profile looked deleted when the API
+        // was merely restarting.
+        setState({
+          assets: [],
+          connectionProfileById: {},
+          graphProfileById: {},
+          documentById: {},
+          dagByRunId: {},
+          recoveryActionsByRunId: {},
+          reportById: {},
+          overview: null,
+          health: null,
           status: "error",
-          errorMessage: error instanceof Error ? error.message : "Failed to load workspace"
-        }));
+          errorMessage:
+            error instanceof Error ? error.message : "Failed to load workspace"
+        });
       }
     }
 
@@ -382,7 +389,28 @@ export function useWorkspaceData({
     return () => {
       cancelled = true;
     };
-  }, [apiClient, initialRunId, initialWorkspaceId]);
+  }, [apiClient, initialRunId, initialWorkspaceId, reloadNonce]);
+
+  // Recover from a transient backend outage without the user noticing. A brief
+  // API restart previously left the workspace stuck in the error state
+  // indefinitely — it never re-fetched, so the only way back was a manual
+  // reload, and it was easy to mistake the empty panel for lost data.
+  // Backoff is exponential from 2s, capped at 30s. `reloadNonce` is a
+  // dependency because a failed retry leaves status on "error", which would
+  // not by itself re-trigger this effect and would end the retry chain.
+  useEffect(() => {
+    if (state.status !== "error") {
+      retryAttemptRef.current = 0;
+      return;
+    }
+    const attempt = retryAttemptRef.current;
+    const delayMs = Math.min(2000 * 2 ** attempt, 30000);
+    const timeoutId = setTimeout(() => {
+      retryAttemptRef.current = attempt + 1;
+      setReloadNonce((current) => current + 1);
+    }, delayMs);
+    return () => clearTimeout(timeoutId);
+  }, [state.status, reloadNonce]);
 
   // CRITICAL: `initialWorkspaceId` alone is NOT a sufficient signal for "use
   // the real API". The loader has a fallback (lines 142-150) that discovers a
@@ -723,6 +751,19 @@ export function useWorkspaceData({
   // An identity that changes every render re-runs those effects continuously,
   // which re-detected the cluster and undid the user's choice of a different
   // one, and re-fetched defaults over fields they had already edited.
+  const deleteConnectionProfile = async (
+    connectionProfileId: string
+  ): Promise<void> => {
+    if (!isLive) {
+      throw new Error("Connect to a workspace before deleting a profile");
+    }
+    await apiClient.deleteConnectionProfile(connectionProfileId);
+    // Refresh so the Assets panel reflects the removal; the profile is gone
+    // server-side, and hiding it client-side only would repeat the mistake the
+    // "Delete Run" action makes.
+    await refreshOverview();
+  };
+
   const listDefaultClusterDatabases = useCallback(
     async (): Promise<DefaultClusterDatabasesResult> => {
       if (isLive) {
@@ -909,12 +950,15 @@ export function useWorkspaceData({
     lastAppliedAt: null
   };
 
-  const getRetentionPolicy = async (): Promise<RetentionPolicy> => {
+  // Memoised: consumed as a React effect dependency. An identity that
+  // changes every render re-runs that effect continuously, which cancels the
+  // in-flight request and starts another — the dropdown never settles.
+  const getRetentionPolicy = useCallback(async (): Promise<RetentionPolicy> => {
     if (isLive && effectiveWorkspaceId) {
       return apiClient.getRetentionPolicy(effectiveWorkspaceId);
     }
     return DEMO_RETENTION_POLICY;
-  };
+  }, [isLive, effectiveWorkspaceId, apiClient]);
 
   const setRetentionPolicy = async (
     input: SetRetentionPolicyInput
@@ -982,12 +1026,15 @@ export function useWorkspaceData({
     };
   };
 
-  const browseAnalysisCatalog = async (): Promise<AnalysisCatalogView> => {
+  // Memoised: consumed as a React effect dependency. An identity that
+  // changes every render re-runs that effect continuously, which cancels the
+  // in-flight request and starts another — the dropdown never settles.
+  const browseAnalysisCatalog = useCallback(async (): Promise<AnalysisCatalogView> => {
     if (isLive && effectiveWorkspaceId) {
       return apiClient.browseAnalysisCatalog(effectiveWorkspaceId);
     }
     return demoAnalysisCatalog();
-  };
+  }, [isLive, effectiveWorkspaceId, apiClient]);
 
   const listAnalysisExecutions = async (
     filters: AnalysisExecutionFilters = {}
@@ -1043,14 +1090,18 @@ export function useWorkspaceData({
     };
   };
 
-  const listConnectionProfileGraphs = async (
-    connectionProfileId: string
-  ): Promise<ConnectionGraphsResult> => {
-    if (isLive) {
-      return apiClient.listConnectionProfileGraphs(connectionProfileId);
-    }
-    return statefulDemoListConnectionProfileGraphs(connectionProfileId);
-  };
+  // Memoised: consumed as a React effect dependency. An identity that
+  // changes every render re-runs that effect continuously, which cancels the
+  // in-flight request and starts another — the dropdown never settles.
+  const listConnectionProfileGraphs = useCallback(
+    async (connectionProfileId: string): Promise<ConnectionGraphsResult> => {
+      if (isLive) {
+        return apiClient.listConnectionProfileGraphs(connectionProfileId);
+      }
+      return statefulDemoListConnectionProfileGraphs(connectionProfileId);
+    },
+    [isLive, apiClient]
+  );
 
   const discoverGraphProfile = async (
     connectionProfileId: string,
@@ -1397,6 +1448,7 @@ export function useWorkspaceData({
     verifyConnectionProfile,
     listClusterDatabases,
     listDefaultClusterDatabases,
+    deleteConnectionProfile,
     getConnectionDefaults,
     uploadSourceDocument,
     createUseCase,

@@ -150,6 +150,14 @@ PRODUCT_API_ENDPOINTS = [
         response_model="RequirementVersion",
     ),
     ProductAPIEndpoint(
+        method="DELETE",
+        path="/api/connection-profiles/{connection_profile_id}",
+        service_method="delete_connection_profile",
+        summary="Delete a connection profile that no graph profile depends on",
+        tags=["connections"],
+        response_model="ConnectionProfileDeletion",
+    ),
+    ProductAPIEndpoint(
         method="POST",
         path="/api/connection-profiles/{connection_profile_id}/verify",
         service_method="verify_connection_profile",
