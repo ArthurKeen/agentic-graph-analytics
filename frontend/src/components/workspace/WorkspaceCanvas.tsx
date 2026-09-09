@@ -69,6 +69,9 @@ interface WorkspaceCanvasProps {
   dataErrorMessage?: string;
   isVerifyingConnection: boolean;
   isDiscoveringGraph: boolean;
+  /** Graph profiles belonging to the currently selected connection
+   * profile, so its canvas can say whether the database is analysable. */
+  graphProfilesForSelectedConnection?: number;
   isStartingRequirementsCopilot: boolean;
   isSavingCopilotAnswer: boolean;
   isGeneratingRequirementsDraft: boolean;
@@ -208,6 +211,7 @@ export function WorkspaceCanvas({
   dataErrorMessage,
   isVerifyingConnection,
   isDiscoveringGraph,
+  graphProfilesForSelectedConnection,
   isStartingRequirementsCopilot,
   isSavingCopilotAnswer,
   isGeneratingRequirementsDraft,
@@ -369,6 +373,9 @@ export function WorkspaceCanvas({
           verificationErrorMessage={connectionVerificationErrorMessage}
           onVerify={onVerifyConnectionProfile}
           onDiscoverGraph={onRequestDiscoverGraph}
+          graphProfileCount={
+            graphProfilesForSelectedConnection ?? 0
+          }
         />
       ) : sourceDocument && selectedAsset.kind === "document" ? (
         <SourceDocumentCanvas

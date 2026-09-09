@@ -802,6 +802,13 @@ export function WorkspaceShell({
           selectedAsset?.kind === "connection-profile" &&
           discoveringGraphConnectionProfileId === selectedAsset.id
         }
+        graphProfilesForSelectedConnection={
+          selectedAsset?.kind === "connection-profile"
+            ? Object.values(graphProfileById).filter(
+                (profile) => profile.connectionProfileId === selectedAsset.id
+              ).length
+            : 0
+        }
         isStartingRequirementsCopilot={
           (selectedAsset?.kind === "graph-profile" &&
             startingCopilotGraphProfileId === selectedAsset.id) ||
@@ -1676,7 +1683,11 @@ function DataSourceBanner({
           Loaded from Product API{workspaceName ? ` — ${workspaceName}` : ""}
           {graphName ? (
             <>
-              {" · Analyzing "}
+              {/* "Analyzing" read as live context for whatever was on screen,
+                   so opening a connection profile for another database looked
+                   like it had failed to take effect. This is the workspace's
+                   standing selection, which only the dropdown changes. */}
+              {" · Active graph: "}
               {showSelector ? (
                 <select
                   className="data-source-banner-graph-select"

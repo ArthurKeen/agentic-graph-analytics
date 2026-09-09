@@ -1,5 +1,7 @@
 """Optional FastAPI adapter for the product UI API."""
 
+import asyncio
+import functools
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -190,12 +192,31 @@ def _make_route_handler(
 
     async def route_handler(request: request_type) -> Any:
         body = await _request_json(request)
-        result = dispatcher.dispatch(
-            method=endpoint.method,
-            path=endpoint.path,
-            path_params=dict(request.path_params),
-            query=dict(request.query_params),
-            body=body,
+        # The service layer is entirely synchronous and frequently slow — a
+        # graph enumeration takes ~11s against a 47-database cluster and a
+        # discovery sweep far longer. Calling it directly from an `async def`
+        # handler blocks the event loop for the whole call, so a single
+        # in-flight request freezes every other one: with one uvicorn worker
+        # the API stops answering, the socket stays open, and it looks hung
+        # rather than busy. (FastAPI gives plain `def` handlers this offload
+        # automatically; declaring them `async def` opted out of it.)
+        # `run_in_executor(None, ...)` uses the loop's default thread pool —
+        # the same offload Starlette's run_in_threadpool performs, but via the
+        # stdlib, so this module keeps importing nothing beyond `fastapi`. The
+        # unit tests fake the fastapi module tree and would otherwise need a
+        # starlette fake too, which would tie the optional-dependency seam to
+        # an implementation detail of how the work is scheduled.
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            functools.partial(
+                dispatcher.dispatch,
+                method=endpoint.method,
+                path=endpoint.path,
+                path_params=dict(request.path_params),
+                query=dict(request.query_params),
+                body=body,
+            ),
         )
 
         if isinstance(result, ReportExportResult):

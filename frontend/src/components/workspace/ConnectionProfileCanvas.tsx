@@ -13,6 +13,10 @@ interface ConnectionProfileCanvasProps {
   verificationErrorMessage: string | null;
   onVerify: (connectionProfileId: string) => void;
   onDiscoverGraph: (connectionProfileId: string) => void;
+  /** How many graph profiles this connection already has. Zero means the
+   * database cannot yet be analysed or selected in the banner, which is not
+   * otherwise visible from here. */
+  graphProfileCount: number;
 }
 
 export function ConnectionProfileCanvas({
@@ -22,7 +26,8 @@ export function ConnectionProfileCanvas({
   isDiscovering,
   verificationErrorMessage,
   onVerify,
-  onDiscoverGraph
+  onDiscoverGraph,
+  graphProfileCount
 }: ConnectionProfileCanvasProps) {
   const secretRefKeys = Object.keys(connectionProfile.secretRefs);
 
@@ -56,6 +61,23 @@ export function ConnectionProfileCanvas({
             {isDiscovering ? "Discovering..." : "Discover Graph"}
           </button>
         </div>
+        {/* Selecting a connection does not switch what the workspace analyses —
+            only a graph profile can, via the banner dropdown. With none
+            discovered, this database simply does not appear there, and nothing
+            said why. State the missing step rather than leaving it inferred. */}
+        {graphProfileCount === 0 ? (
+          <p className="muted" role="note">
+            No graph profile yet — <strong>Discover Graph</strong> to analyse
+            this database. Until then it cannot be selected as the workspace&apos;s
+            active graph.
+          </p>
+        ) : (
+          <p className="muted">
+            {graphProfileCount} graph profile
+            {graphProfileCount === 1 ? "" : "s"} discovered. Switch the
+            workspace to one using the active-graph selector at the top.
+          </p>
+        )}
         <dl className="detail-list">
           <div>
             <dt>Endpoint</dt>
