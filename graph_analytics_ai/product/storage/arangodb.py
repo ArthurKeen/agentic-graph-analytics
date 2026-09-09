@@ -732,6 +732,29 @@ class ProductArangoStorage:
         docs = self._list_workspace_documents(WORKFLOW_RUNS_COLLECTION, workspace_id)
         return [WorkflowRun.from_dict(doc) for doc in docs]
 
+    def list_workflow_runs_by_status(self, status: Any) -> List[WorkflowRun]:
+        """List workflow runs in a given status, across every workspace.
+
+        Deliberately not workspace-scoped: the orphan sweep runs at supervisor
+        startup, before any workspace is selected, and a run left RUNNING by a
+        dead process is orphaned regardless of which workspace owns it.
+        """
+
+        status_value = getattr(status, "value", status)
+        query = f"""
+        FOR doc IN {WORKFLOW_RUNS_COLLECTION}
+            FILTER doc.status == @status
+            SORT doc.updated_at DESC
+            RETURN doc
+        """
+        try:
+            cursor = self.db.aql.execute(query, bind_vars={"status": status_value})
+            return [WorkflowRun.from_dict(doc) for doc in cursor]
+        except Exception as exc:  # noqa: BLE001 — surfaced as StorageError
+            raise StorageError(
+                f"Failed to list workflow runs with status '{status_value}': {exc}"
+            ) from exc
+
     # --- Product Analysis Catalog operations (FR-31 / FR-45..FR-48) ---
 
     def insert_analysis_execution(self, execution: AnalysisExecution) -> str:
