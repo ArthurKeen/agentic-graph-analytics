@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #
-# Mirror main to the secondary repo (arango-solutions/agentic-graph-analytics)
-# at project milestones.
+# Reconcile main on the secondary repo (ArthurKeen/agentic-graph-analytics)
+# with the primary (arango-solutions/agentic-graph-analytics).
 #
-# Deliberately manual: the secondary is a publication surface, not a continuous
-# mirror, so it advances when you decide something is a milestone — not on
-# every push to main.
+# `origin` now pushes to BOTH repos, so a normal `git push` keeps them in step
+# and this script is not part of the routine path. It remains as a repair tool:
+# use it when the two have drifted — a push that reached one remote and failed
+# on the other, or a commit made before the dual-push remote was configured.
 #
 # Usage:
 #   scripts/sync-secondary.sh            # check, then push if fast-forward safe
@@ -13,8 +14,9 @@
 #
 set -euo pipefail
 
+# origin = arango-solutions (primary, and the fetch source).
 PRIMARY="origin"
-SECONDARY="arango-solutions"
+SECONDARY="arthurkeen"
 BRANCH="main"
 DRY_RUN=0
 
@@ -29,7 +31,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 if ! git remote get-url "$SECONDARY" >/dev/null 2>&1; then
   echo "error: no '$SECONDARY' remote. Add it with:" >&2
-  echo "  git remote add $SECONDARY https://github.com/arango-solutions/agentic-graph-analytics.git" >&2
+  echo "  git remote add $SECONDARY https://github.com/ArthurKeen/agentic-graph-analytics.git" >&2
   exit 1
 fi
 
