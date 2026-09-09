@@ -84,7 +84,8 @@ describe("workspace context menu builders", () => {
       onVerifyConnection: noop,
       onDiscoverGraph: noop,
       onViewInfo: noop,
-      onCopyId: noop
+      onCopyId: noop,
+      onDelete: noop
     });
 
     expect(items.map((item) => item.id)).toEqual([
@@ -92,7 +93,8 @@ describe("workspace context menu builders", () => {
       "verify-connection",
       "discover-graph",
       "view-info",
-      "copy-id"
+      "copy-id",
+      "delete-connection-profile"
     ]);
   });
 

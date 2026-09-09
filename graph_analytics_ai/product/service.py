@@ -37,13 +37,14 @@ from ..config import parse_ssl_verify
 from ..db_connection import connect_arango_database
 from .constants import (
     AUDIT_EVENTS_COLLECTION,
+    CONNECTION_PROFILES_COLLECTION,
     DOCUMENTS_COLLECTION,
     PRODUCT_SCHEMA_VERSION,
     REPORT_MANIFESTS_COLLECTION,
     REQUIREMENT_VERSIONS_COLLECTION,
     WORKFLOW_RUNS_COLLECTION,
 )
-from .exceptions import ConflictError, ValidationError
+from .exceptions import ConflictError, DuplicateError, ValidationError
 from .models import (
     AnalysisEpoch,
     AnalysisExecution,
@@ -950,7 +951,7 @@ class ProductService:
             # Describe the profile that already exists, not the raw input —
             # echoing the caller's string reproduced its trailing slash and
             # casing ("arango.ai//IAM"), which reads like a different target.
-            raise ValidationError(
+            raise DuplicateError(
                 f"This workspace already has a connection profile for "
                 f"{existing.username}@{existing.endpoint.rstrip('/')}"
                 f"/{existing.database}: '{existing.name}' "
@@ -1001,6 +1002,66 @@ class ProductService:
             ):
                 return candidate
         return None
+
+    def delete_connection_profile(
+        self,
+        connection_profile_id: str,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Delete a connection profile that nothing depends on.
+
+        Refuses while graph profiles still reference it: those carry the
+        discovered schema and are what runs and reports are scoped by, so
+        removing the connection underneath them would strand records pointing
+        at an id that no longer resolves. The caller is told which profiles
+        block the delete so they can remove those first.
+
+        Returns a small summary rather than None so the API has a body to
+        report, and audits the removal — deletion is the one operation with no
+        surviving record of itself.
+        """
+
+        profile = self.repository.get_connection_profile(connection_profile_id)
+
+        blocking = [
+            graph_profile
+            for graph_profile in self.repository.list_graph_profiles(
+                profile.workspace_id
+            )
+            if graph_profile.connection_profile_id == connection_profile_id
+        ]
+        if blocking:
+            names = ", ".join(
+                f"'{item.graph_name or item.graph_profile_id}'" for item in blocking
+            )
+            raise ConflictError(
+                f"Connection profile '{profile.name}' still has "
+                f"{len(blocking)} graph profile(s) using it: {names}. "
+                f"Delete those first."
+            )
+
+        self.repository.delete_document_by_key(
+            CONNECTION_PROFILES_COLLECTION, connection_profile_id
+        )
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=profile.workspace_id,
+                actor=actor or "system",
+                action="delete_connection_profile",
+                target_type="connection_profile",
+                target_id=connection_profile_id,
+                details={
+                    "name": profile.name,
+                    "endpoint": profile.endpoint,
+                    "database": profile.database,
+                },
+            )
+        )
+        return {
+            "connection_profile_id": connection_profile_id,
+            "workspace_id": profile.workspace_id,
+            "deleted": True,
+        }
 
     def check_workspace_health(self, workspace_id: str) -> WorkspaceHealthResult:
         """Check workspace metadata readiness for admin and setup views."""

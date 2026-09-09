@@ -124,6 +124,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
   /** Two-step connect, part 1: list databases visible to cluster creds. */
   listDefaultClusterDatabases: () => Promise<DefaultClusterDatabasesResult>;
+  deleteConnectionProfile: (connectionProfileId: string) => Promise<void>;
   listClusterDatabases: (
     input: ListClusterDatabasesInput
   ) => Promise<ClusterDatabasesResult>;
@@ -723,6 +724,19 @@ export function useWorkspaceData({
   // An identity that changes every render re-runs those effects continuously,
   // which re-detected the cluster and undid the user's choice of a different
   // one, and re-fetched defaults over fields they had already edited.
+  const deleteConnectionProfile = async (
+    connectionProfileId: string
+  ): Promise<void> => {
+    if (!isLive) {
+      throw new Error("Connect to a workspace before deleting a profile");
+    }
+    await apiClient.deleteConnectionProfile(connectionProfileId);
+    // Refresh so the Assets panel reflects the removal; the profile is gone
+    // server-side, and hiding it client-side only would repeat the mistake the
+    // "Delete Run" action makes.
+    await refreshOverview();
+  };
+
   const listDefaultClusterDatabases = useCallback(
     async (): Promise<DefaultClusterDatabasesResult> => {
       if (isLive) {
@@ -1407,6 +1421,7 @@ export function useWorkspaceData({
     verifyConnectionProfile,
     listClusterDatabases,
     listDefaultClusterDatabases,
+    deleteConnectionProfile,
     getConnectionDefaults,
     uploadSourceDocument,
     createUseCase,

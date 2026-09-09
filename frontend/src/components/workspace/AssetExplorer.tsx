@@ -17,6 +17,7 @@ interface AssetExplorerProps {
   onSelectAsset: (asset: WorkspaceAsset) => void;
   onOpenConnectionProfile: (connectionProfileId: string) => void;
   onVerifyConnectionProfile: (connectionProfileId: string) => void;
+  onRequestDeleteConnectionProfile: (asset: WorkspaceAsset) => void;
   onRequestDiscoverGraph: (asset: WorkspaceAsset) => void;
   onOpenDocument: (documentId: string) => void;
   onOpenGraphProfile: (graphProfileId: string) => void;
@@ -51,6 +52,7 @@ export function AssetExplorer({
   onSelectAsset,
   onOpenConnectionProfile,
   onVerifyConnectionProfile,
+  onRequestDeleteConnectionProfile,
   onRequestDiscoverGraph,
   onOpenDocument,
   onOpenGraphProfile,
@@ -186,7 +188,8 @@ export function AssetExplorer({
                         onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
                         onDiscoverGraph: () => onRequestDiscoverGraph(asset),
                         onViewInfo: openInfo,
-                        onCopyId: baseArgs.onCopyId
+                        onCopyId: baseArgs.onCopyId,
+                        onDelete: () => onRequestDeleteConnectionProfile(asset)
                       })
                     });
                     return;
