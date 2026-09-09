@@ -499,6 +499,27 @@ version without losing prior context, audit trail, or domain.
 ### Connection Profiles
 
 - **FR-5:** Users can create connection profiles for ArangoDB databases.
+- **FR-5a (Connection profile removal and uniqueness):** Users can delete a
+  connection profile that no graph profile references. The delete MUST be
+  refused (409) while any `GraphProfile` still points at it, naming the
+  blocking profiles, because graph profiles carry the discovered schema that
+  runs and reports are scoped by — removing the connection underneath them
+  would strand records on an unresolvable id. Deletion MUST emit an audit
+  event before removing the record. Creation MUST reject a second profile
+  whose connection *target* (endpoint, database, username, deployment mode)
+  already exists in the workspace, returning 409 and naming the existing
+  profile; the profile *name* is not part of that identity, since a
+  differently-labelled profile pointing at the same place is the same
+  connection. Endpoint comparison ignores case and a trailing slash; database
+  and username stay case-sensitive because ArangoDB treats them so. This does
+  not narrow FR-3: a workspace may still hold many connection profiles,
+  provided they address distinct targets. *(Implemented: `DELETE
+  /api/connection-profiles/{id}` and `ProductService.delete_connection_profile`;
+  duplicate rejection via `_find_matching_connection_profile`. The companion
+  `DELETE /api/graph-profiles/{id}` exists for the same reason — without it a
+  connection blocked by a graph profile could never be unblocked; it refuses
+  while the profile is the workspace's active one, or while runs, executions,
+  requirement interviews or graph sets reference it.)*
 - **FR-6:** Connection profiles store non-secret descriptors and secret references.
 - **FR-7:** The backend can test database, graph inventory, and GAE access. *(Implemented:
   DB verification + named-graph inventory as before, plus a best-effort GAE reachability
@@ -519,6 +540,25 @@ version without losing prior context, audit trail, or domain.
   in `graph_analytics_ai/product/service.py:2140`; prefill effect in
   `frontend/src/components/workspace/CreateConnectionProfileOverlay.tsx:55`;
   tested in `tests/unit/product/test_get_connection_defaults.py`.)*
+- **FR-8b (Zero-config connect):** When the deployment's own environment
+  supplies working cluster credentials, connecting MUST default to choosing a
+  database on that cluster rather than asking for connection details the
+  server already holds. Endpoint and username are shown as read-only context,
+  never as inputs, and no credential value or env-var name is requested. SSL
+  verification state and deployment mode MUST remain visible, because silent
+  SSL behaviour is undiagnosable against a self-signed cluster. The explicit
+  credentials form of FR-8a MUST remain reachable ("Connect to a different
+  cluster…") and is the automatic fallback when the environment has no
+  endpoint, the cluster is unreachable, or the UI is in demo mode — pointing a
+  workspace at a cluster other than the server's own is a supported capability
+  (see the cross-tenant run confirmation) and MUST NOT be removed. This matters
+  most for bring-your-own-container deployments, where the container runs
+  inside the same Kubernetes cluster as ArangoDB and ambient access is the
+  deployment model. *(Implemented: `POST
+  /api/connections/default-cluster/databases` and
+  `ProductService.list_default_cluster_databases`, which send no credentials
+  from the browser; overlay detection and fallback in
+  `frontend/src/components/workspace/CreateConnectionProfileOverlay.tsx`.)*
 
 ### Graph Profiles
 
@@ -941,7 +981,7 @@ FR-31b/FR-31c and FR-34.
 
 ### Administration and Audit
 
-- **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions. *(Implemented: `approve_requirement_version`, `export_workspace_bundle`, and `import_workspace_bundle` audit events added in `graph_analytics_ai/product/service.py` alongside the pre-existing create/update/launch/publish/archive events. There is no hard-delete method in the product service — only the already-audited soft-delete `archive_workspace` — so no action in this list is unaudited.)*
+- **FR-53:** The system records audit events for create, update, approve, launch, publish, import, export, and delete/archive actions. *(Implemented: `approve_requirement_version`, `export_workspace_bundle`, and `import_workspace_bundle` audit events added in `graph_analytics_ai/product/service.py` alongside the pre-existing create/update/launch/publish/archive events. Hard deletion exists for connection profiles and graph profiles only (`delete_connection_profile`, `delete_graph_profile`, `graph_analytics_ai/product/service.py`), and each emits its own audit event before the record is removed; every other destructive path is the soft-delete `archive_workspace`. Deletion is the one operation that leaves no surviving record of itself, so any future hard delete MUST audit before removing.)*
 - **FR-54:** Admins can configure retention for drafts, runs, documents, report
   snapshots, and audit logs. *(Implemented. UI: a "Retention" admin canvas
   (`frontend/src/components/workspace/RetentionAdminCanvas.tsx:52`), reached
