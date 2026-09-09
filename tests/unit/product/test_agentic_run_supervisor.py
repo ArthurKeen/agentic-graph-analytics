@@ -1239,3 +1239,45 @@ def test_step_end_outputs_carry_gae_job_ids():
     assert execution_step.outputs["result_collections"] == ["pagerank_results"]
     # "step" is routing metadata, not an output.
     assert "step" not in execution_step.outputs
+
+
+def test_sweep_orphan_runs_requires_the_repository_method_to_exist():
+    """The sweep is only as good as the lookup it depends on.
+
+    `sweep_orphan_runs` catches AttributeError and returns [] when the
+    repository cannot list by status. That guard made the sweep a silent no-op
+    in production for as long as `list_workflow_runs_by_status` was missing:
+    every startup swept nothing and said nothing, so runs left RUNNING by a
+    dead process stayed RUNNING forever. Two such rows accumulated in the
+    AdTech demo and polled /status every 3 seconds indefinitely.
+
+    This pins the contract so the method cannot be dropped again without a
+    failing test.
+    """
+
+    from graph_analytics_ai.product.repository import ProductRepository
+
+    assert hasattr(ProductRepository, "list_workflow_runs_by_status"), (
+        "ProductRepository.list_workflow_runs_by_status is required by "
+        "AgenticRunSupervisor.sweep_orphan_runs; without it the sweep "
+        "silently does nothing."
+    )
+
+
+def test_repository_list_by_status_delegates_to_storage():
+    """Status is passed through as its enum value, not the enum object."""
+
+    from unittest.mock import MagicMock
+
+    from graph_analytics_ai.product.models import WorkflowRunStatus
+    from graph_analytics_ai.product.repository import ProductRepository
+
+    storage = MagicMock()
+    storage.list_workflow_runs_by_status.return_value = []
+    repo = ProductRepository(storage=storage)
+
+    repo.list_workflow_runs_by_status(WorkflowRunStatus.RUNNING)
+
+    storage.list_workflow_runs_by_status.assert_called_once_with(
+        WorkflowRunStatus.RUNNING
+    )

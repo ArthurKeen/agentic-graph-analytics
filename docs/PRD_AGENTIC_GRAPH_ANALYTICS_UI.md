@@ -1440,6 +1440,27 @@ older requirement, this section wins.
 - **NFR-5:** Workflow run state must survive browser refresh and backend restart.
 - **NFR-6:** Long-running executions must not depend on a single HTTP request.
 - **NFR-7:** Import operations must be idempotent when source hashes have not changed.
+- **NFR-19 (Truthful outcomes):** The product MUST NOT report an outcome it
+  did not achieve. Specifically: a terminal failure status MUST NOT be
+  overwritten by a later non-terminal one, and any result carrying an error
+  MUST be treated as a failure whatever its status field claims; a control
+  that states a destructive or persistent effect MUST perform it, or say
+  plainly what it does instead; demo or placeholder data MUST NOT stand in
+  for a record the user asked for by id — an empty or error state is required
+  instead; and a self-healing mechanism that cannot run MUST fail loudly
+  rather than silently doing nothing. Where an outcome cannot be determined,
+  the ambiguous case MUST resolve to the reading that is safe to act on: an
+  unconfirmed deletion reports as *not* deleted, an unconfirmed success as
+  *not* succeeded. *(Five instances motivated this: GAE cleanup stamping
+  `CLEANING_UP` over `FAILED` so ten reports claimed completion with zero
+  results (`gae_orchestrator.py`, `ai/execution/executor.py`); "Delete Run",
+  which hides a row locally while claiming an irreversible action (still
+  open); demo fixtures left in place when a workspace failed to load, so a
+  live connection profile appeared deleted; FR-37's `artifact_refs` written
+  only by tests, so every step reported "Artifacts: 0"; and
+  `sweep_orphan_runs` catching AttributeError and returning `[]` on every
+  startup because `list_workflow_runs_by_status` did not exist — runs left
+  RUNNING by a dead process stayed RUNNING forever.)*
 
 ### Performance
 

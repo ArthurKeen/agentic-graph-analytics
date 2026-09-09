@@ -1,7 +1,7 @@
 """High-level product metadata repository."""
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from .exceptions import ConflictError
 from .models import (
@@ -264,6 +264,18 @@ class ProductRepository:
         """List workflow runs for a workspace."""
 
         return self.storage.list_workflow_runs(workspace_id)
+
+    def list_workflow_runs_by_status(self, status: Any) -> List[WorkflowRun]:
+        """List workflow runs in a given status, across every workspace.
+
+        Required by ``AgenticRunSupervisor.sweep_orphan_runs``. Without it the
+        sweep caught AttributeError and returned [] — silently, on every
+        startup — so runs left RUNNING by a dead process stayed RUNNING
+        forever. Two such rows accumulated in the AdTech demo and polled
+        /status every 3 seconds indefinitely.
+        """
+
+        return self.storage.list_workflow_runs_by_status(status)
 
     # --- Product Analysis Catalog operations (FR-31 / FR-45..FR-48) ---
 
