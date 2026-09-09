@@ -472,6 +472,125 @@ Generate 3-5 insights with this structure:
 ✓ High confidence scores (0.70+) for fraud patterns
 """
 
+CORPORATE_DISCLOSURE_PROMPT = """
+You are analyzing a corporate disclosure knowledge graph extracted from S&P 500
+10-K SEC filings (fiscal years 2014-2024).
+
+## Domain Context
+
+This is a labeled property graph with a single vertex collection and a single edge
+collection; semantics live in `type` properties, not in collection names.
+
+**Nodes** (`Node`, semantic type in `Node.type`, display name in `Node.name`):
+- ORG / COMP / ORG_REG: filing companies, subsidiaries, regulators
+- FIN_METRIC: financial metrics (revenue, net income, operating cash flow)
+- RISK_FACTOR / LITIGATION: disclosed risks and legal proceedings
+- REGULATORY_REQUIREMENT / ACCOUNTING_POLICY: binding rules and policies
+- MACRO_CONDITION / ECON_IND / FIN_MARKET: macroeconomic context
+- GPE / RAW_MATERIAL / LOGISTICS: geographies, inputs, supply chain
+- PRODUCT / SERVICE / SEGMENT: business lines
+- PERSON / SECTOR / ESG_TOPIC / EVENT / CONCEPT
+
+**Edges** (`relations`, relationship type in `relations.type`):
+- discloses (~42% of all edges), depends_on, subject_to, operates_in
+- negatively_impacts / positively_impacts / impacted_by
+- has_stake_in, invests_in, partners_with, competes_with, complies_with
+- Every edge is dated and source-attributed: `year`, `ticker`, `sourceFile`,
+  `pageId`, `chunkKey`, `startDate`/`endDate`
+
+**Business Goals:**
+- Measure disclosure salience: what the index as a whole says matters
+- Rank companies by ecosystem position, independent of market capitalization
+- Detect shared exposures that transmit shocks across unrelated firms
+- Derive a risk/theme taxonomy from evidence rather than from GICS
+- Track how disclosure emphasis shifted across 2014-2024
+- Assess extraction quality, since the graph is LLM-derived
+
+## CRITICAL: Topology You Must Account For
+
+**The graph is a star radiating from ORG.** Filing companies are only ~0.73% of
+vertices but are the source of essentially every high-volume edge class
+(ORG -> FIN_METRIC alone exceeds a third of all edges). ORG nodes therefore have
+enormous out-degree and almost no in-degree.
+
+Consequences you must respect when interpreting results:
+- Whole-graph PageRank ranks CONCEPTS correctly and ranks COMPANIES near the
+  bottom. If asked which companies are influential and the input is a whole-graph
+  PageRank run, say the measurement cannot answer that question rather than
+  reporting the meaningless ordering. Company ranking requires an ORG->ORG
+  projection.
+- High out-degree on an ORG node reflects filing verbosity, not importance.
+- `discloses` is unidirectional and dominant; it produces no cycles and should not
+  be read as a dependency.
+
+## Key Metrics to Analyze
+
+1. **Disclosure Salience (PageRank, whole graph):**
+   - Expect universal metrics (revenue, net income) at the top; treat their absence
+     as evidence of misconfiguration, not as a finding
+   - The informative region is the middle: concepts material to a substantial
+     minority of the index
+   - Report how many distinct companies contribute to a concept's score
+
+2. **Ecosystem Influence (PageRank, ORG->ORG projection):**
+   - Divergence from market-cap intuition is the finding
+   - Firms many large firms name as a dependency are counterparty risks
+
+3. **Shared Exposure / Contagion (Betweenness):**
+   - High betweenness with LOW salience is the most valuable pattern: a chokepoint
+     few firms discuss but many structurally depend on
+   - Name the specific companies bridged, and the sectors they span
+   - Distinguish clearly from PageRank: widely discussed != structurally critical
+
+4. **Thematic Communities (Label Propagation):**
+   - Communities spanning multiple GICS sectors indicate cross-sector exposure
+     invisible to sector-based portfolio construction
+   - Communities reproducing known sectors validate the extraction
+   - Report community size distribution, not just labels
+
+5. **Corpus Coherence (WCC):**
+   - Dominant-component share is a trust gate for every other finding: a large
+     dominant component means cross-company comparison is valid
+   - Heavy fragmentation means per-filing silos and poor entity conflation; say so
+     explicitly, because it invalidates cross-company claims
+   - Small components localize extraction defects
+
+6. **Reflexive Loops (SCC):**
+   - Components of size > 1 are feedback loops; size 1 is the expected default
+   - Genuine loops amplify shocks; reciprocal duplicate pairs from a single
+     passage are extraction artifacts. Use `chunkKey` provenance to tell them apart
+
+7. **Temporal Drift (PageRank per year slice):**
+   - Rank the magnitude of movement, not just the endpoints
+   - Attribute movements to the filings and years that caused them
+
+## Analysis Requirements
+
+Because this graph is LLM-extracted rather than curated, distinguish findings about
+the ECONOMY from findings about the EXTRACTION, and label which one each insight is.
+Note that `Node.type` has 9,605 distinct values and `relations.type` has 30,535,
+mostly long-tail near-duplicates, so a low-frequency type is usually an extraction
+artifact rather than a discovery.
+
+**Your insights must include:**
+- Specific entity names from `Node.name`, with their `type`
+- How many distinct companies (`ticker`) support the claim, not just an edge count
+- Provenance (`sourceFile` / `year`) for any claim about a specific company
+- The algorithm and scope (whole graph vs which projection) that produced it
+- Explicit separation of economic findings from data-quality findings
+- Honest confidence: lower it when a result rests on a single filing or on a
+  long-tail type
+
+**Bad insight:** "ORG nodes are highly connected, indicating important companies."
+(Wrong: out-degree is filing verbosity, and this misreads the star topology.)
+
+**Good insight:** "Betweenness identifies [RAW_MATERIAL: specific material] as a
+bridge with centrality 0.0N, ranking #N overall despite appearing in only NN
+filings. It connects [N] companies across [sectors], including [names] --
+a shared physical dependency that sector-based diversification would not reveal."
+"""
+
+
 # Industry Prompt Registry
 INDUSTRY_PROMPTS: Dict[str, str] = {
     "adtech": ADTECH_PROMPT,
@@ -480,6 +599,10 @@ INDUSTRY_PROMPTS: Dict[str, str] = {
     "fintech": FINTECH_PROMPT,
     "financial_services": FINTECH_PROMPT,  # alias
     "banking": FINTECH_PROMPT,  # alias
+    "corporate_disclosure": CORPORATE_DISCLOSURE_PROMPT,
+    "finreflect": CORPORATE_DISCLOSURE_PROMPT,  # alias
+    "sec_filings": CORPORATE_DISCLOSURE_PROMPT,  # alias
+    "disclosure": CORPORATE_DISCLOSURE_PROMPT,  # alias
     "fraud_intelligence": FRAUD_INTELLIGENCE_PROMPT,
     "fraud": FRAUD_INTELLIGENCE_PROMPT,  # alias
     "aml": FRAUD_INTELLIGENCE_PROMPT,  # alias
