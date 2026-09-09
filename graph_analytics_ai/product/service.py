@@ -3358,6 +3358,53 @@ class ProductService:
             "password_secret_env_var": "ARANGO_PASSWORD",
         }
 
+    def list_default_cluster_databases(
+        self,
+        include_system: bool = False,
+    ) -> Dict[str, Any]:
+        """List databases on the cluster this deployment is already wired to.
+
+        Zero-config connect. ``list_cluster_databases`` makes the caller supply
+        endpoint, username and password env-var name — but for the common
+        deployment those are the server's own, already in its environment, and
+        the connect form was asking an operator to retype what
+        ``get_connection_defaults`` had just handed it. That is not a security
+        boundary: the password is resolved server-side either way, so taking
+        the endpoint and username from the same place widens nothing.
+
+        It matters most for bring-your-own-container, where the container runs
+        in the same cluster as ArangoDB and ambient access *is* the deployment
+        model, and for demos, where it turns a credentials form into "pick a
+        database".
+
+        Raises ``ValidationError`` (400) when the environment has no endpoint,
+        which is the signal for the UI to fall back to asking explicitly.
+        """
+
+        defaults = self.get_connection_defaults()
+        endpoint = (defaults.get("endpoint") or "").strip()
+        if not endpoint:
+            raise ValidationError(
+                "This deployment has no ARANGO_ENDPOINT configured; "
+                "connect to a cluster explicitly instead"
+            )
+
+        result = self.list_cluster_databases(
+            endpoint=endpoint,
+            username=defaults.get("username") or "root",
+            password_secret_env_var=(
+                defaults.get("password_secret_env_var") or "ARANGO_PASSWORD"
+            ),
+            verify_ssl=bool(defaults.get("verify_ssl", True)),
+            include_system=include_system,
+        )
+        # Echo the non-secret context so the UI can show what it connected as
+        # without a second round trip.
+        result["username"] = defaults.get("username") or "root"
+        result["verify_ssl"] = bool(defaults.get("verify_ssl", True))
+        result["deployment_mode"] = defaults.get("deployment_mode") or ""
+        return result
+
     def verify_connection_profile(
         self,
         connection_profile_id: str,

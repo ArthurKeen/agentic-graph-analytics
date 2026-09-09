@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type {
   ConnectionDefaults,
   CreateConnectionProfileInput,
+  DefaultClusterDatabasesResult,
   ListClusterDatabasesInput
 } from "@/lib/product-api/types";
 
@@ -22,6 +23,12 @@ interface CreateConnectionProfileOverlayProps {
    * the password value. Optional — the form keeps its placeholders if absent
    * or if the call fails. */
   onLoadDefaults?: () => Promise<ConnectionDefaults>;
+  /** Zero-config connect: list databases on the cluster the server is already
+   * configured for, with no credentials from the browser. When this resolves,
+   * the overlay skips straight to picking a database. Rejection (no
+   * ARANGO_ENDPOINT, unreachable cluster, demo mode) falls back to the
+   * explicit credentials form. */
+  onListDefaultClusterDatabases?: () => Promise<DefaultClusterDatabasesResult>;
 }
 
 const deploymentModes = [
@@ -37,7 +44,8 @@ export function CreateConnectionProfileOverlay({
   onCancel,
   onSubmit,
   onListDatabases,
-  onLoadDefaults
+  onLoadDefaults,
+  onListDefaultClusterDatabases
 }: CreateConnectionProfileOverlayProps) {
   const [form, setForm] = useState<CreateConnectionProfileInput>({
     name: "",
@@ -49,11 +57,24 @@ export function CreateConnectionProfileOverlay({
     passwordSecretEnvVar: ""
   });
   const [prefilled, setPrefilled] = useState(false);
+  // "detecting" until we know whether this deployment can connect on its own.
+  // "default-cluster" is the zero-config path; "manual" is the credentials
+  // form, reached either by fallback or by the user asking for another cluster.
+  const [connectMode, setConnectMode] = useState<
+    "detecting" | "default-cluster" | "manual"
+  >(onListDefaultClusterDatabases ? "detecting" : "manual");
+  const [defaultCluster, setDefaultCluster] =
+    useState<DefaultClusterDatabasesResult | null>(null);
+  // Once the user edits the name we stop deriving it from the database.
+  const [nameTouched, setNameTouched] = useState(false);
 
   // Prefill from the deployment environment on open. Best-effort: only fills
   // fields the user hasn't already changed, and silently keeps placeholders
   // if there are no defaults or the lookup fails.
   useEffect(() => {
+    // Also relies on a memoised prop: when this dependency was unstable the
+    // effect re-fetched on every render and overwrote endpoint / username
+    // after the user had edited them.
     if (!onLoadDefaults) {
       return;
     }
@@ -88,6 +109,64 @@ export function CreateConnectionProfileOverlay({
   const [isFinding, setIsFinding] = useState(false);
   const [findError, setFindError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Zero-config connect. The endpoint, username and password env-var name all
+  // come from the server's environment already — the old form asked an
+  // operator to retype what `onLoadDefaults` had just handed it, which is not
+  // a security boundary (the password is resolved server-side either way) and
+  // made a variable-name field read like a password prompt. Try the server's
+  // own cluster first and fall back to asking only if that fails.
+  useEffect(() => {
+    // Runs once: `onListDefaultClusterDatabases` is memoised by the hook that
+    // supplies it. That stability matters — an unstable identity re-ran this
+    // effect on every render and forced connectMode back to "default-cluster",
+    // silently undoing "Connect to a different cluster…" as soon as it was
+    // clicked.
+    if (!onListDefaultClusterDatabases) {
+      return;
+    }
+    let cancelled = false;
+    onListDefaultClusterDatabases()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setDefaultCluster(result);
+        setDatabases(result.databases);
+        setHasSearched(true);
+        setConnectMode("default-cluster");
+        setForm((current) => ({
+          ...current,
+          endpoint: result.endpoint || current.endpoint,
+          username: result.username || current.username,
+          verifySsl: result.verifySsl,
+          deploymentMode: result.deploymentMode || current.deploymentMode,
+          database: result.databases[0] ?? ""
+        }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setConnectMode("manual");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onListDefaultClusterDatabases]);
+
+  // Name is required, and on the zero-config path the database is the only
+  // thing the user actually chose — so default to it rather than making them
+  // invent a label. Stops as soon as they type their own.
+  useEffect(() => {
+    if (nameTouched || !form.database) {
+      return;
+    }
+    setForm((current) =>
+      current.name === current.database
+        ? current
+        : { ...current, name: current.database }
+    );
+  }, [form.database, nameTouched]);
 
   const updateField = <K extends keyof CreateConnectionProfileInput>(
     key: K,
@@ -168,7 +247,11 @@ export function CreateConnectionProfileOverlay({
       >
         <header>
           <div>
-            <p className="muted">Workspace Setup · Step 1: Cluster credentials</p>
+            <p className="muted">
+              {connectMode === "default-cluster"
+                ? "Workspace Setup · Pick a database"
+                : "Workspace Setup · Step 1: Cluster credentials"}
+            </p>
             <h2>Connect to a Cluster</h2>
           </div>
           <button
@@ -181,18 +264,41 @@ export function CreateConnectionProfileOverlay({
           </button>
         </header>
 
-        <p className="muted">
-          Enter cluster credentials and click <strong>Find databases</strong> to
-          list what&apos;s available, then pick a database. The password is
-          referenced by environment-variable name — never entered in plaintext.
-        </p>
+        {connectMode === "detecting" ? (
+          <p className="muted">Checking this deployment&apos;s cluster…</p>
+        ) : null}
 
-        {prefilled ? (
-          <p className="muted">
-            Prefilled from the server environment (<code>.env</code>). Edit any
-            field as needed — the password is never read, only referenced by
-            variable name.
-          </p>
+        {connectMode === "default-cluster" && defaultCluster ? (
+          <>
+            <p className="muted">
+              Connected to <code>{defaultCluster.endpoint}</code> as{" "}
+              <code>{defaultCluster.username}</code>
+              {defaultCluster.verifySsl ? "" : " (SSL verification off)"}. Pick a
+              database below.
+            </p>
+            <p className="muted">
+              Credentials come from this deployment&apos;s environment, so
+              there is nothing to enter.
+            </p>
+          </>
+        ) : null}
+
+        {connectMode === "manual" ? (
+          <>
+            <p className="muted">
+              Enter cluster credentials and click <strong>Find databases</strong>{" "}
+              to list what&apos;s available, then pick a database. The password
+              is referenced by environment-variable name — never entered in
+              plaintext.
+            </p>
+            {prefilled ? (
+              <p className="muted">
+                Prefilled from the server environment (<code>.env</code>). Edit
+                any field as needed — the password is never read, only
+                referenced by variable name.
+              </p>
+            ) : null}
+          </>
         ) : null}
 
         <label>
@@ -200,9 +306,14 @@ export function CreateConnectionProfileOverlay({
           <input
             required
             value={form.name}
-            onChange={(event) => updateField("name", event.target.value)}
+            onChange={(event) => {
+              setNameTouched(true);
+              updateField("name", event.target.value);
+            }}
           />
         </label>
+        {connectMode === "manual" ? (
+          <>
         <label>
           Deployment Mode
           <select
@@ -262,13 +373,16 @@ export function CreateConnectionProfileOverlay({
             {isFinding ? "Finding..." : "Find databases"}
           </button>
         </div>
+          </>
+        ) : null}
+
         {findError ? <p className="error-text">{findError}</p> : null}
 
         {/* Step 2: pick a database from the discovered list. */}
         {hasSearched ? (
           databases.length > 0 ? (
             <label>
-              Database (Step 2)
+              {connectMode === "default-cluster" ? "Database" : "Database (Step 2)"}
               <select
                 value={form.database}
                 onChange={(event) => updateField("database", event.target.value)}
@@ -286,6 +400,26 @@ export function CreateConnectionProfileOverlay({
               that the account can list databases (root / <code>_system</code>).
             </p>
           )
+        ) : null}
+
+        {connectMode === "default-cluster" ? (
+          <div className="confirmation-actions" style={{ justifyContent: "flex-start" }}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isCreating}
+              title="Enter credentials for a cluster other than this deployment's own"
+              onClick={() => {
+                setConnectMode("manual");
+                setDefaultCluster(null);
+                setHasSearched(false);
+                setDatabases([]);
+                updateField("database", "");
+              }}
+            >
+              Connect to a different cluster…
+            </button>
+          </div>
         ) : null}
 
         {errorMessage ? <p className="error-text">{errorMessage}</p> : null}

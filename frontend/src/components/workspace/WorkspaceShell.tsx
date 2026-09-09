@@ -66,6 +66,7 @@ export function WorkspaceShell({
     setActiveGraphProfile,
     createConnectionProfile,
     listClusterDatabases,
+    listDefaultClusterDatabases,
     getConnectionDefaults,
     uploadSourceDocument,
     browseAnalysisCatalog,
@@ -1374,6 +1375,7 @@ export function WorkspaceShell({
           errorMessage={createConnectionErrorMessage}
           onCancel={() => setShowCreateConnectionProfile(false)}
           onListDatabases={listClusterDatabases}
+          onListDefaultClusterDatabases={listDefaultClusterDatabases}
           onLoadDefaults={getConnectionDefaults}
           onSubmit={async (input) => {
             setCreateConnectionErrorMessage(null);

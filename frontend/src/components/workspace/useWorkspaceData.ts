@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createProductAPIClient, workspaceAssetsFromOverview } from "@/lib/product-api/client";
 import {
   demoAssets,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/product-api/demoData";
 import type {
   ClusterDatabasesResult,
+  DefaultClusterDatabasesResult,
   ConnectionDefaults,
   ConnectionGraphsResult,
   ConnectionProfileSummary,
@@ -122,6 +123,7 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   ) => Promise<ConnectionProfileSummary>;
   verifyConnectionProfile: (connectionProfileId: string) => Promise<ConnectionVerificationResult>;
   /** Two-step connect, part 1: list databases visible to cluster creds. */
+  listDefaultClusterDatabases: () => Promise<DefaultClusterDatabasesResult>;
   listClusterDatabases: (
     input: ListClusterDatabasesInput
   ) => Promise<ClusterDatabasesResult>;
@@ -717,7 +719,23 @@ export function useWorkspaceData({
     };
   };
 
-  const getConnectionDefaults = async (): Promise<ConnectionDefaults> => {
+  // Memoised because the connect overlay uses these as effect dependencies.
+  // An identity that changes every render re-runs those effects continuously,
+  // which re-detected the cluster and undid the user's choice of a different
+  // one, and re-fetched defaults over fields they had already edited.
+  const listDefaultClusterDatabases = useCallback(
+    async (): Promise<DefaultClusterDatabasesResult> => {
+      if (isLive) {
+        return apiClient.listDefaultClusterDatabases();
+      }
+      // Demo mode: there is no server environment to connect with, so report
+      // no default cluster and let the overlay fall back to asking explicitly.
+      throw new Error("No default cluster in demo mode");
+    },
+    [isLive, apiClient]
+  );
+
+  const getConnectionDefaults = useCallback(async (): Promise<ConnectionDefaults> => {
     if (isLive) {
       return apiClient.getConnectionDefaults();
     }
@@ -731,7 +749,7 @@ export function useWorkspaceData({
       deploymentMode: "",
       passwordSecretEnvVar: "ARANGO_PASSWORD"
     };
-  };
+  }, [isLive, apiClient]);
 
   const uploadSourceDocument = async (
     input: UploadSourceDocumentInput
@@ -1378,6 +1396,7 @@ export function useWorkspaceData({
     createConnectionProfile,
     verifyConnectionProfile,
     listClusterDatabases,
+    listDefaultClusterDatabases,
     getConnectionDefaults,
     uploadSourceDocument,
     createUseCase,

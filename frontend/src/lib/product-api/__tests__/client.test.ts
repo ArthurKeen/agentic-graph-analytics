@@ -60,6 +60,41 @@ describe("product API client mappers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("lists default-cluster databases without sending any credentials", async () => {
+    // Zero-config connect: the browser sends an empty body because the server
+    // already holds the endpoint, username and password for its own cluster.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        endpoint: "https://cluster.example:8529",
+        databases: ["alpha", "beta"],
+        username: "svc-account",
+        verify_ssl: false,
+        deployment_mode: "self_managed"
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createProductAPIClient(
+      "http://api.example"
+    ).listDefaultClusterDatabases();
+
+    expect(result).toEqual({
+      endpoint: "https://cluster.example:8529",
+      databases: ["alpha", "beta"],
+      username: "svc-account",
+      verifySsl: false,
+      deploymentMode: "self_managed"
+    });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      "http://api.example/api/connections/default-cluster/databases"
+    );
+    // The payload must stay empty — sending credentials from the browser is
+    // the thing this endpoint exists to avoid.
+    expect(JSON.parse(init.body)).toEqual({});
+  });
+
   it("maps workspace overview payloads into UI assets", () => {
     const overview = mapWorkspaceOverview({
       workspace: {
