@@ -60,6 +60,45 @@ describe("product API client mappers", () => {
     vi.unstubAllGlobals();
   });
 
+  it("surfaces the server's explanation, not just the status code", async () => {
+    // The API answers domain failures with {"error", "detail"}; the detail is
+    // the useful half — which graph profile blocks a delete. Throwing only the
+    // status reduced every refusal to "409 Conflict".
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      statusText: "Conflict",
+      json: async () => ({
+        error: "ConflictError",
+        detail:
+          "Connection profile 'addtech-prod-demo' still has 2 graph profile(s) "
+          + "using it: 'default', 'AdtechGraph'. Delete those first."
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createProductAPIClient("http://api.example").deleteConnectionProfile("c-1")
+    ).rejects.toThrow(/still has 2 graph profile\(s\) using it/);
+  });
+
+  it("falls back to the status line when there is no JSON body", async () => {
+    // A proxy error page or dropped connection has no detail to show.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: "Bad Gateway",
+      json: async () => {
+        throw new Error("not json");
+      }
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createProductAPIClient("http://api.example").deleteConnectionProfile("c-1")
+    ).rejects.toThrow("Product API request failed: 502 Bad Gateway");
+  });
+
   it("lists default-cluster databases without sending any credentials", async () => {
     // Zero-config connect: the browser sends an empty body because the server
     // already holds the endpoint, username and password for its own cluster.
