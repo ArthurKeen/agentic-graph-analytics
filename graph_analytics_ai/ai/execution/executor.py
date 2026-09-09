@@ -384,6 +384,16 @@ class AnalysisExecutor:
         # Import AnalysisStatus
         from graph_analytics_ai.gae_orchestrator import AnalysisStatus
 
+        # An error_message means the analysis failed, whatever the status says.
+        # Belt-and-braces against status clobbering: engine cleanup used to
+        # stamp CLEANING_UP over FAILED, and because CLEANING_UP counts as
+        # success below, hard failures surfaced as success with 0 results.
+        # The root cause is fixed in GAEOrchestrator._cleanup_engine, but a
+        # status that disagrees with error_message must never read as success.
+        if result.error_message and result.status != AnalysisStatus.COMPLETED:
+            job.error_message = result.error_message
+            return False
+
         # Check if analysis succeeded
         # CLEANING_UP means the analysis completed successfully and is just cleaning up resources
         if result.status in (AnalysisStatus.COMPLETED, AnalysisStatus.CLEANING_UP):

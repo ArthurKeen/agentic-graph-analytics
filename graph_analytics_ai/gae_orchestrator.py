@@ -1106,8 +1106,20 @@ class GAEOrchestrator:
             raise
 
     def _cleanup_engine(self, result: AnalysisResult):
-        """Delete the engine to stop billing."""
-        result.status = AnalysisStatus.CLEANING_UP
+        """Delete the engine to stop billing.
+
+        Never overwrite a terminal ``FAILED`` status. Cleanup runs
+        unconditionally after the retry loop ("ALWAYS cleanup engine, even on
+        failure"), and ``AnalysisExecutor._wait_for_completion`` treats
+        ``CLEANING_UP`` as success — it means "finished, just releasing
+        resources". Stamping ``CLEANING_UP`` over a failure therefore converted
+        a hard failure into a reported success with ``result_count = 0``: the
+        workflow printed "Errors: 0" and emitted "No Results Generated"
+        reports instead of surfacing the real error. The retry loop already set
+        ``FAILED`` and ``error_message``; preserve both.
+        """
+        if result.status != AnalysisStatus.FAILED:
+            result.status = AnalysisStatus.CLEANING_UP
         self._log(f"Cleaning up engine {result.engine_id}...")
 
         self.gae.delete_engine(result.engine_id)
