@@ -11,6 +11,8 @@ from inspect import Parameter, signature
 from types import UnionType
 from typing import Any, Dict, List, Optional, Union, get_args, get_origin
 
+from .exceptions import ValidationError
+
 
 @dataclass(frozen=True)
 class ProductAPIEndpoint:
@@ -171,6 +173,14 @@ PRODUCT_API_ENDPOINTS = [
     ),
     # Non-secret connection defaults from the deployment environment, used to
     # prefill the connection-profile form (never returns the password value).
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/connections/default-cluster/databases",
+        service_method="list_default_cluster_databases",
+        summary="List databases on the cluster this deployment is configured for",
+        tags=["connections"],
+        response_model="ClusterDatabaseList",
+    ),
     ProductAPIEndpoint(
         method="GET",
         path="/api/connections/defaults",
@@ -744,6 +754,7 @@ class ProductAPIDispatcher:
 
         service_method = getattr(self.service, endpoint.service_method)
         kwargs = self._coerce_kwargs(service_method, kwargs)
+        self._require_declared_arguments(service_method, kwargs, endpoint)
         return self._serialize_response(service_method(**kwargs))
 
     def get_endpoint(self, method: str, path: str) -> ProductAPIEndpoint:
@@ -754,6 +765,41 @@ class ProductAPIDispatcher:
             if endpoint.method == normalized_method and endpoint.path == path:
                 return endpoint
         raise KeyError(f"Product API endpoint not found: {normalized_method} {path}")
+
+    @staticmethod
+    def _require_declared_arguments(
+        service_method: Any,
+        kwargs: Dict[str, Any],
+        endpoint: "ProductAPIEndpoint",
+    ) -> None:
+        """Reject a call that cannot bind, instead of letting it crash.
+
+        Path params, query and body are merged into ``kwargs`` positionally by
+        name, so an endpoint whose path omits an argument the service requires
+        (or a request that just leaves one out) reached ``service_method(**kwargs)``
+        and raised ``TypeError: missing 1 required positional argument`` — a 500,
+        for what is a malformed request. Two endpoints shipped that way:
+        ``/api/catalog/stats`` was an unconditional 500 because its path carried
+        no ``workspace_id``, and ``/api/connections/list-databases`` still 500s on
+        an empty body despite its docstring promising a 400.
+
+        Checking the signature up front turns both into ``ValidationError``,
+        which the FastAPI adapter maps to 400.
+        """
+
+        missing = [
+            name
+            for name, parameter in signature(service_method).parameters.items()
+            if name != "self"
+            and parameter.default is Parameter.empty
+            and parameter.kind not in {Parameter.VAR_POSITIONAL, Parameter.VAR_KEYWORD}
+            and name not in kwargs
+        ]
+        if missing:
+            raise ValidationError(
+                f"{endpoint.method} {endpoint.path} requires "
+                f"{', '.join(sorted(missing))}"
+            )
 
     def _coerce_kwargs(
         self, service_method: Any, kwargs: Dict[str, Any]

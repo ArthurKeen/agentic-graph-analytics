@@ -1,5 +1,6 @@
 """Unit tests for product API contract definitions."""
 
+import pytest
 import re
 from inspect import Parameter, signature
 
@@ -11,6 +12,7 @@ from graph_analytics_ai.product import (
     WorkflowStepStatus,
     list_product_api_endpoints,
 )
+from graph_analytics_ai.product.exceptions import ValidationError
 from graph_analytics_ai.product.models import WorkflowDAGEdge, WorkflowStep
 
 
@@ -287,3 +289,50 @@ def test_product_api_dispatcher_coerces_json_shapes_to_service_types():
     assert isinstance(service.workflow_call["steps"][0], WorkflowStep)
     assert isinstance(service.workflow_call["dag_edges"][0], WorkflowDAGEdge)
     assert service.step_update_call["status"] == WorkflowStepStatus.COMPLETED
+
+
+def test_dispatch_missing_required_argument_is_a_validation_error():
+    """A call that cannot bind is a 400, not a crash.
+
+    Path params, query and body are merged by name, so an endpoint whose path
+    omits an argument the service requires reached ``service_method(**kwargs)``
+    and raised TypeError — surfacing as a 500 for what is a malformed request.
+    Two endpoints shipped that way (``/api/catalog/stats`` was an unconditional
+    500; ``/api/connections/list-databases`` 500'd on an empty body).
+    """
+
+    class _Service:
+        def list_cluster_databases(
+            self, endpoint, username, password_secret_env_var, verify_ssl=True
+        ):
+            raise AssertionError("should not be reached")
+
+    with pytest.raises(ValidationError) as excinfo:
+        ProductAPIDispatcher(service=_Service()).dispatch(
+            method="POST",
+            path="/api/connections/list-databases",
+            body={},
+        )
+
+    message = str(excinfo.value)
+    assert "endpoint" in message
+    assert "username" in message
+    assert "password_secret_env_var" in message
+    # Arguments that have defaults are not required.
+    assert "verify_ssl" not in message
+
+
+def test_dispatch_allows_arguments_that_have_defaults():
+    """Optional parameters stay optional — the guard only checks required ones."""
+
+    class _Service:
+        def list_default_cluster_databases(self, include_system=False):
+            return {"databases": [], "include_system": include_system}
+
+    result = ProductAPIDispatcher(service=_Service()).dispatch(
+        method="POST",
+        path="/api/connections/default-cluster/databases",
+        body={},
+    )
+
+    assert result["include_system"] is False

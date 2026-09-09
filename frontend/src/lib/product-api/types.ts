@@ -540,6 +540,16 @@ export interface ListClusterDatabasesInput {
   includeSystem?: boolean;
 }
 
+/** Zero-config connect: databases on the cluster the server is already
+ * configured for, plus the non-secret context describing that connection. */
+export interface DefaultClusterDatabasesResult {
+  endpoint: string;
+  databases: string[];
+  username: string;
+  verifySsl: boolean;
+  deploymentMode: string;
+}
+
 export interface ClusterDatabasesResult {
   endpoint: string;
   databases: string[];
@@ -1039,6 +1049,7 @@ export interface ProductAPIClient {
   /** FR-31a: cooperative cancel of a running agentic workflow. */
   cancelWorkflowRun(runId: string, actor?: string): Promise<WorkflowRunSummary>;
   /** FR-31a: lightweight status poll (supervisor + executor metadata). */
+  listDefaultClusterDatabases(): Promise<DefaultClusterDatabasesResult>;
   getWorkflowRunStatus(runId: string): Promise<WorkflowRunStatusView>;
   updateWorkflowStep(
     runId: string,

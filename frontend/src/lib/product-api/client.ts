@@ -1,6 +1,7 @@
 import type {
   ChartSpec,
   ClusterDatabasesResult,
+  DefaultClusterDatabasesResult,
   ConnectionDefaults,
   ConnectionGraphSummary,
   ConnectionGraphsResult,
@@ -427,6 +428,23 @@ export function createProductAPIClient(
         }
       );
       return { endpoint: raw.endpoint, databases: raw.databases ?? [] };
+    },
+    async listDefaultClusterDatabases(): Promise<DefaultClusterDatabasesResult> {
+      // No credentials in the payload: the server uses its own environment.
+      const raw = await postJSON<{
+        endpoint: string;
+        databases?: string[];
+        username?: string;
+        verify_ssl?: boolean;
+        deployment_mode?: string;
+      }>(`${normalizedBaseUrl}/api/connections/default-cluster/databases`, {});
+      return {
+        endpoint: raw.endpoint,
+        databases: raw.databases ?? [],
+        username: raw.username ?? "",
+        verifySsl: raw.verify_ssl ?? true,
+        deploymentMode: raw.deployment_mode ?? ""
+      };
     },
     async getConnectionDefaults(): Promise<ConnectionDefaults> {
       const raw = await getJSON<{
