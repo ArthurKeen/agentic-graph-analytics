@@ -323,7 +323,10 @@ class GAEOrchestrator:
     ]
 
     def __init__(
-        self, verbose: bool = True, gae_connection: Optional[GAEConnectionBase] = None
+        self,
+        verbose: bool = True,
+        gae_connection: Optional[GAEConnectionBase] = None,
+        reuse_engine: bool = False,
     ):
         """
         Initialize orchestrator.
@@ -331,10 +334,28 @@ class GAEOrchestrator:
         Args:
             verbose: Print progress messages
             gae_connection: Optional GAE connection (will be created if not provided)
+            reuse_engine: Share one engine and one loaded graph across calls.
+                Caller MUST call shutdown() to release the engine.
         """
         self.verbose = verbose
         self.gae: Optional[GAEConnectionBase] = gae_connection
         self.db = None
+
+        # Opt-in engine/graph reuse across run_analysis() calls.
+        #
+        # Default False: every existing caller keeps deploy-per-analysis and
+        # cleanup-per-analysis exactly as before. With it on, one engine and one
+        # loaded graph are shared by every analysis that needs the same
+        # collections, and the caller must call shutdown().
+        #
+        # Why it matters: a FinReflect demo run deployed 34 engines at ~55s each
+        # for analyses that all read the same two collections, and the platform
+        # started returning 503s partway through. patch_empty_adtech_reports.py
+        # already works around this by grouping below run_analysis; this puts
+        # the same saving where the agents actually call.
+        self.reuse_engine = reuse_engine
+        self._shared_engine_id: Optional[str] = None
+        self._shared_graph_ids: Dict[tuple, str] = {}
 
         # Analysis tracking
         self.current_analysis: Optional[AnalysisResult] = None
@@ -545,7 +566,11 @@ class GAEOrchestrator:
 
         # ALWAYS cleanup engine, even on failure
         # This is critical to prevent orphaned engines
-        if result.engine_id:
+        if result.engine_id and self.reuse_engine:
+            self._log(
+                f"Engine {result.engine_id} retained for reuse; call shutdown() to release",
+            )
+        elif result.engine_id:
             try:
                 if config.auto_cleanup:
                     self._cleanup_engine(result)
@@ -566,9 +591,49 @@ class GAEOrchestrator:
 
         return result
 
+    def shutdown(self) -> bool:
+        """Release the shared engine held by reuse mode.
+
+        Reuse mode deliberately skips per-analysis cleanup, so the engine bills
+        until this is called. Callers should invoke it in a ``finally``: an
+        interrupted run is exactly how 5 of 34 engines were orphaned before,
+        and `scripts/cleanup_gae_engines.py` exists to mop up what escapes.
+
+        Safe to call when nothing is held, and never raises — a failure here
+        must not mask the error that caused the caller to shut down.
+        """
+
+        engine_id = self._shared_engine_id
+        self._shared_graph_ids.clear()
+        if not engine_id:
+            return True
+        try:
+            self._log(f"Releasing shared engine {engine_id}...")
+            if self.gae is None:
+                self._initialize_connections()
+            self.gae.delete_engine(engine_id)
+            self._shared_engine_id = None
+            self._log("✓ Shared engine released (billing stopped)")
+            return True
+        except Exception as exc:  # noqa: BLE001 — reported, never raised
+            self._log(f"CRITICAL: could not release engine {engine_id}: {exc}", "ERROR")
+            self._log(
+                f"You MUST delete it manually: "
+                f"python scripts/cleanup_gae_engines.py --engine-id={engine_id}",
+                "ERROR",
+            )
+            return False
+
     def _deploy_engine(self, result: AnalysisResult):
-        """Deploy GAE engine."""
+        """Deploy GAE engine, or adopt the shared one in reuse mode."""
         result.status = AnalysisStatus.ENGINE_DEPLOYING
+
+        if self.reuse_engine and self._shared_engine_id:
+            result.engine_id = self._shared_engine_id
+            result.deploy_time_seconds = 0.0
+            self._log(f"✓ Reusing engine: {result.engine_id} (no deploy)")
+            return
+
         self._log(f"Deploying {result.config.engine_size} engine...")
 
         deploy_start = datetime.now()
@@ -582,6 +647,8 @@ class GAEOrchestrator:
             self._log(
                 f"✓ Engine deployed: {result.engine_id} ({result.deploy_time_seconds:.1f}s)"
             )
+            if self.reuse_engine:
+                self._shared_engine_id = result.engine_id
         except Exception:
             # If deployment fails, try to capture engine_id for cleanup
             if (
@@ -596,8 +663,25 @@ class GAEOrchestrator:
             raise
 
     def _load_graph(self, result: AnalysisResult):
-        """Load graph data into engine."""
+        """Load graph data into engine, or reuse an identical prior load."""
         result.status = AnalysisStatus.GRAPH_LOADING
+
+        # Keyed by what actually determines the loaded graph. Two analyses over
+        # the same collections of the same database produce the same projection,
+        # so the second can run against the first's graph_id. FinReflect is the
+        # extreme case: every analysis reads Node/relations, so one load serves
+        # all of them.
+        reuse_key = (
+            result.config.database,
+            result.config.graph_name,
+            tuple(result.config.vertex_collections or []),
+            tuple(result.config.edge_collections or []),
+        )
+        if self.reuse_engine and reuse_key in self._shared_graph_ids:
+            result.graph_id = self._shared_graph_ids[reuse_key]
+            self._log(f"✓ Reusing loaded graph: {result.graph_id} (no reload)")
+            return
+        self._pending_graph_reuse_key = reuse_key
 
         # DEBUG LOGGING - Track what we're about to load
         self._log("\n[ORCHESTRATOR DEBUG] About to load graph:")
@@ -649,6 +733,9 @@ class GAEOrchestrator:
         self._log(
             f"✓ Graph loaded: {result.graph_id} ({result.load_time_seconds:.1f}s)"
         )
+        if self.reuse_engine and getattr(self, "_pending_graph_reuse_key", None):
+            self._shared_graph_ids[self._pending_graph_reuse_key] = result.graph_id
+            self._pending_graph_reuse_key = None
         if result.vertex_count:
             self._log(f"  Vertices: {result.vertex_count:,}")
         if result.edge_count:
