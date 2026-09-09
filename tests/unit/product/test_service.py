@@ -3446,3 +3446,101 @@ def test_approve_requirement_version_rejects_non_draft():
         ProductService(repository).approve_requirement_version(
             superseded.requirement_version_id
         )
+
+
+# --------------------------------------------------------------------------- #
+# Duplicate connection profiles                                               #
+# --------------------------------------------------------------------------- #
+
+
+def _connection_profile_args(**overrides):
+    args = {
+        "name": "IAM",
+        "deployment_mode": DeploymentMode.SELF_MANAGED,
+        "endpoint": "https://prod.demo.pilot.arango.ai",
+        "database": "IAM",
+        "username": "root",
+    }
+    args.update(overrides)
+    return args
+
+
+def test_create_connection_profile_rejects_a_duplicate_target():
+    """A second profile for the same cluster/database/user is refused.
+
+    Duplicates are indistinguishable in the Assets panel, and the product has
+    no delete path for connection profiles, so an accidental one is permanent.
+    """
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+
+    first = service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+
+    with pytest.raises(ValidationError) as excinfo:
+        service.create_connection_profile(
+            workspace_id=workspace.workspace_id, **_connection_profile_args()
+        )
+
+    # The message must name the profile to use instead.
+    assert first.connection_profile_id in str(excinfo.value)
+    assert first.name in str(excinfo.value)
+
+
+def test_duplicate_detection_ignores_name_and_endpoint_formatting():
+    """Identity is the connection target, not the label the user typed."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+
+    service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+
+    with pytest.raises(ValidationError):
+        service.create_connection_profile(
+            workspace_id=workspace.workspace_id,
+            **_connection_profile_args(
+                # Different label, trailing slash, different case — same cluster.
+                name="IAM (second attempt)",
+                endpoint="https://PROD.demo.pilot.arango.ai/",
+            ),
+        )
+
+
+def test_create_connection_profile_allows_a_different_database():
+    """Same cluster, different database is a legitimately distinct profile."""
+
+    repository = FakeProductRepository()
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+
+    service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+    second = service.create_connection_profile(
+        workspace_id=workspace.workspace_id,
+        **_connection_profile_args(name="AdTech", database="addtech-knowledge-graph"),
+    )
+
+    assert second.database == "addtech-knowledge-graph"
+    assert len(repository.list_connection_profiles(workspace.workspace_id)) == 2

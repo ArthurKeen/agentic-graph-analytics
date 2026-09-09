@@ -932,6 +932,32 @@ class ProductService:
         if not username.strip():
             raise ValidationError("Database username is required")
 
+        # Reject a profile that targets a cluster/database/user this workspace
+        # already has. Two profiles with the same target are indistinguishable
+        # in the Assets panel, so discovering against "the wrong one" is silent
+        # and unrecoverable — the product has no delete path for connection
+        # profiles, so an accidental duplicate is permanent. Name is
+        # deliberately NOT part of the identity: a differently-labelled profile
+        # pointing at the same place is still the same connection.
+        existing = self._find_matching_connection_profile(
+            workspace_id=workspace_id,
+            endpoint=endpoint.strip(),
+            database=database.strip(),
+            username=username.strip(),
+            deployment_mode=deployment_mode,
+        )
+        if existing is not None:
+            # Describe the profile that already exists, not the raw input —
+            # echoing the caller's string reproduced its trailing slash and
+            # casing ("arango.ai//IAM"), which reads like a different target.
+            raise ValidationError(
+                f"This workspace already has a connection profile for "
+                f"{existing.username}@{existing.endpoint.rstrip('/')}"
+                f"/{existing.database}: '{existing.name}' "
+                f"({existing.connection_profile_id}). "
+                f"Use it instead of creating a duplicate."
+            )
+
         profile = create_connection_profile(
             workspace_id=workspace_id,
             name=name.strip(),
@@ -945,6 +971,36 @@ class ProductService:
         )
         self.repository.create_connection_profile(profile)
         return profile
+
+    def _find_matching_connection_profile(
+        self,
+        workspace_id: str,
+        endpoint: str,
+        database: str,
+        username: str,
+        deployment_mode: DeploymentMode,
+    ) -> Optional[ConnectionProfile]:
+        """Return an existing profile with the same connection target, if any.
+
+        Endpoint comparison is case-insensitive and ignores a trailing slash,
+        so ``https://host:8529/`` and ``https://HOST:8529`` are recognised as
+        the same cluster. Database and username stay case-sensitive because
+        ArangoDB treats them that way.
+        """
+
+        def normalized_endpoint(value: str) -> str:
+            return value.strip().rstrip("/").lower()
+
+        target_endpoint = normalized_endpoint(endpoint)
+        for candidate in self.repository.list_connection_profiles(workspace_id):
+            if (
+                normalized_endpoint(candidate.endpoint) == target_endpoint
+                and candidate.database == database
+                and candidate.username == username
+                and candidate.deployment_mode is deployment_mode
+            ):
+                return candidate
+        return None
 
     def check_workspace_health(self, workspace_id: str) -> WorkspaceHealthResult:
         """Check workspace metadata readiness for admin and setup views."""
