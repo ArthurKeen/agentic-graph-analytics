@@ -12,7 +12,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the inline script below sets `data-theme` on
+    // <html> before React hydrates, so the client markup legitimately differs
+    // from the server's. Without this React logs "Extra attributes from the
+    // server: data-theme" on every load. Scoped to this element only, so real
+    // hydration mismatches elsewhere still surface.
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Apply the stored theme before first paint so a dark-mode user does
             not get a white flash while React hydrates. Light is the default,
