@@ -1707,9 +1707,15 @@ function DataSourceBanner({
     return (
       <div className="data-source-banner data-source-banner-error" role="alert">
         <strong>Error</strong>
-        <span>{errorMessage ?? "Failed to load workspace from Product API"}. Showing demo data.</span>
+        {/* No longer says "Showing demo data": the loader now clears the
+            fixtures on failure, so the panel is empty rather than populated
+            with a workspace nobody created. Retrying happens automatically. */}
+        <span>
+          {errorMessage ?? "Failed to load workspace from Product API"}. Your
+          workspace is not shown — nothing has been deleted. Retrying…
+        </span>
         <button type="button" onClick={() => window.location.reload()}>
-          Retry
+          Retry now
         </button>
       </div>
     );
