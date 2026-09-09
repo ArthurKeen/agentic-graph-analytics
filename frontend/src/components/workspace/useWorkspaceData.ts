@@ -909,12 +909,15 @@ export function useWorkspaceData({
     lastAppliedAt: null
   };
 
-  const getRetentionPolicy = async (): Promise<RetentionPolicy> => {
+  // Memoised: consumed as a React effect dependency. An identity that
+  // changes every render re-runs that effect continuously, which cancels the
+  // in-flight request and starts another — the dropdown never settles.
+  const getRetentionPolicy = useCallback(async (): Promise<RetentionPolicy> => {
     if (isLive && effectiveWorkspaceId) {
       return apiClient.getRetentionPolicy(effectiveWorkspaceId);
     }
     return DEMO_RETENTION_POLICY;
-  };
+  }, [isLive, effectiveWorkspaceId, apiClient]);
 
   const setRetentionPolicy = async (
     input: SetRetentionPolicyInput
@@ -982,12 +985,15 @@ export function useWorkspaceData({
     };
   };
 
-  const browseAnalysisCatalog = async (): Promise<AnalysisCatalogView> => {
+  // Memoised: consumed as a React effect dependency. An identity that
+  // changes every render re-runs that effect continuously, which cancels the
+  // in-flight request and starts another — the dropdown never settles.
+  const browseAnalysisCatalog = useCallback(async (): Promise<AnalysisCatalogView> => {
     if (isLive && effectiveWorkspaceId) {
       return apiClient.browseAnalysisCatalog(effectiveWorkspaceId);
     }
     return demoAnalysisCatalog();
-  };
+  }, [isLive, effectiveWorkspaceId, apiClient]);
 
   const listAnalysisExecutions = async (
     filters: AnalysisExecutionFilters = {}
@@ -1043,14 +1049,18 @@ export function useWorkspaceData({
     };
   };
 
-  const listConnectionProfileGraphs = async (
-    connectionProfileId: string
-  ): Promise<ConnectionGraphsResult> => {
-    if (isLive) {
-      return apiClient.listConnectionProfileGraphs(connectionProfileId);
-    }
-    return statefulDemoListConnectionProfileGraphs(connectionProfileId);
-  };
+  // Memoised: consumed as a React effect dependency. An identity that
+  // changes every render re-runs that effect continuously, which cancels the
+  // in-flight request and starts another — the dropdown never settles.
+  const listConnectionProfileGraphs = useCallback(
+    async (connectionProfileId: string): Promise<ConnectionGraphsResult> => {
+      if (isLive) {
+        return apiClient.listConnectionProfileGraphs(connectionProfileId);
+      }
+      return statefulDemoListConnectionProfileGraphs(connectionProfileId);
+    },
+    [isLive, apiClient]
+  );
 
   const discoverGraphProfile = async (
     connectionProfileId: string,

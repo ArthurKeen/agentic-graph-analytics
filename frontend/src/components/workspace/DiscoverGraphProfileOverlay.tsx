@@ -60,11 +60,13 @@ export function DiscoverGraphProfileOverlay({
         }
         const visible = result.graphs.filter((graph) => !graph.isSystem);
         setGraphs(visible);
-        if (visible.length > 0) {
-          const first = visible[0];
-          setGraphSelection(first.name);
-          setForm((current) => ({ ...current, graphName: first.name }));
-        }
+        // Deliberately does NOT pre-select the first graph. Scope is the
+        // user's decision, and silently choosing one named graph out of
+        // several hides that "all collections" was ever an option — the
+        // dialog then reads as "which graph?" instead of "what should I
+        // analyse?". Default to the whole database and let them narrow it.
+        setGraphSelection(DEFAULT_GRAPH_VALUE);
+        setForm((current) => ({ ...current, graphName: "" }));
       })
       .catch((error) => {
         if (cancelled) {
@@ -138,13 +140,14 @@ export function DiscoverGraphProfileOverlay({
         </header>
 
         <p className="muted">
-          Discover schema metadata from {connectionProfile.label}. Pick the named graph
-          to scope analysis to its vertex and edge collections.
+          Discover schema metadata from {connectionProfile.label}. Choose what to
+          analyse: a single named graph (scoped to its vertex and edge
+          collections), or every collection in the database.
         </p>
 
         {showDropdown ? (
           <label>
-            Named Graph
+            Analyse
             {isLoadingGraphs ? (
               <span className="muted">Loading graphs...</span>
             ) : graphsError ? (
@@ -250,8 +253,21 @@ export function DiscoverGraphProfileOverlay({
           >
             Cancel
           </button>
-          <button className="primary-button" type="submit" disabled={isDiscovering}>
-            {isDiscovering ? "Discovering..." : "Discover Graph"}
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={isDiscovering || isLoadingGraphs}
+            title={
+              isLoadingGraphs
+                ? "Waiting for the list of graphs in this database"
+                : "Discover schema metadata for the selected scope"
+            }
+          >
+            {isDiscovering
+              ? "Discovering..."
+              : isLoadingGraphs
+                ? "Loading graphs..."
+                : "Discover Graph"}
           </button>
         </div>
       </form>
