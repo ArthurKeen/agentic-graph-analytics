@@ -3,6 +3,7 @@ import type {
   ClusterDatabasesResult,
   ConnectionProfileDeletion,
   GraphProfileDeletion,
+  WorkflowRunDeletion,
   DefaultClusterDatabasesResult,
   ConnectionDefaults,
   ConnectionGraphSummary,
@@ -430,6 +431,22 @@ export function createProductAPIClient(
         }
       );
       return { endpoint: raw.endpoint, databases: raw.databases ?? [] };
+    },
+    async deleteWorkflowRun(runId: string): Promise<WorkflowRunDeletion> {
+      const raw = await deleteJSON<{
+        run_id: string;
+        workspace_id: string;
+        deleted?: boolean;
+        reports_deleted?: number;
+        executions_deleted?: number;
+      }>(`${normalizedBaseUrl}/api/runs/${encodeURIComponent(runId)}`);
+      return {
+        runId: raw.run_id,
+        workspaceId: raw.workspace_id,
+        deleted: raw.deleted ?? true,
+        reportsDeleted: raw.reports_deleted ?? 0,
+        executionsDeleted: raw.executions_deleted ?? 0
+      };
     },
     async deleteGraphProfile(
       graphProfileId: string

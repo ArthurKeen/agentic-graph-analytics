@@ -70,6 +70,7 @@ export function WorkspaceShell({
     listDefaultClusterDatabases,
     deleteConnectionProfile,
     deleteGraphProfile,
+    deleteWorkflowRun,
     getConnectionDefaults,
     uploadSourceDocument,
     browseAnalysisCatalog,
@@ -125,6 +126,10 @@ export function WorkspaceShell({
     useState<WorkspaceAsset | null>(null);
   const [pendingDeleteGraphProfile, setPendingDeleteGraphProfile] =
     useState<WorkspaceAsset | null>(null);
+  const [isDeletingRun, setIsDeletingRun] = useState(false);
+  const [deleteRunErrorMessage, setDeleteRunErrorMessage] = useState<string | null>(
+    null
+  );
   const [isDeletingConnectionProfile, setIsDeletingConnectionProfile] = useState(false);
   const [deleteConnectionProfileError, setDeleteConnectionProfileError] = useState<
     string | null
@@ -226,18 +231,19 @@ export function WorkspaceShell({
     string | null
   >(null);
   const [uploadDocumentMessage, setUploadDocumentMessage] = useState<string | null>(null);
-  const [deletedRunIds, setDeletedRunIds] = useState<Set<string>>(() => new Set());
   const [publishedReportIds, setPublishedReportIds] = useState<Set<string>>(() => new Set());
+  // No local "deleted runs" set any more: deleting a run now removes it
+  // server-side and refreshOverview() drops it from `assets`. The old set only
+  // hid the row, so the run came back on refresh while the dialog claimed an
+  // irreversible action (NFR-19).
   const visibleAssets = useMemo(
     () =>
-      assets
-        .filter((asset) => asset.kind !== "run" || !deletedRunIds.has(asset.id))
-        .map((asset) =>
-          asset.kind === "report" && publishedReportIds.has(asset.id)
-            ? { ...asset, description: "Report (published)" }
-            : asset
-        ),
-    [assets, deletedRunIds, publishedReportIds]
+      assets.map((asset) =>
+        asset.kind === "report" && publishedReportIds.has(asset.id)
+          ? { ...asset, description: "Report (published)" }
+          : asset
+      ),
+    [assets, publishedReportIds]
   );
 
   useEffect(() => {
@@ -1520,13 +1526,27 @@ export function WorkspaceShell({
         <DeleteRunConfirmationOverlay
           run={pendingDeleteRun}
           onCancel={() => setPendingDeleteRun(null)}
-          onConfirm={() => {
-            setDeletedRunIds((current) => new Set([...current, pendingDeleteRun.id]));
-            if (selectedAsset?.id === pendingDeleteRun.id) {
-              setSelectedAsset(null);
-              setSelectedStep(null);
+          isDeleting={isDeletingRun}
+          errorMessage={deleteRunErrorMessage}
+          onConfirm={async () => {
+            setDeleteRunErrorMessage(null);
+            setIsDeletingRun(true);
+            try {
+              await deleteWorkflowRun(pendingDeleteRun.id);
+              if (selectedAsset?.id === pendingDeleteRun.id) {
+                setSelectedAsset(null);
+                setSelectedStep(null);
+              }
+              setPendingDeleteRun(null);
+            } catch (error) {
+              // Stay open: the server refuses for reasons the user needs to
+              // read — a published report, or a run still in flight.
+              setDeleteRunErrorMessage(
+                error instanceof Error ? error.message : "Failed to delete run"
+              );
+            } finally {
+              setIsDeletingRun(false);
             }
-            setPendingDeleteRun(null);
           }}
         />
       ) : null}

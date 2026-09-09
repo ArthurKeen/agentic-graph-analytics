@@ -373,10 +373,20 @@ class FakeProductRepository:
                 "connection_profile_id",
             ),
             "aga_graph_profiles": (self.graph_profiles, "graph_profile_id"),
+            "aga_report_manifests": (self.reports, "report_id"),
+            "aga_report_sections": (self.sections, "section_id"),
+            "aga_chart_specs": (self.charts, "chart_id"),
+            "aga_analysis_executions": (
+                self.analysis_executions,
+                "analysis_execution_id",
+            ),
+            "aga_workflow_runs": (self.workflow_runs, "run_id"),
         }
         if collection_name not in collections:
             raise KeyError(collection_name)
         items, id_field = collections[collection_name]
+        if isinstance(items, dict):
+            return items.pop(key, None) is not None
         for index, item in enumerate(items):
             if getattr(item, id_field) == key:
                 del items[index]
@@ -3708,3 +3718,78 @@ def test_delete_graph_profile_refuses_while_a_run_references_it():
 
     assert "workflow run" in str(excinfo.value)
     assert len(repository.graph_profiles) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Deleting a run actually deletes it (NFR-19)                                 #
+# --------------------------------------------------------------------------- #
+
+
+def _run_workspace(repository, status=WorkflowRunStatus.COMPLETED):
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+        status=status,
+    )
+    repository.workflow_runs[run.run_id] = run
+    return ProductService(repository), workspace, run
+
+
+def test_delete_workflow_run_removes_the_run_and_its_reports():
+    """The old UI action only hid the row; the run returned on refresh."""
+
+    repository = FakeProductRepository()
+    service, workspace, run = _run_workspace(repository)
+    report = create_report_manifest(
+        workspace_id=workspace.workspace_id, run_id=run.run_id, title="Report A"
+    )
+    repository.reports[report.report_id] = report
+
+    result = service.delete_workflow_run(run.run_id, actor="arthur")
+
+    assert result["deleted"] is True
+    assert result["reports_deleted"] == 1
+    assert run.run_id not in repository.workflow_runs
+    assert report.report_id not in repository.reports
+    assert "delete_workflow_run" in [e.action for e in repository.audit_events]
+
+
+def test_delete_workflow_run_refuses_when_a_report_was_published():
+    """FR-54: runs behind a published report are never removed at any age."""
+
+    repository = FakeProductRepository()
+    service, workspace, run = _run_workspace(repository)
+    report = create_report_manifest(
+        workspace_id=workspace.workspace_id, run_id=run.run_id, title="Published One"
+    )
+    report.published_snapshot_id = "snapshot-1"
+    repository.reports[report.report_id] = report
+
+    with pytest.raises(ConflictError) as excinfo:
+        service.delete_workflow_run(run.run_id)
+
+    assert "Published One" in str(excinfo.value)
+    assert run.run_id in repository.workflow_runs
+    assert report.report_id in repository.reports
+
+
+@pytest.mark.parametrize(
+    "status", [WorkflowRunStatus.RUNNING, WorkflowRunStatus.QUEUED]
+)
+def test_delete_workflow_run_refuses_while_in_flight(status):
+    """Deleting under a live executor leaves work with nowhere to report."""
+
+    repository = FakeProductRepository()
+    service, _workspace, run = _run_workspace(repository, status=status)
+
+    with pytest.raises(ConflictError) as excinfo:
+        service.delete_workflow_run(run.run_id)
+
+    assert "Cancel it before deleting" in str(excinfo.value)
+    assert run.run_id in repository.workflow_runs

@@ -540,6 +540,15 @@ export interface ListClusterDatabasesInput {
   includeSystem?: boolean;
 }
 
+export interface WorkflowRunDeletion {
+  runId: string;
+  workspaceId: string;
+  deleted: boolean;
+  /** Cascaded with the run: reports and executions have no meaning without it. */
+  reportsDeleted: number;
+  executionsDeleted: number;
+}
+
 export interface GraphProfileDeletion {
   graphProfileId: string;
   workspaceId: string;
@@ -1066,6 +1075,7 @@ export interface ProductAPIClient {
     connectionProfileId: string
   ): Promise<ConnectionProfileDeletion>;
   deleteGraphProfile(graphProfileId: string): Promise<GraphProfileDeletion>;
+  deleteWorkflowRun(runId: string): Promise<WorkflowRunDeletion>;
   getWorkflowRunStatus(runId: string): Promise<WorkflowRunStatusView>;
   updateWorkflowStep(
     runId: string,
