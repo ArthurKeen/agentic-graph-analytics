@@ -835,7 +835,28 @@ async function requestJSON<T>(url: string, init: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(`Product API request failed: ${response.status} ${response.statusText}`);
+    // Surface the server's own explanation. The API answers domain failures
+    // with {"error": "...", "detail": "..."} where the detail is the useful
+    // part — which graph profile blocks a delete, which existing profile a
+    // duplicate collides with, which arguments a request omitted. Throwing
+    // only the status turned every one of those into "409 Conflict", so the
+    // refusal messages written to name their blockers never reached anyone.
+    let detail = "";
+    try {
+      const body = await response.json();
+      if (body && typeof body === "object") {
+        const raw = (body as { detail?: unknown; error?: unknown }).detail;
+        if (typeof raw === "string" && raw.trim()) {
+          detail = raw.trim();
+        }
+      }
+    } catch {
+      // Empty or non-JSON body (a proxy error page, a dropped connection).
+      // Fall through to the status line, which is all we know.
+    }
+    throw new Error(
+      detail || `Product API request failed: ${response.status} ${response.statusText}`
+    );
   }
 
   return response.json() as Promise<T>;
