@@ -3,6 +3,9 @@
 import type { WorkspaceAsset } from "@/lib/product-api/types";
 
 interface DeleteConnectionProfileConfirmationOverlayProps {
+  /** Which record is being removed. Both kinds delete the same way and refuse
+   * the same way, so they share this dialog rather than duplicating it. */
+  kind?: "connection profile" | "graph profile";
   connectionProfile: WorkspaceAsset;
   isDeleting: boolean;
   errorMessage: string | null;
@@ -19,6 +22,7 @@ interface DeleteConnectionProfileConfirmationOverlayProps {
  * here rather than swallowed.
  */
 export function DeleteConnectionProfileConfirmationOverlay({
+  kind = "connection profile",
   connectionProfile,
   isDeleting,
   errorMessage,
@@ -33,16 +37,18 @@ export function DeleteConnectionProfileConfirmationOverlay({
         aria-modal="true"
         aria-labelledby="delete-connection-profile-title"
       >
-        <h2 id="delete-connection-profile-title">Delete Connection Profile</h2>
+        <h2 id="delete-connection-profile-title">
+          {kind === "graph profile" ? "Delete Graph Profile" : "Delete Connection Profile"}
+        </h2>
         <p>
           Permanently delete <strong>{connectionProfile.label}</strong> from this
           workspace? This removes the stored connection metadata and cannot be
           undone.
         </p>
         <p className="muted">
-          Nothing is removed from the database itself — only this workspace&apos;s
-          record of how to reach it. If a graph profile still uses this
-          connection, the delete is refused and you will be told which one.
+          {kind === "graph profile"
+            ? "Nothing is removed from the database itself — only this workspace's discovered schema for that graph. If it is the active profile, or runs, executions, interviews or graph sets still reference it, the delete is refused and you will be told what blocks it."
+            : "Nothing is removed from the database itself — only this workspace's record of how to reach it. If a graph profile still uses this connection, the delete is refused and you will be told which one."}
         </p>
         <dl className="detail-list">
           <div>

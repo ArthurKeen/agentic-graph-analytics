@@ -103,14 +103,16 @@ describe("workspace context menu builders", () => {
       onOpenInCanvas: noop,
       onStartRequirementsCopilot: noop,
       onViewInfo: noop,
-      onCopyId: noop
+      onCopyId: noop,
+      onDelete: noop
     });
 
     expect(items.map((item) => item.id)).toEqual([
       "open-in-canvas",
       "start-requirements-copilot",
       "view-info",
-      "copy-id"
+      "copy-id",
+      "delete-graph-profile"
     ]);
   });
 

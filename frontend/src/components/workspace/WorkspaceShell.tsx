@@ -69,6 +69,7 @@ export function WorkspaceShell({
     listClusterDatabases,
     listDefaultClusterDatabases,
     deleteConnectionProfile,
+    deleteGraphProfile,
     getConnectionDefaults,
     uploadSourceDocument,
     browseAnalysisCatalog,
@@ -121,6 +122,8 @@ export function WorkspaceShell({
   const [showHelp, setShowHelp] = useState(false);
   const [pendingDeleteRun, setPendingDeleteRun] = useState<WorkspaceAsset | null>(null);
   const [pendingDeleteConnectionProfile, setPendingDeleteConnectionProfile] =
+    useState<WorkspaceAsset | null>(null);
+  const [pendingDeleteGraphProfile, setPendingDeleteGraphProfile] =
     useState<WorkspaceAsset | null>(null);
   const [isDeletingConnectionProfile, setIsDeletingConnectionProfile] = useState(false);
   const [deleteConnectionProfileError, setDeleteConnectionProfileError] = useState<
@@ -646,6 +649,10 @@ export function WorkspaceShell({
             setSelectedAsset(connectionAsset);
             setSelectedStep(null);
           }
+        }}
+        onRequestDeleteGraphProfile={(asset) => {
+          setDeleteConnectionProfileError(null);
+          setPendingDeleteGraphProfile(asset);
         }}
         onRequestDeleteConnectionProfile={(asset) => {
           setDeleteConnectionProfileError(null);
@@ -1513,6 +1520,36 @@ export function WorkspaceShell({
               setSelectedStep(null);
             }
             setPendingDeleteRun(null);
+          }}
+        />
+      ) : null}
+      {pendingDeleteGraphProfile ? (
+        <DeleteConnectionProfileConfirmationOverlay
+          kind="graph profile"
+          connectionProfile={pendingDeleteGraphProfile}
+          isDeleting={isDeletingConnectionProfile}
+          errorMessage={deleteConnectionProfileError}
+          onCancel={() => {
+            setPendingDeleteGraphProfile(null);
+            setDeleteConnectionProfileError(null);
+          }}
+          onConfirm={async () => {
+            setDeleteConnectionProfileError(null);
+            setIsDeletingConnectionProfile(true);
+            try {
+              await deleteGraphProfile(pendingDeleteGraphProfile.id);
+              if (selectedAsset?.id === pendingDeleteGraphProfile.id) {
+                setSelectedAsset(null);
+                setSelectedStep(null);
+              }
+              setPendingDeleteGraphProfile(null);
+            } catch (error) {
+              setDeleteConnectionProfileError(
+                error instanceof Error ? error.message : "Failed to delete profile"
+              );
+            } finally {
+              setIsDeletingConnectionProfile(false);
+            }
           }}
         />
       ) : null}

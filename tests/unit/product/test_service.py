@@ -77,6 +77,7 @@ class FakeProductRepository:
         self.charts = []
         self.snapshots = []
         self.audit_events = []
+        self.graph_sets = []
 
     def get_workspace(self, workspace_id):
         return self.workspaces[workspace_id]
@@ -238,6 +239,13 @@ class FakeProductRepository:
                 self.requirement_versions[index] = version
                 return version.requirement_version_id
         raise KeyError(version.requirement_version_id)
+
+    def list_graph_sets(self, workspace_id):
+        return [
+            graph_set
+            for graph_set in self.graph_sets
+            if graph_set.workspace_id == workspace_id
+        ]
 
     def list_requirement_interviews(self, workspace_id):
         return [
@@ -3618,3 +3626,85 @@ def test_delete_connection_profile_refuses_while_a_graph_profile_uses_it():
     # The blocking profile is named so the user knows what to remove first.
     assert "AdtechGraph" in str(excinfo.value)
     assert len(repository.list_connection_profiles(workspace.workspace_id)) == 1
+
+
+def _workspace_with_graph_profile(repository, active=False):
+    workspace = create_workspace(
+        customer_name="Example Customer",
+        project_name="Graph Analytics",
+        environment="dev",
+    )
+    repository.workspaces[workspace.workspace_id] = workspace
+    service = ProductService(repository)
+    connection = service.create_connection_profile(
+        workspace_id=workspace.workspace_id, **_connection_profile_args()
+    )
+    graph_profile = create_graph_profile(
+        workspace_id=workspace.workspace_id,
+        connection_profile_id=connection.connection_profile_id,
+        graph_name="AdtechGraph",
+    )
+    repository.graph_profiles.append(graph_profile)
+    if active:
+        workspace.active_graph_profile_id = graph_profile.graph_profile_id
+    return service, workspace, graph_profile
+
+
+def test_delete_graph_profile_removes_it_and_unblocks_the_connection():
+    """The counterpart delete: removing it lets the connection go too."""
+
+    repository = FakeProductRepository()
+    service, workspace, graph_profile = _workspace_with_graph_profile(repository)
+    connection_id = repository.list_connection_profiles(workspace.workspace_id)[
+        0
+    ].connection_profile_id
+
+    # Blocked while the graph profile exists.
+    with pytest.raises(ConflictError):
+        service.delete_connection_profile(connection_id)
+
+    result = service.delete_graph_profile(
+        graph_profile.graph_profile_id, actor="arthur"
+    )
+    assert result["deleted"] is True
+
+    # And now the connection can be removed — the point of adding this.
+    service.delete_connection_profile(connection_id)
+    assert repository.list_connection_profiles(workspace.workspace_id) == []
+    actions = [event.action for event in repository.audit_events]
+    assert "delete_graph_profile" in actions
+
+
+def test_delete_graph_profile_refuses_the_active_one():
+    """Silently clearing the active selection would leave the workspace
+    analysing nothing without saying so."""
+
+    repository = FakeProductRepository()
+    service, _workspace, graph_profile = _workspace_with_graph_profile(
+        repository, active=True
+    )
+
+    with pytest.raises(ConflictError) as excinfo:
+        service.delete_graph_profile(graph_profile.graph_profile_id)
+
+    assert "active" in str(excinfo.value).lower()
+    assert len(repository.graph_profiles) == 1
+
+
+def test_delete_graph_profile_refuses_while_a_run_references_it():
+    """Runs are scoped by the profile and would be stranded."""
+
+    repository = FakeProductRepository()
+    service, workspace, graph_profile = _workspace_with_graph_profile(repository)
+    run = create_workflow_run(
+        workspace_id=workspace.workspace_id,
+        workflow_mode=WorkflowMode.AGENTIC,
+        graph_profile_id=graph_profile.graph_profile_id,
+    )
+    repository.workflow_runs[run.run_id] = run
+
+    with pytest.raises(ConflictError) as excinfo:
+        service.delete_graph_profile(graph_profile.graph_profile_id)
+
+    assert "workflow run" in str(excinfo.value)
+    assert len(repository.graph_profiles) == 1
