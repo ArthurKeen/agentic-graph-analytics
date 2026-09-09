@@ -540,6 +540,12 @@ export interface ListClusterDatabasesInput {
   includeSystem?: boolean;
 }
 
+export interface GraphProfileDeletion {
+  graphProfileId: string;
+  workspaceId: string;
+  deleted: boolean;
+}
+
 export interface ConnectionProfileDeletion {
   connectionProfileId: string;
   workspaceId: string;
@@ -1059,6 +1065,7 @@ export interface ProductAPIClient {
   deleteConnectionProfile(
     connectionProfileId: string
   ): Promise<ConnectionProfileDeletion>;
+  deleteGraphProfile(graphProfileId: string): Promise<GraphProfileDeletion>;
   getWorkflowRunStatus(runId: string): Promise<WorkflowRunStatusView>;
   updateWorkflowStep(
     runId: string,

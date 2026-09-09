@@ -2,6 +2,7 @@ import type {
   ChartSpec,
   ClusterDatabasesResult,
   ConnectionProfileDeletion,
+  GraphProfileDeletion,
   DefaultClusterDatabasesResult,
   ConnectionDefaults,
   ConnectionGraphSummary,
@@ -429,6 +430,22 @@ export function createProductAPIClient(
         }
       );
       return { endpoint: raw.endpoint, databases: raw.databases ?? [] };
+    },
+    async deleteGraphProfile(
+      graphProfileId: string
+    ): Promise<GraphProfileDeletion> {
+      const raw = await deleteJSON<{
+        graph_profile_id: string;
+        workspace_id: string;
+        deleted?: boolean;
+      }>(
+        `${normalizedBaseUrl}/api/graph-profiles/${encodeURIComponent(graphProfileId)}`
+      );
+      return {
+        graphProfileId: raw.graph_profile_id,
+        workspaceId: raw.workspace_id,
+        deleted: raw.deleted ?? true
+      };
     },
     async deleteConnectionProfile(
       connectionProfileId: string

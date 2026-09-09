@@ -38,6 +38,7 @@ from ..db_connection import connect_arango_database
 from .constants import (
     AUDIT_EVENTS_COLLECTION,
     CONNECTION_PROFILES_COLLECTION,
+    GRAPH_PROFILES_COLLECTION,
     DOCUMENTS_COLLECTION,
     PRODUCT_SCHEMA_VERSION,
     REPORT_MANIFESTS_COLLECTION,
@@ -1059,6 +1060,108 @@ class ProductService:
         )
         return {
             "connection_profile_id": connection_profile_id,
+            "workspace_id": profile.workspace_id,
+            "deleted": True,
+        }
+
+    def delete_graph_profile(
+        self,
+        graph_profile_id: str,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Delete a graph profile that nothing depends on.
+
+        Counterpart to ``delete_connection_profile``, and the reason it was
+        needed: connection-profile deletion refuses while a graph profile
+        references the connection, so without this a blocked connection could
+        never be unblocked.
+
+        Refuses when the profile is the workspace's *active* one — that is a
+        deliberate selection, and silently clearing it would leave the
+        workspace analysing nothing without saying so; the user sets another
+        active first. Also refuses while workflow runs, analysis executions,
+        requirement interviews or graph sets reference it, because those
+        records are scoped by the profile and would be left pointing at an id
+        that no longer resolves. Every blocker is named and counted, so the
+        user can see the whole chain rather than discovering it one refusal at
+        a time.
+        """
+
+        profile = self.repository.get_graph_profile(graph_profile_id)
+        workspace = self.repository.get_workspace(profile.workspace_id)
+
+        if workspace.active_graph_profile_id == graph_profile_id:
+            raise ConflictError(
+                f"Graph profile '{profile.graph_name or graph_profile_id}' is the "
+                f"workspace's active profile. Select a different active graph "
+                f"profile first, then delete this one."
+            )
+
+        blockers: List[str] = []
+
+        run_count = sum(
+            1
+            for run in self.repository.list_workflow_runs(profile.workspace_id)
+            if run.graph_profile_id == graph_profile_id
+        )
+        if run_count:
+            blockers.append(f"{run_count} workflow run(s)")
+
+        execution_count = sum(
+            1
+            for execution in self.repository.list_analysis_executions(
+                profile.workspace_id
+            )
+            if execution.graph_profile_id == graph_profile_id
+        )
+        if execution_count:
+            blockers.append(f"{execution_count} analysis execution(s)")
+
+        interview_count = sum(
+            1
+            for interview in self.repository.list_requirement_interviews(
+                profile.workspace_id
+            )
+            if interview.graph_profile_id == graph_profile_id
+        )
+        if interview_count:
+            blockers.append(f"{interview_count} requirements interview(s)")
+
+        graph_set_names = [
+            graph_set.name or graph_set.graph_set_id
+            for graph_set in self.repository.list_graph_sets(profile.workspace_id)
+            if graph_profile_id in (graph_set.graph_profile_ids or [])
+        ]
+        if graph_set_names:
+            blockers.append(
+                f"{len(graph_set_names)} graph set(s): "
+                + ", ".join(f"'{name}'" for name in graph_set_names)
+            )
+
+        if blockers:
+            raise ConflictError(
+                f"Graph profile '{profile.graph_name or graph_profile_id}' is still "
+                f"referenced by {'; '.join(blockers)}. Remove those first."
+            )
+
+        self.repository.delete_document_by_key(
+            GRAPH_PROFILES_COLLECTION, graph_profile_id
+        )
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=profile.workspace_id,
+                actor=actor or "system",
+                action="delete_graph_profile",
+                target_type="graph_profile",
+                target_id=graph_profile_id,
+                details={
+                    "graph_name": profile.graph_name,
+                    "connection_profile_id": profile.connection_profile_id,
+                },
+            )
+        )
+        return {
+            "graph_profile_id": graph_profile_id,
             "workspace_id": profile.workspace_id,
             "deleted": True,
         }

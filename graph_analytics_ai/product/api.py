@@ -151,6 +151,14 @@ PRODUCT_API_ENDPOINTS = [
     ),
     ProductAPIEndpoint(
         method="DELETE",
+        path="/api/graph-profiles/{graph_profile_id}",
+        service_method="delete_graph_profile",
+        summary="Delete a graph profile that nothing references",
+        tags=["graph-profiles"],
+        response_model="GraphProfileDeletion",
+    ),
+    ProductAPIEndpoint(
+        method="DELETE",
         path="/api/connection-profiles/{connection_profile_id}",
         service_method="delete_connection_profile",
         summary="Delete a connection profile that no graph profile depends on",

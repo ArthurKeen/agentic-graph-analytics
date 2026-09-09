@@ -5,13 +5,15 @@ interface BuildGraphProfileContextMenuArgs {
   onStartRequirementsCopilot: () => void;
   onViewInfo: () => void;
   onCopyId: () => void;
+  onDelete: () => void;
 }
 
 export function buildGraphProfileContextMenu({
   onOpenInCanvas,
   onStartRequirementsCopilot,
   onViewInfo,
-  onCopyId
+  onCopyId,
+  onDelete
 }: BuildGraphProfileContextMenuArgs): ContextMenuItem[] {
   return [
     {
@@ -37,6 +39,12 @@ export function buildGraphProfileContextMenu({
       label: "Copy ID",
       icon: "#",
       onSelect: onCopyId
+    },
+    {
+      id: "delete-graph-profile",
+      label: "Delete Graph Profile",
+      icon: "X",
+      onSelect: onDelete
     }
   ];
 }
