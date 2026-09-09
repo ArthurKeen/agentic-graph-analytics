@@ -818,11 +818,17 @@ export interface WorkspaceOverview {
     run_id: string;
     status: string;
     workflow_mode: string;
+    /** The graph profile the run targeted; resolves to graph + database.
+     * Returned by the API but previously absent from this type, so the UI
+     * could not say which database a run or its reports were about. */
+    graph_profile_id?: string | null;
   }>;
   latestReports: Array<{
     report_id: string;
     title: string;
     status: string;
+    /** A report carries no graph profile of its own — its target is its run's. */
+    run_id?: string | null;
   }>;
   latestAuditEvents: Array<Record<string, unknown>>;
 }
