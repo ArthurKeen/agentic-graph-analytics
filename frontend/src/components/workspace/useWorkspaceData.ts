@@ -1287,7 +1287,16 @@ export function useWorkspaceData({
   ): Promise<WorkflowRunStatusView | null> => {
     // FR-31a: returns null in demo mode so callers can render the
     // poll panel only when there's something real to poll for.
-    if (!isLive) {
+    //
+    // `isLive` deliberately means "not demo", so it is already true while
+    // status === "loading" (the workspace id comes from the URL, before the
+    // fetch lands). In that window the selected asset is still the demo seed,
+    // so polling sent the placeholder id to a real backend and logged two 404s
+    // on /api/runs/run-demo/status for every cold load. A status poll is
+    // meaningless before the workspace has settled, so require "ready" here
+    // rather than widening `isLive`, which many mutating actions depend on
+    // being permissive.
+    if (!isLive || state.status !== "ready") {
       return null;
     }
     return apiClient.getWorkflowRunStatus(runId);
