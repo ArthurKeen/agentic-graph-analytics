@@ -928,12 +928,19 @@ class GAEOrchestrator:
                 )
 
                 if is_sharded:
-                    # Create with explicit sharding parameters for sharded databases
+                    # Create with explicit sharding parameters for sharded
+                    # databases. The keyword is `shard_fields`; python-arango
+                    # has never accepted `shard_keys`, so that spelling raised
+                    # TypeError, was swallowed by the handler below as a
+                    # warning, and left the collection uncreated — after which
+                    # GAE's store step failed with "collection or view not
+                    # found" 404s. Because the failure surfaced at storage
+                    # rather than here, it read as a graph problem.
                     self.db.create_collection(
                         name=result.config.target_collection,
                         shard_count=3,  # Match typical shard count
                         replication_factor=3,  # Match cluster replication
-                        shard_keys=["_key"],  # Use _key as shard key
+                        shard_fields=["_key"],  # Use _key as shard key
                     )
                     self._log("✓ Created sharded collection with 3 shards")
                 else:
@@ -941,8 +948,15 @@ class GAEOrchestrator:
                     self.db.create_collection(result.config.target_collection)
                     self._log("✓ Created collection")
         except Exception as e:
+            # Tolerated because the collection may already exist. Verify rather
+            # than assume: a creation that genuinely failed leaves storage to
+            # fail later with a far less obvious error.
             self._log(f"Note: Collection pre-creation: {e}", "WARN")
-            # Continue anyway - maybe it exists already
+            if not self.db.has_collection(result.config.target_collection):
+                raise RuntimeError(
+                    f"Could not create result collection "
+                    f"'{result.config.target_collection}': {e}"
+                ) from e
 
         store_info = self.gae.store_results(
             target_collection=result.config.target_collection,
