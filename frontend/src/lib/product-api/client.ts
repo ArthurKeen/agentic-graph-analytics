@@ -1398,18 +1398,66 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
         }
       ]
     : [];
-  const runAssets = overview.latestWorkflowRuns.map((run) => ({
-    id: run.run_id,
-    kind: "run" as const,
-    label: `Run ${run.run_id}`,
-    description: `${run.workflow_mode} workflow (${run.status})`
-  }));
-  const reportAssets = overview.latestReports.map((report) => ({
-    id: report.report_id,
-    kind: "report" as const,
-    label: report.title,
-    description: `Report (${report.status})`
-  }));
+  // Which graph and database a run targeted is recorded, but only as a
+  // graph_profile_id — two hops from anything readable. A workspace can hold
+  // several graph profiles across different databases, so a bare run id and
+  // "agentic workflow (completed)" leaves no way to tell what a run or its
+  // reports were actually about. Resolve the chain once and label both.
+  const graphProfilesById = new Map(
+    overview.latestGraphProfiles.map((profile) => [profile.graphProfileId, profile])
+  );
+  const connectionProfilesById = new Map(
+    overview.latestConnectionProfiles.map((profile) => [
+      profile.connectionProfileId,
+      profile
+    ])
+  );
+
+  function describeTarget(graphProfileId: string | null | undefined): string {
+    if (!graphProfileId) {
+      return "";
+    }
+    const graphProfile = graphProfilesById.get(graphProfileId);
+    if (!graphProfile) {
+      return "";
+    }
+    const database = graphProfile.connectionProfileId
+      ? connectionProfilesById.get(graphProfile.connectionProfileId)?.database
+      : undefined;
+    const graphName = graphProfile.graphName || "all collections";
+    return database ? `${graphName} in ${database}` : graphName;
+  }
+
+  const runTargetByRunId = new Map(
+    overview.latestWorkflowRuns.map((run) => [
+      run.run_id,
+      describeTarget(run.graph_profile_id)
+    ])
+  );
+
+  const runAssets = overview.latestWorkflowRuns.map((run) => {
+    const target = runTargetByRunId.get(run.run_id);
+    return {
+      id: run.run_id,
+      kind: "run" as const,
+      label: `Run ${run.run_id}`,
+      description: target
+        ? `${run.workflow_mode} workflow (${run.status}) · ${target}`
+        : `${run.workflow_mode} workflow (${run.status})`
+    };
+  });
+  const reportAssets = overview.latestReports.map((report) => {
+    // A report carries no graph profile of its own, so its target is its run's.
+    const target = report.run_id ? runTargetByRunId.get(report.run_id) : undefined;
+    return {
+      id: report.report_id,
+      kind: "report" as const,
+      label: report.title,
+      description: target
+        ? `Report (${report.status}) · ${target}`
+        : `Report (${report.status})`
+    };
+  });
 
   // FR-45..FR-48: always present, even with no analyses yet — this row is the
   // only entry point to the catalog, so hiding it when empty would make the
