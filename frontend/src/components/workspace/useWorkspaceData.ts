@@ -1976,6 +1976,8 @@ function statefulDemoApproveRequirementsCopilotDraft(
     version,
     status: "approved",
     requirementInterviewId,
+    // Copilot-authored: no source documents, so nothing to attribute it to.
+    documentIds: [],
     summary: "Requirements Copilot approved draft",
     objectives: [],
     requirements: [],

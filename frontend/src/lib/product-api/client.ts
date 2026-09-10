@@ -961,6 +961,7 @@ export function mapRequirementVersion(raw: RawRequirementVersion): RequirementVe
     version: raw.version,
     status: raw.status,
     requirementInterviewId: raw.requirement_interview_id,
+    documentIds: raw.document_ids ?? [],
     summary: raw.summary ?? "",
     objectives: raw.objectives ?? [],
     requirements: raw.requirements ?? [],
@@ -1429,18 +1430,50 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
     sortedVersions.find((version) => version.status === "approved") ??
     sortedVersions[0] ??
     null;
+  // Requirements are deliberately NOT labelled with a graph or database.
+  // A RequirementVersion has no graph link at all — only a Copilot interview
+  // carries a graph_profile_id — and that is correct modelling: requirements
+  // describe what the business wants, independent of which graph is later
+  // analysed, and the same set can drive runs against several. Attributing one
+  // to a database would assert something the record does not say. What a
+  // version *can* honestly be traced to is the document it was extracted from.
+  const documentNamesById = new Map(
+    overview.latestSourceDocuments.map((document) => [
+      document.documentId,
+      document.filename
+    ])
+  );
+
+  function describeRequirementSource(version: RequirementVersion): string {
+    const names = (version.documentIds ?? [])
+      .map((documentId) => documentNamesById.get(documentId))
+      .filter((name): name is string => Boolean(name));
+    if (names.length === 1) {
+      return `from ${names[0]}`;
+    }
+    if (names.length > 1) {
+      return `from ${names.length} documents`;
+    }
+    return "";
+  }
+
   const requirementsAssets: WorkspaceAsset[] = activeRequirementVersion
     ? [
         {
           id: `requirements:${overview.workspace.workspace_id}`,
           kind: "requirements" as const,
           label: "Requirements",
-          description:
-            sortedVersions.length === 1
-              ? `v${activeRequirementVersion.version} (${activeRequirementVersion.status})`
-              : `v${activeRequirementVersion.version} (${activeRequirementVersion.status}) · ${
-                  sortedVersions.length - 1
-                } prior version${sortedVersions.length - 1 === 1 ? "" : "s"}`
+          description: [
+            `v${activeRequirementVersion.version} (${activeRequirementVersion.status})`,
+            sortedVersions.length > 1
+              ? `${sortedVersions.length - 1} prior version${
+                  sortedVersions.length - 1 === 1 ? "" : "s"
+                }`
+              : "",
+            describeRequirementSource(activeRequirementVersion)
+          ]
+            .filter(Boolean)
+            .join(" · ")
         }
       ]
     : [];

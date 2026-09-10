@@ -672,6 +672,10 @@ export interface RequirementVersion {
   version: number;
   status: string;
   requirementInterviewId?: string | null;
+  /** Source documents this version was extracted from. Requirements are not
+   * graph-scoped — only a Copilot interview carries a graph profile — so this
+   * is what a version can honestly be attributed to. */
+  documentIds: string[];
   summary: string;
   objectives: Array<Record<string, unknown>>;
   requirements: Array<Record<string, unknown>>;
@@ -1171,6 +1175,7 @@ export interface RawRequirementVersion {
   workspace_id: string;
   version: number;
   status: string;
+  document_ids?: string[] | null;
   requirement_interview_id?: string | null;
   summary?: string;
   objectives?: Array<Record<string, unknown>>;
