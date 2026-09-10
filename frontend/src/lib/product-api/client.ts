@@ -1351,18 +1351,64 @@ export function mapWorkspaceImportResult(
 }
 
 export function workspaceAssetsFromOverview(overview: WorkspaceOverview): WorkspaceAsset[] {
+  // A workspace can hold profiles across several databases, and every row that
+  // does not name one forces the reader to open it to find out. Resolve the
+  // lookups once, up front, so connection profiles, graph profiles, runs and
+  // reports can all say where they point.
+  const graphProfilesById = new Map(
+    overview.latestGraphProfiles.map((profile) => [profile.graphProfileId, profile])
+  );
+  const connectionProfilesById = new Map(
+    overview.latestConnectionProfiles.map((profile) => [
+      profile.connectionProfileId,
+      profile
+    ])
+  );
+
+  function databaseFor(connectionProfileId: string | null | undefined): string {
+    if (!connectionProfileId) {
+      return "";
+    }
+    return connectionProfilesById.get(connectionProfileId)?.database ?? "";
+  }
+
+  function describeTarget(graphProfileId: string | null | undefined): string {
+    if (!graphProfileId) {
+      return "";
+    }
+    const graphProfile = graphProfilesById.get(graphProfileId);
+    if (!graphProfile) {
+      return "";
+    }
+    const database = databaseFor(graphProfile.connectionProfileId);
+    const graphName = graphProfile.graphName || "all collections";
+    return database ? `${graphName} in ${database}` : graphName;
+  }
+
   const connectionProfileAssets = overview.latestConnectionProfiles.map((profile) => ({
     id: profile.connectionProfileId,
     kind: "connection-profile" as const,
     label: profile.name,
-    description: `${profile.deploymentMode} connection (${profile.lastVerificationStatus})`
+    // The profile name is free text and frequently is not the database name —
+    // "addtech-prod-demo" points at "addtech-knowledge-graph" — so the row has
+    // to say which database it actually reaches.
+    description: profile.database
+      ? `${profile.deploymentMode} connection (${profile.lastVerificationStatus}) · ${profile.database}`
+      : `${profile.deploymentMode} connection (${profile.lastVerificationStatus})`
   }));
-  const graphProfileAssets = overview.latestGraphProfiles.map((profile) => ({
-    id: profile.graphProfileId,
-    kind: "graph-profile" as const,
-    label: profile.graphName,
-    description: `Graph profile (${profile.status})`
-  }));
+  const graphProfileAssets = overview.latestGraphProfiles.map((profile) => {
+    const database = databaseFor(profile.connectionProfileId);
+    return {
+      id: profile.graphProfileId,
+      kind: "graph-profile" as const,
+      // A database-scoped profile has no named graph; call it what the
+      // active-graph selector calls it rather than rendering an empty label.
+      label: profile.graphName || "all collections",
+      description: database
+        ? `Graph profile (${profile.status}) · ${database}`
+        : `Graph profile (${profile.status})`
+    };
+  });
   const documentAssets = overview.latestSourceDocuments.map((document) => ({
     id: document.documentId,
     kind: "document" as const,
@@ -1398,36 +1444,8 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
         }
       ]
     : [];
-  // Which graph and database a run targeted is recorded, but only as a
-  // graph_profile_id — two hops from anything readable. A workspace can hold
-  // several graph profiles across different databases, so a bare run id and
-  // "agentic workflow (completed)" leaves no way to tell what a run or its
-  // reports were actually about. Resolve the chain once and label both.
-  const graphProfilesById = new Map(
-    overview.latestGraphProfiles.map((profile) => [profile.graphProfileId, profile])
-  );
-  const connectionProfilesById = new Map(
-    overview.latestConnectionProfiles.map((profile) => [
-      profile.connectionProfileId,
-      profile
-    ])
-  );
-
-  function describeTarget(graphProfileId: string | null | undefined): string {
-    if (!graphProfileId) {
-      return "";
-    }
-    const graphProfile = graphProfilesById.get(graphProfileId);
-    if (!graphProfile) {
-      return "";
-    }
-    const database = graphProfile.connectionProfileId
-      ? connectionProfilesById.get(graphProfile.connectionProfileId)?.database
-      : undefined;
-    const graphName = graphProfile.graphName || "all collections";
-    return database ? `${graphName} in ${database}` : graphName;
-  }
-
+  // A run records only a graph_profile_id; reports carry no graph profile at
+  // all and inherit their run's. Resolve both through the maps above.
   const runTargetByRunId = new Map(
     overview.latestWorkflowRuns.map((run) => [
       run.run_id,

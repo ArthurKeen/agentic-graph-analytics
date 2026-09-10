@@ -236,13 +236,15 @@ describe("product API client mappers", () => {
         id: "connection-1",
         kind: "connection-profile",
         label: "Development",
-        description: "local connection (unknown)"
+        // The profile name rarely matches the database it reaches, so the row
+        // names the database too.
+        description: "local connection (unknown) · customer_graph"
       },
       {
         id: "graph-profile-1",
         kind: "graph-profile",
         label: "CustomerGraph",
-        description: "Graph profile (active)"
+        description: "Graph profile (active) · customer_graph"
       },
       {
         id: "requirements:workspace-1",
