@@ -373,6 +373,8 @@ def test_reported_version_comes_from_the_package_not_a_literal():
     one it replaced. The default must track the package.
     """
 
+    # FastAPI is an optional extra ([api]); CI installs the package without it.
+    pytest.importorskip("fastapi", reason="optional 'api' extra is not installed")
     from fastapi.testclient import TestClient
 
     from graph_analytics_ai import __version__
@@ -391,6 +393,7 @@ def test_healthz_reports_the_version_even_when_the_database_is_unreachable():
     which build is running.
     """
 
+    pytest.importorskip("fastapi", reason="optional 'api' extra is not installed")
     from fastapi.testclient import TestClient
 
     from graph_analytics_ai import __version__
