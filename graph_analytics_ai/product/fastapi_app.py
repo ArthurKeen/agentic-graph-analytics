@@ -41,7 +41,7 @@ def _resolve_cors_origins(cors_origins: Optional[List[str]]) -> List[str]:
 def create_product_fastapi_app(
     service: Optional[Any] = None,
     title: str = "Agentic Graph Analytics Product API",
-    version: str = "0.1.0",
+    version: Optional[str] = None,
     cors_origins: Optional[List[str]] = None,
     enable_agentic_supervisor: Optional[bool] = None,
     **service_kwargs: Any,
@@ -54,6 +54,11 @@ def create_product_fastapi_app(
     Args:
         service: Optional pre-built ProductService.
         title / version: OpenAPI metadata.
+        version: Reported by ``/openapi.json`` and ``/healthz``. Defaults to
+            the package ``__version__`` — do NOT reintroduce a literal here.
+            A deployed BYOC service is verified by reading this back, and a
+            hardcoded default made every build claim the same version, so it
+            was impossible to tell which one was live.
         cors_origins: Allowed browser origins. Defaults to localhost:3000 (the
             Next.js dev server). Override programmatically or via the
             `AGA_PRODUCT_CORS_ORIGINS` env var (comma-separated). Pass `["*"]`
@@ -84,6 +89,9 @@ def create_product_fastapi_app(
         ValidationError,
     )
 
+    from .. import __version__ as package_version
+
+    app_version = version or package_version
     product_service = service or create_product_service(**service_kwargs)
 
     enable_supervisor = _resolve_enable_supervisor(enable_agentic_supervisor)
@@ -125,7 +133,27 @@ def create_product_fastapi_app(
                 # them ``failed`` with stale_run_detected.
                 supervisor.shutdown(wait=False)
 
-    app = FastAPI(title=title, version=version, lifespan=lifespan)
+    app = FastAPI(title=title, version=app_version, lifespan=lifespan)
+
+    @app.get("/healthz", tags=["ops"])
+    def healthz() -> Dict[str, Any]:
+        """Liveness plus the single fact a deploy needs to prove: which build.
+
+        Deliberately NOT routed through the dispatcher. A health check whose
+        own failure mode is a 500 cannot report a degraded database, and the
+        version has to be readable even when the backing store is unreachable
+        — that is exactly when someone is asking what is running.
+        """
+
+        database: Dict[str, Any] = {"reachable": False}
+        try:
+            storage = product_service.repository.storage
+            database["name"] = getattr(getattr(storage, "db", None), "name", None)
+            storage.list_workspaces()
+            database["reachable"] = True
+        except Exception as exc:  # noqa: BLE001 — reported, never raised
+            database["error"] = f"{type(exc).__name__}: {exc}"[:200]
+        return {"status": "ok", "version": app_version, "database": database}
 
     allowed_origins = _resolve_cors_origins(cors_origins)
     app.add_middleware(
