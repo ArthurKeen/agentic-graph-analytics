@@ -1,0 +1,127 @@
+entrypoint = __file__
+# ^ Line 1 MUST start with the literal token `entrypoint`: the Arango Container
+# Manager runs `python /project/<first word of this file>`. No shebang, no
+# docstring, no import above this line.
+#
+# Boot sequence for the agentic-graph-analytics BYOC bundle:
+#   1. install requirements.txt into this interpreter (uv if present, else pip)
+#   2. load the baked .env — the platform injects nothing but PORT, so this is
+#      the only configuration the service will ever have
+#   3. refuse a loopback ARANGO_ENDPOINT (no ArangoDB lives in this pod)
+#   4. exec uvicorn on graph_analytics_ai.product.byoc_app:build_app, which
+#      serves the API and mounts the exported frontend underneath it
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+REQUIREMENTS = ROOT / "requirements.txt"
+
+
+def _log(msg: str) -> None:
+    print(f"==> {msg}", flush=True)
+
+
+def _find_uv() -> "str | None":
+    env_uv = os.environ.get("UV_BINARY", "").strip()
+    if env_uv and os.access(env_uv, os.X_OK):
+        return env_uv
+    found = shutil.which("uv")
+    if found:
+        return found
+    for candidate in ("/usr/local/bin/uv", "/usr/bin/uv",
+                      str(Path.home() / ".local" / "bin" / "uv")):
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _install_dependencies() -> None:
+    """Install requirements.txt into *this* interpreter.
+
+    py12base — the only Python base image this cluster offers — ships no uv and
+    may have no pip in the venv, so bootstrap pip via ensurepip when uv is
+    absent. AGA_SKIP_INSTALL=1 skips the step for pre-baked images.
+    """
+    if os.environ.get("AGA_SKIP_INSTALL", "").lower() in ("1", "true", "yes"):
+        _log("AGA_SKIP_INSTALL set — using pre-installed dependencies")
+        return
+    if not REQUIREMENTS.is_file():
+        sys.exit(f"ERROR: {REQUIREMENTS} missing from the bundle")
+    uv = _find_uv()
+    if uv:
+        _log(f"installing requirements with uv ({uv})")
+        subprocess.run([uv, "pip", "install", "--python", sys.executable,
+                        "-r", str(REQUIREMENTS)], cwd=ROOT, check=True)
+        return
+    _log("uv not found — bootstrapping pip via ensurepip")
+    subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"],
+                   cwd=ROOT, check=False)
+    _log("pip install -r requirements.txt")
+    subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
+                    "--upgrade-strategy", "only-if-needed", "-r", str(REQUIREMENTS)],
+                   cwd=ROOT, check=True)
+
+
+def _load_dotenv_into_environ() -> None:
+    """Minimal .env loader — python-dotenv may not be installed yet when the
+    loopback guard below runs. Existing environment variables win."""
+    env_file = ROOT / ".env"
+    if not env_file.is_file():
+        _log("WARNING: no .env in bundle — the platform injects nothing but PORT, "
+             "so the service will have no database configuration")
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def _fail_if_loopback(endpoint: str) -> None:
+    if os.environ.get("AGA_ALLOW_LOOPBACK_ARANGO", "").lower() in ("1", "true", "yes"):
+        return
+    if "localhost" in endpoint.lower() or "127.0.0.1" in endpoint:
+        sys.exit("ERROR: ARANGO_ENDPOINT points at loopback — unreachable from the "
+                 "platform pod. Rebuild with scripts/platform/package.sh, or set "
+                 "AGA_ALLOW_LOOPBACK_ARANGO=1 if you know better.")
+
+
+def main() -> None:
+    os.chdir(ROOT)
+    _log(f"agentic-graph-analytics BYOC entrypoint in {ROOT} "
+         f"(python {sys.version.split()[0]})")
+    _install_dependencies()
+    _load_dotenv_into_environ()
+
+    endpoint = os.environ.get("ARANGO_ENDPOINT", "")
+    if not endpoint or not os.environ.get("ARANGO_PASSWORD"):
+        # Fail loudly rather than boot into a service whose every route 500s.
+        # That is exactly the state the previously deployed instance was found
+        # in: /openapi.json served fine while every real endpoint errored, and
+        # the UI silently fell back to demo data.
+        sys.exit("ERROR: ARANGO_ENDPOINT / ARANGO_PASSWORD not set — the bundle's "
+                 ".env is missing or incomplete. A service without database "
+                 "configuration answers 500 on every route and looks like a UI bug.")
+    _fail_if_loopback(endpoint)
+
+    prefix = os.environ.get("SERVICE_URL_PATH_PREFIX", "")
+    port = os.environ.get("PORT") or "8000"
+    database = os.environ.get("ARANGO_DATABASE", "(unset)")
+    _log(f"ArangoDB: {endpoint}  database: {database}")
+    _log(f"mount prefix: {prefix or '(none)'}  listening on 0.0.0.0:{port}")
+
+    os.environ["PYTHONPATH"] = str(ROOT) + (
+        os.pathsep + os.environ["PYTHONPATH"] if os.environ.get("PYTHONPATH") else ""
+    )
+    argv = [sys.executable, "-m", "uvicorn",
+            "graph_analytics_ai.product.byoc_app:build_app", "--factory",
+            "--host", "0.0.0.0", "--port", str(port), "--log-level", "info"]
+    os.execvp(sys.executable, argv)
+
+
+if __name__ == "__main__":
+    main()
