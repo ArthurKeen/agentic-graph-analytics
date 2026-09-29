@@ -780,6 +780,7 @@ export function WorkspaceShell({
           setCreateWorkflowRunErrorMessage(null);
           setShowCreateWorkflowRun(true);
         }}
+        activeGraphProfileId={overview?.workspace?.active_graph_profile_id ?? null}
         hasGraphProfile={selectableGraphProfiles.length > 0}
       />
       <WorkspaceCanvas

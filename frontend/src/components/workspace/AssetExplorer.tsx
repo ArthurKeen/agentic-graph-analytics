@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import type { WorkspaceAsset, WorkspaceHealth } from "@/lib/product-api/types";
 import { buildAssetContextMenu } from "./contextMenus/asset";
 import { buildConnectionProfileContextMenu } from "./contextMenus/connectionProfile";
@@ -9,6 +11,61 @@ import { buildReportContextMenu } from "./contextMenus/report";
 import { buildRequirementsContextMenu } from "./contextMenus/requirements";
 import { buildRunContextMenu } from "./contextMenus/run";
 import type { ContextMenuState } from "./contextMenus/types";
+
+/** Sidebar groups, in reading order.
+ *
+ * Grouped by the role an object plays rather than by its type. The flat list
+ * this replaces mixed setup objects, inputs, outputs and admin panels as
+ * equals, so ten reports pushed the connection you needed off-screen and two
+ * empty admin canvases sat among real content looking equally significant.
+ *
+ * "Analysing" is first and never hidden: "what am I pointed at" was the
+ * question asked most often, and it was previously answerable only from a
+ * dropdown embedded in the status banner.
+ */
+const GROUPS: Array<{
+  key: AssetGroupKey;
+  title: string;
+  hint?: string;
+  empty: string;
+  collapsible?: boolean;
+  alwaysShow?: boolean;
+}> = [
+  {
+    key: "analysing",
+    title: "Analysing",
+    empty: "No active graph yet — discover one from a database below.",
+    alwaysShow: true
+  },
+  { key: "results", title: "Results", empty: "No runs or reports yet." },
+  { key: "inputs", title: "Inputs", empty: "No requirements or documents yet." },
+  {
+    key: "setup",
+    title: "Setup",
+    empty: "Nothing configured yet.",
+    collapsible: true
+  }
+];
+
+type AssetGroupKey = "analysing" | "results" | "inputs" | "setup";
+
+/** Which group an asset belongs to. The active graph profile is promoted out
+ * of Setup into Analysing; every other profile stays configuration. */
+function groupOf(asset: WorkspaceAsset, activeGraphProfileId: string | null): AssetGroupKey {
+  switch (asset.kind) {
+    case "graph-profile":
+      return asset.id === activeGraphProfileId ? "analysing" : "setup";
+    case "run":
+    case "report":
+      return "results";
+    case "requirements":
+    case "document":
+      return "inputs";
+    default:
+      // connection-profile, analysis-catalog, use-cases, retention
+      return "setup";
+  }
+}
 
 interface AssetExplorerProps {
   assets: WorkspaceAsset[];
@@ -44,6 +101,9 @@ interface AssetExplorerProps {
   /** Whether the workspace has at least one graph profile (gates the three
    * analysis modes, which need a graph to run against). */
   hasGraphProfile: boolean;
+  /** Which graph profile the workspace is pointed at, so it can be promoted
+   * out of Setup into its own group. */
+  activeGraphProfileId: string | null;
 }
 
 export function AssetExplorer({
@@ -71,8 +131,137 @@ export function AssetExplorer({
   onRequestQuickAnalysis,
   onRequestGuidedAnalysis,
   onRequestDetailedAnalysis,
-  hasGraphProfile
+  hasGraphProfile,
+  activeGraphProfileId
 }: AssetExplorerProps) {
+  // Setup collapses once the workspace is set up, because it is configuration
+  // consulted occasionally and it holds the two empty admin canvases that used
+  // to sit among results looking equally significant.
+  //
+  // But it starts OPEN while there is no active graph, because that is where
+  // "Discover graph" lives — the step that unblocks everything else. Collapsing
+  // it for a new workspace would hide the only way forward, which is the same
+  // dead end as the disabled analysis buttons.
+  // Only explicit user choices live in state. The default is derived at render
+  // time because the workspace loads AFTER first render: initialising from
+  // activeGraphProfileId captured it while still null, so Setup opened and
+  // stayed open forever.
+  const [groupOverrides, setGroupOverrides] = useState<
+    Partial<Record<AssetGroupKey, boolean>>
+  >({});
+  const isGroupOpen = (key: AssetGroupKey) =>
+    groupOverrides[key] ?? (key === "setup" ? activeGraphProfileId === null : true);
+
+  const grouped = useMemo(() => {
+    const buckets: Record<AssetGroupKey, WorkspaceAsset[]> = {
+      analysing: [],
+      results: [],
+      inputs: [],
+      setup: []
+    };
+    for (const asset of assets) {
+      buckets[groupOf(asset, activeGraphProfileId)].push(asset);
+    }
+    return buckets;
+  }, [assets, activeGraphProfileId]);
+
+  const handlers: RowHandlers = {
+    onDiscoverGraph: onRequestDiscoverGraph,
+    onVerifyConnection: onVerifyConnectionProfile,
+    onStartCopilot: onRequestStartRequirementsCopilot,
+    onReopenCopilot: onRequestReopenRequirementsCopilot,
+    onStartRun: onStartRun,
+    onPublishReport: onRequestPublishReport
+  };
+
+  /** Full action set, still on right-click. Unchanged behaviour — only the
+   * dispatch moved out of the row so the row could carry its own buttons. */
+  const openContextMenu = (asset: WorkspaceAsset, event: React.MouseEvent) => {
+    event.preventDefault();
+    const openInfo = () => {
+      onSelectAsset(asset);
+      onRequestAssetInfo(asset);
+    };
+    const copyId = () => void navigator.clipboard?.writeText(asset.id);
+    const at = { x: event.clientX, y: event.clientY };
+
+    if (asset.kind === "run") {
+      onOpenMenu({
+        ...at,
+        items: buildRunContextMenu({
+          onViewPipeline: () => onOpenRun(asset.id),
+          onCopyRunId: copyId,
+          onStartRun: () => onStartRun(asset),
+          onRetryRun: () => onOpenRun(asset.id),
+          onDeleteRun: () => onRequestDeleteRun(asset)
+        })
+      });
+      return;
+    }
+    if (asset.kind === "connection-profile") {
+      onOpenMenu({
+        ...at,
+        items: buildConnectionProfileContextMenu({
+          onOpenInCanvas: () => onOpenConnectionProfile(asset.id),
+          onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
+          onDiscoverGraph: () => onRequestDiscoverGraph(asset),
+          onViewInfo: openInfo,
+          onCopyId: copyId,
+          onDelete: () => onRequestDeleteConnectionProfile(asset)
+        })
+      });
+      return;
+    }
+    if (asset.kind === "graph-profile") {
+      onOpenMenu({
+        ...at,
+        items: buildGraphProfileContextMenu({
+          onOpenInCanvas: () => onOpenGraphProfile(asset.id),
+          onStartRequirementsCopilot: () => onRequestStartRequirementsCopilot(asset),
+          onViewInfo: openInfo,
+          onCopyId: copyId,
+          onDelete: () => onRequestDeleteGraphProfile(asset)
+        })
+      });
+      return;
+    }
+    if (asset.kind === "document") {
+      onOpenMenu({
+        ...at,
+        items: buildDocumentContextMenu({
+          onOpenInCanvas: () => onOpenDocument(asset.id),
+          onViewInfo: openInfo,
+          onCopyId: copyId
+        })
+      });
+      return;
+    }
+    if (asset.kind === "report") {
+      onOpenMenu({
+        ...at,
+        items: buildReportContextMenu({
+          onViewReport: () => onOpenReport(asset.id),
+          onCopyReportId: copyId,
+          onPublishReport: () => onRequestPublishReport(asset)
+        })
+      });
+      return;
+    }
+    if (asset.kind === "requirements") {
+      onOpenMenu({
+        ...at,
+        items: buildRequirementsContextMenu({
+          onOpenInCanvas: () => onSelectAsset(asset),
+          onReopenCopilot: () => onRequestReopenRequirementsCopilot(asset),
+          onViewInfo: openInfo,
+          onCopyId: copyId
+        })
+      });
+      return;
+    }
+    onOpenMenu({ ...at, items: buildAssetContextMenu({ onViewInfo: openInfo, onCopyId: copyId }) });
+  };
+
   return (
     <aside className="asset-explorer" aria-label="Workspace assets">
       <div className="workspace-brand">
@@ -157,124 +346,59 @@ export function AssetExplorer({
         </button>
       </section>
 
-      <p>Left-click selects. Right-click opens object actions.</p>
+      {GROUPS.map((group) => {
+        const rows = grouped[group.key];
+        if (rows.length === 0 && !group.alwaysShow) {
+          return null;
+        }
+        const collapsed = group.collapsible && !isGroupOpen(group.key);
+        return (
+          <section className="asset-section" key={group.key}>
+            {group.collapsible ? (
+              <button
+                type="button"
+                className="asset-group-toggle"
+                aria-expanded={!collapsed}
+                onClick={() =>
+                  setGroupOverrides((current) => ({
+                    ...current,
+                    [group.key]: !isGroupOpen(group.key)
+                  }))
+                }
+              >
+                <span aria-hidden="true">{collapsed ? "\u25b8" : "\u25be"}</span>
+                <h2>{group.title}</h2>
+                <span className="muted">{rows.length}</span>
+              </button>
+            ) : (
+              <div className="asset-group-head">
+                <h2>{group.title}</h2>
+                {group.hint ? <span className="muted">{group.hint}</span> : null}
+              </div>
+            )}
+            {collapsed ? null : rows.length === 0 ? (
+              <p className="muted asset-group-empty">{group.empty}</p>
+            ) : (
+              <div className="asset-list">
+                {rows.map((asset) => (
+                  <AssetRow
+                    key={asset.id}
+                    asset={asset}
+                    actions={primaryActions(asset, handlers)}
+                    onSelect={() => onSelectAsset(asset)}
+                    onContextMenu={(event) => openContextMenu(asset, event)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      {/* Status, not navigation. Below the groups so "what am I analysing"
+          is the first thing in the panel rather than a screen down. */}
       <WorkspaceHealthSummary health={health} />
       <RecentAuditEvents events={auditEvents} />
-
-      <section className="asset-section">
-        <h2>Assets</h2>
-        <div className="asset-list">
-          {assets.map((asset) => (
-            <button
-              className="asset-row"
-              key={asset.id}
-              type="button"
-              onClick={() => onSelectAsset(asset)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                const openInfo = () => {
-                  onSelectAsset(asset);
-                  onRequestAssetInfo(asset);
-                };
-                const baseArgs = {
-                  onViewInfo: openInfo,
-                  onCopyId: () => void navigator.clipboard?.writeText(asset.id)
-                };
-                if (asset.kind !== "run") {
-                  if (asset.kind === "connection-profile") {
-                    onOpenMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      items: buildConnectionProfileContextMenu({
-                        onOpenInCanvas: () => onOpenConnectionProfile(asset.id),
-                        onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
-                        onDiscoverGraph: () => onRequestDiscoverGraph(asset),
-                        onViewInfo: openInfo,
-                        onCopyId: baseArgs.onCopyId,
-                        onDelete: () => onRequestDeleteConnectionProfile(asset)
-                      })
-                    });
-                    return;
-                  }
-                  if (asset.kind === "document") {
-                    onOpenMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      items: buildDocumentContextMenu({
-                        onOpenInCanvas: () => onOpenDocument(asset.id),
-                        onViewInfo: openInfo,
-                        onCopyId: baseArgs.onCopyId
-                      })
-                    });
-                    return;
-                  }
-                  if (asset.kind === "graph-profile") {
-                    onOpenMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      items: buildGraphProfileContextMenu({
-                        onOpenInCanvas: () => onOpenGraphProfile(asset.id),
-                        onStartRequirementsCopilot: () =>
-                          onRequestStartRequirementsCopilot(asset),
-                        onViewInfo: openInfo,
-                        onCopyId: baseArgs.onCopyId,
-                        onDelete: () => onRequestDeleteGraphProfile(asset)
-                      })
-                    });
-                    return;
-                  }
-                  if (asset.kind === "report") {
-                    onOpenMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      items: buildReportContextMenu({
-                        onViewReport: () => onOpenReport(asset.id),
-                        onCopyReportId: baseArgs.onCopyId,
-                        onPublishReport: () => onRequestPublishReport(asset)
-                      })
-                    });
-                    return;
-                  }
-                  if (asset.kind === "requirements") {
-                    onOpenMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      items: buildRequirementsContextMenu({
-                        onOpenInCanvas: () => onSelectAsset(asset),
-                        onReopenCopilot: () => onRequestReopenRequirementsCopilot(asset),
-                        onViewInfo: openInfo,
-                        onCopyId: baseArgs.onCopyId
-                      })
-                    });
-                    return;
-                  }
-                  onOpenMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    items: buildAssetContextMenu(baseArgs)
-                  });
-                  return;
-                }
-                onOpenMenu({
-                  x: event.clientX,
-                  y: event.clientY,
-                  items: buildRunContextMenu({
-                    onViewPipeline: () => onOpenRun(asset.id),
-                    onCopyRunId: baseArgs.onCopyId,
-                    onStartRun: () => onStartRun(asset),
-                    onRetryRun: () => onOpenRun(asset.id),
-                    onDeleteRun: () => onRequestDeleteRun(asset)
-                  })
-                });
-              }}
-            >
-              <strong>{asset.label}</strong>
-              <br />
-              <span className="muted">{asset.description ?? asset.kind}</span>
-            </button>
-          ))}
-        </div>
-      </section>
     </aside>
   );
 }
@@ -334,5 +458,103 @@ function WorkspaceHealthSummary({ health }: { health: WorkspaceHealth | null }) 
         </ul>
       ) : null}
     </section>
+  );
+}
+
+/** A row's one or two most useful actions, shown on the row itself.
+ *
+ * Every one of these already existed — reachable only by right-clicking the
+ * correct object, which is why 32 actions were effectively undiscoverable.
+ * Right-click still offers the full set; this is the visible path for the
+ * verbs people actually reach for. Deliberately capped at two: a row with
+ * five buttons is its own kind of unreadable.
+ */
+function primaryActions(
+  asset: WorkspaceAsset,
+  handlers: RowHandlers
+): RowAction[] {
+  switch (asset.kind) {
+    case "connection-profile":
+      return [
+        // The step that unblocks everything else: without a graph profile the
+        // database cannot be analysed or selected.
+        { label: "Discover graph", onClick: () => handlers.onDiscoverGraph(asset) },
+        { label: "Verify", onClick: () => handlers.onVerifyConnection(asset.id) }
+      ];
+    case "graph-profile":
+      return [
+        { label: "Start copilot", onClick: () => handlers.onStartCopilot(asset) }
+      ];
+    case "requirements":
+      return [
+        { label: "Reopen copilot", onClick: () => handlers.onReopenCopilot(asset) }
+      ];
+    case "run":
+      return [{ label: "Start", onClick: () => handlers.onStartRun(asset) }];
+    case "report":
+      return [{ label: "Publish", onClick: () => handlers.onPublishReport(asset) }];
+    default:
+      return [];
+  }
+}
+
+interface RowAction {
+  label: string;
+  onClick: () => void;
+}
+
+interface RowHandlers {
+  onDiscoverGraph: (asset: WorkspaceAsset) => void;
+  onVerifyConnection: (connectionProfileId: string) => void;
+  onStartCopilot: (asset: WorkspaceAsset) => void;
+  onReopenCopilot: (asset: WorkspaceAsset) => void;
+  onStartRun: (asset: WorkspaceAsset) => void;
+  onPublishReport: (asset: WorkspaceAsset) => void;
+}
+
+/** One asset row: a select target plus its visible actions.
+ *
+ * The row used to be a single <button>, which is why the actions could not
+ * live on it — nesting a button inside a button is invalid. The wrapper is now
+ * a div carrying the context menu, with the label as the button so click and
+ * keyboard selection behave as before.
+ */
+function AssetRow({
+  asset,
+  actions,
+  onSelect,
+  onContextMenu
+}: {
+  asset: WorkspaceAsset;
+  actions: RowAction[];
+  onSelect: () => void;
+  onContextMenu: (event: React.MouseEvent) => void;
+}) {
+  return (
+    <div className="asset-row" onContextMenu={onContextMenu}>
+      <button type="button" className="asset-row-main" onClick={onSelect}>
+        <strong>{asset.label}</strong>
+        <span className="muted">{asset.description ?? asset.kind}</span>
+      </button>
+      {actions.length > 0 ? (
+        <div className="asset-row-actions">
+          {actions.map((action) => (
+            <button
+              key={action.label}
+              type="button"
+              className="asset-row-action"
+              onClick={(event) => {
+                // The wrapper is not a button, but the canvas listens for
+                // clicks to dismiss menus; keep the action from selecting too.
+                event.stopPropagation();
+                action.onClick();
+              }}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

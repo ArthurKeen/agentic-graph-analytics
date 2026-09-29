@@ -303,16 +303,104 @@ button {
   margin-top: 10px;
 }
 
+/* The row is a container, not a button: its actions live inside it, and a
+ * button cannot nest inside a button. The label carries the click and keyboard
+ * affordance so selection behaves exactly as before. */
 .asset-row {
   width: 100%;
   border: 1px solid var(--aga-border);
   border-radius: 10px;
   background: var(--aga-panel);
   color: var(--aga-text);
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.asset-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
   padding: 10px 12px;
   text-align: left;
 }
+
+.asset-row-main strong { overflow-wrap: anywhere; }
+.asset-row-main .muted { font-size: 12px; overflow-wrap: anywhere; }
+
+.asset-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+  /* Visible on hover and on keyboard focus, so the actions are reachable
+   * without a mouse — the point of surfacing them at all. */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.asset-row:hover .asset-row-actions,
+.asset-row:focus-within .asset-row-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  /* No hover on touch: always show, or the actions are unreachable. */
+  .asset-row-actions { opacity: 1; }
+}
+
+.asset-row-action {
+  border: 1px solid var(--aga-border);
+  border-radius: 6px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  font-size: 11px;
+  white-space: nowrap;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.asset-row-action:hover,
+.asset-row-action:focus-visible {
+  border-color: var(--aga-accent);
+  color: var(--aga-accent);
+  outline: none;
+}
+
+.asset-group-head,
+.asset-group-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.asset-group-toggle {
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.asset-group-head h2,
+.asset-group-toggle h2 { margin: 0; font-size: 15px; }
+
+.asset-group-toggle:hover h2,
+.asset-group-toggle:focus-visible h2 { color: var(--aga-accent); }
+.asset-group-toggle:focus-visible { outline: 2px solid var(--aga-accent); outline-offset: 3px; }
+
+.asset-group-empty { font-size: 13px; margin: 0 0 4px; }
 
 .asset-row:hover,
 .asset-row:focus-visible {
