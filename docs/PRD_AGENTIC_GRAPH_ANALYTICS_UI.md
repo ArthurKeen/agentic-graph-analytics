@@ -1503,12 +1503,21 @@ older requirement, this section wins.
   working application showing sample content. A deploy MUST additionally be
   treated as failed unless the running instance reports the version that was
   deployed (NFR-20); a 200 from the root page is not evidence, because the build
-  being replaced serves it identically.
+  being replaced serves it identically. This applies to rollback too — a
+  rollback is a deploy. A build that predates NFR-20 cannot satisfy it (it has
+  no `/healthz` and reports a hardcoded version), so a rollback to one MUST be
+  reported as *unverified*, distinctly from both success and failure, rather
+  than being skipped or misreported.
   *(Implemented: `scripts/platform/entrypoint` exits when `ARANGO_ENDPOINT` or
   `ARANGO_PASSWORD` is absent; `scripts/byoc_deploy.py` fails verification when
-  the live `/healthz` version does not match the release. Motivated by the
-  previously deployed instance, which answered 500 on every route while
-  `/openapi.json` stayed green and the UI showed demo data.)*
+  the live `/healthz` version does not match the release. Rollback derives the
+  expected release from the `<release>-<build>` package version via
+  `release_of`, and reports a pre-NFR-20 target with exit code 2 rather than 0
+  or 1 — it previously skipped the version check for every target, and a
+  legacy target was misreported as FAILED because the verifier parsed its 404
+  page as `/healthz`. Motivated by the previously deployed instance, which
+  answered 500 on every route while `/openapi.json` stayed green and the UI
+  showed demo data.)*
 
 
 ### Performance
@@ -1574,14 +1583,21 @@ older requirement, this section wins.
   be the only route to an action the user needs next; a collapse default that
   depends on loaded state MUST be derived at render time, since the workspace
   loads after first render.
-  *(Implemented: `frontend/src/components/workspace/AssetExplorer.tsx` —
-  `primaryActions` puts each row's main verbs on the row, `GROUPS` organises the
-  panel by role, and the Setup collapse default is derived per render, open
-  while no graph is active because that is where Discover graph lives. Measured
-  before the change: 32 actions reachable only by right-click, and a panel that
-  had to instruct "Left-click selects. Right-click opens object actions." Note
-  this supersedes the reasoning in FR-1 and FR-13, whose implementation notes
-  cite a right-click menu as evidence the requirement is met.)*
+  *(PARTIAL — tracked as drift alerts on FR-1, FR-5a and FR-13. Done:
+  `frontend/src/components/workspace/AssetExplorer.tsx` — `primaryActions` puts
+  six verbs on their rows (Discover graph, Verify, Start copilot, Reopen
+  copilot, Start, Publish), `GROUPS` organises the panel by role, and the Setup
+  collapse default is derived per render, open while no graph is active because
+  that is where Discover graph lives. Not yet done, still reachable ONLY by
+  right-click: edit, archive, export and import of a workspace (FR-1), delete
+  connection profile (FR-5a), upload document (FR-13), delete graph profile,
+  delete run, and retry. Row actions are deliberately capped at two, so the
+  destructive ones need an overflow on the row and the workspace ones belong in
+  the canvas header. Measured before any of this: 32 actions reachable only by
+  right-click, and a panel that had to instruct "Left-click selects.
+  Right-click opens object actions." This rule supersedes the reasoning in the
+  FR-1 and FR-13 notes, which cite a right-click menu as evidence those
+  requirements are met — they are PARTIAL until the gaps above close.)*
 
 ---
 
