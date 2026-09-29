@@ -8,7 +8,7 @@
 # Pinned to an exact commit until the tool is published on PyPI; bump REV
 # deliberately (and re-run `verify`) rather than floating on a branch.
 set -euo pipefail
-REV="0c8e26cdefa1ecae79a93e1f17eb4d3b75ae0b72"
+REV="0006881506ce079af15170ee6c81e211596bca81"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if ! command -v uvx >/dev/null 2>&1; then
     echo "error: uvx not found — install uv (https://docs.astral.sh/uv/)" >&2
