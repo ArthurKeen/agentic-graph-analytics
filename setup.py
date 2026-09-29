@@ -2,16 +2,33 @@
 Setup script for Graph Analytics AI library.
 """
 
-from setuptools import setup, find_packages
+import re
 from pathlib import Path
+
+from setuptools import setup, find_packages
 
 # Read README for long description
 readme_file = Path(__file__).parent / "README.md"
 long_description = readme_file.read_text() if readme_file.exists() else ""
 
+# Single source of truth for the version: graph_analytics_ai/__init__.py.
+# Read rather than imported, because importing the package at build time would
+# pull in its dependencies. Duplicating the literal here let the packaged
+# version drift from what the running service reports, which is precisely what
+# makes a deployed build impossible to identify.
+version_file = Path(__file__).parent / "graph_analytics_ai" / "__init__.py"
+version_match = re.search(
+    r'^__version__\s*=\s*["\']([^"\']+)["\']',
+    version_file.read_text(encoding="utf-8"),
+    re.MULTILINE,
+)
+if not version_match:
+    raise RuntimeError(f"no __version__ found in {version_file}")
+VERSION = version_match.group(1)
+
 setup(
     name="graph-analytics-ai",
-    version="3.0.0",
+    version=VERSION,
     description="AI-assisted graph analytics platform with automated workflow orchestration",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -82,4 +99,3 @@ setup(
     ],
     keywords="arangodb graph analytics gae orchestration ai llm automation workflow",
 )
-

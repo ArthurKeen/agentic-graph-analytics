@@ -336,3 +336,93 @@ def test_dispatch_allows_arguments_that_have_defaults():
     )
 
     assert result["include_system"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Build identity: /healthz and the reported version (BYOC deploy verification)  #
+# --------------------------------------------------------------------------- #
+
+
+def _app_with_storage(storage):
+    from unittest.mock import MagicMock
+
+    from graph_analytics_ai.product.fastapi_app import create_product_fastapi_app
+
+    service = MagicMock()
+    service.repository.storage = storage
+    return create_product_fastapi_app(service=service)
+
+
+def _storage(list_workspaces_result=None, error=None, db_name="aga_workspace"):
+    from unittest.mock import MagicMock
+
+    storage = MagicMock()
+    storage.db.name = db_name
+    if error is not None:
+        storage.list_workspaces.side_effect = error
+    else:
+        storage.list_workspaces.return_value = list_workspaces_result or []
+    return storage
+
+
+def test_reported_version_comes_from_the_package_not_a_literal():
+    """A deployed build is identified by the version it reports.
+
+    The factory used to default to a hardcoded "0.1.0", so every build claimed
+    the same version and the live BYOC service could not be told apart from the
+    one it replaced. The default must track the package.
+    """
+
+    # FastAPI is an optional extra ([api]); CI installs the package without it.
+    pytest.importorskip("fastapi", reason="optional 'api' extra is not installed")
+    from fastapi.testclient import TestClient
+
+    from graph_analytics_ai import __version__
+
+    client = TestClient(_app_with_storage(_storage()))
+
+    assert client.get("/openapi.json").json()["info"]["version"] == __version__
+    assert client.get("/healthz").json()["version"] == __version__
+
+
+def test_healthz_reports_the_version_even_when_the_database_is_unreachable():
+    """The degraded case is the one the endpoint exists for.
+
+    Routing /healthz through the dispatcher would make a dead database a 500,
+    which reports nothing — and an outage is exactly when someone needs to know
+    which build is running.
+    """
+
+    pytest.importorskip("fastapi", reason="optional 'api' extra is not installed")
+    from fastapi.testclient import TestClient
+
+    from graph_analytics_ai import __version__
+
+    client = TestClient(
+        _app_with_storage(_storage(error=RuntimeError("connection refused")))
+    )
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == __version__
+    assert payload["database"]["reachable"] is False
+    assert "connection refused" in payload["database"]["error"]
+
+
+def test_setup_py_and_package_version_agree():
+    """setup.py derives its version rather than duplicating the literal.
+
+    A packaged version that drifts from the one the service reports makes the
+    deploy verifier meaningless.
+    """
+
+    import re
+    from pathlib import Path
+
+    from graph_analytics_ai import __version__
+
+    setup_src = (Path(__file__).resolve().parents[3] / "setup.py").read_text()
+    assert "version=VERSION" in setup_src, "setup.py should not hardcode a version"
+    assert not re.search(r'version\s*=\s*"\d+\.\d+\.\d+"', setup_src)
+    assert __version__

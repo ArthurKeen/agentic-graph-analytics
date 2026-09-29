@@ -34,6 +34,32 @@ class FakeFastAPI:
             }
         )
 
+    def get(self, path, **kwargs):
+        """Support the ``@app.get(...)`` decorator form.
+
+        The factory registers /healthz this way rather than through the
+        contract dispatcher, so that a health check can still report the
+        running version when the database is unreachable.
+        """
+
+        def decorator(endpoint):
+            self.routes.append(
+                {
+                    "path": path,
+                    "endpoint": endpoint,
+                    "methods": ["GET"],
+                    "summary": (
+                        (endpoint.__doc__ or "").strip().splitlines()[0]
+                        if endpoint.__doc__
+                        else ""
+                    ),
+                    "tags": kwargs.get("tags", []),
+                }
+            )
+            return endpoint
+
+        return decorator
+
     def add_middleware(self, middleware_class, **kwargs):
         # The factory unconditionally adds CORSMiddleware. Recording
         # rather than ignoring lets future tests assert on it.
@@ -117,7 +143,13 @@ def test_create_product_fastapi_app_registers_contract_routes(fake_fastapi_modul
 
     assert app.title == "Product API"
     assert app.version == "1"
-    assert route_keys == contract_keys
+    # /healthz is intentionally outside the contract: it bypasses the
+    # dispatcher so it can still report the running version when the database
+    # is unreachable, which is when a deploy most needs identifying. Asserted
+    # separately rather than folded into the contract, so a genuinely
+    # unexpected route still fails this test.
+    assert ("GET", "/healthz") in route_keys
+    assert route_keys - {("GET", "/healthz")} == contract_keys
 
 
 def test_create_product_fastapi_app_can_bootstrap_default_service(fake_fastapi_module):
