@@ -1461,6 +1461,55 @@ older requirement, this section wins.
   `sweep_orphan_runs` catching AttributeError and returning `[]` on every
   startup because `list_workflow_runs_by_status` did not exist — runs left
   RUNNING by a dead process stayed RUNNING forever.)*
+- **NFR-20 (Identifiable build):** A running instance MUST report which build it
+  is, from a single source. The version exposed by `/openapi.json` and
+  `/healthz` MUST derive from the package `__version__` — never a literal — and
+  the packaged version MUST derive from the same source rather than duplicating
+  it. The service MUST expose `GET /healthz` returning status, version and
+  backing-store reachability, and that endpoint MUST answer without the
+  database: it bypasses the contract dispatcher deliberately, because a health
+  check whose own failure mode is a 500 cannot report a degraded store, and the
+  version has to stay readable during an outage — which is exactly when someone
+  is asking what is running. This is what makes a deployment verifiable: a 200
+  on the root page is served just as happily by the build being replaced.
+  *(Implemented: `graph_analytics_ai/product/fastapi_app.py`,
+  `setup.py`. Motivated by a live instance reporting three different versions —
+  ACP package 0.5.2, `/openapi.json` 0.1.0, package 3.0.0 — the middle one from
+  a literal default, so no deployed build could be told from its predecessor.)*
+- **NFR-21 (Mount-path correctness):** The workspace UI ships as a static export
+  served by the API process, so the bundle MUST be built for the path it will be
+  mounted at. The mount prefix MUST be a build input driving BOTH in-app routes
+  and static asset URLs — one without the other yields either broken navigation
+  or broken assets — and the built bundle MUST contain no root-absolute asset
+  URLs. Because the platform strips the prefix before the process sees it, a
+  mismatch is invisible server-side: the service answers 200 and every health
+  check passes while the browser fetches assets from the cluster root and
+  renders a blank page. Deployment tooling MUST therefore refuse to upload a
+  bundle whose baked prefix does not equal the mount path the deploy will use,
+  rather than relying on a post-deploy check to notice.
+  *(Implemented: `frontend/next.config.mjs` makes `SERVICE_URL_PATH_PREFIX`
+  drive `basePath` and `assetPrefix`; `scripts/byoc_deploy.py` pre-flight
+  refuses a bundle whose baked prefix or asset prefix disagrees with the target
+  mount path — a bundle built for one instance would otherwise load a
+  neighbouring service's assets rather than 404 honestly.)*
+- **NFR-22 (Fail to start, not to serve):** A deployed instance that cannot
+  reach its configuration MUST refuse to start, naming what is missing, rather
+  than starting and answering errors. The platform supplies no configuration
+  beyond `PORT`, so a service missing its credentials cannot recover at runtime
+  and every request it accepts is a request it will fail. Starting anyway is
+  worse than not starting: the API surface still answers (`/openapi.json` is
+  generated from the route table and needs no configuration), so monitoring sees
+  a live service, and the UI's demo-data fallback presents a dead backend as a
+  working application showing sample content. A deploy MUST additionally be
+  treated as failed unless the running instance reports the version that was
+  deployed (NFR-20); a 200 from the root page is not evidence, because the build
+  being replaced serves it identically.
+  *(Implemented: `scripts/platform/entrypoint` exits when `ARANGO_ENDPOINT` or
+  `ARANGO_PASSWORD` is absent; `scripts/byoc_deploy.py` fails verification when
+  the live `/healthz` version does not match the release. Motivated by the
+  previously deployed instance, which answered 500 on every route while
+  `/openapi.json` stayed green and the UI showed demo data.)*
+
 
 ### Performance
 
@@ -1512,6 +1561,27 @@ older requirement, this section wins.
   vanishes on a light canvas, so `arango-logo-light.png` — the same asset with
   only its white ink recoloured to `#282828`, avocado and sparkle untouched —
   is shown in light mode and swapped by CSS.)*
+- **NFR-23 (Reachable capability):** A capability a user cannot find is not
+  delivered. Every action a requirement grants MUST be reachable without knowing
+  to right-click: the object it applies to MUST offer it directly, on hover and
+  on keyboard focus, and unconditionally where there is no hover. A context menu
+  MAY carry the full set as an accelerator, but MUST NOT be the only path — so
+  "the right-click menu surfaces it" does not, on its own, satisfy a "users
+  can …" requirement. The asset panel MUST be organised by the role an object
+  plays (what is being analysed, what came out, what went in, what is
+  configuration) rather than by its type, so that adding results cannot push
+  setup objects out of view. Where a group is collapsed by default, it MUST NOT
+  be the only route to an action the user needs next; a collapse default that
+  depends on loaded state MUST be derived at render time, since the workspace
+  loads after first render.
+  *(Implemented: `frontend/src/components/workspace/AssetExplorer.tsx` —
+  `primaryActions` puts each row's main verbs on the row, `GROUPS` organises the
+  panel by role, and the Setup collapse default is derived per render, open
+  while no graph is active because that is where Discover graph lives. Measured
+  before the change: 32 actions reachable only by right-click, and a panel that
+  had to instruct "Left-click selects. Right-click opens object actions." Note
+  this supersedes the reasoning in FR-1 and FR-13, whose implementation notes
+  cite a right-click menu as evidence the requirement is met.)*
 
 ---
 
