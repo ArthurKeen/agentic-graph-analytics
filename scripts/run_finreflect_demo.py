@@ -159,11 +159,21 @@ def main() -> None:
     print("\nRunning agentic workflow (schema -> requirements -> use cases ->")
     print("templates -> GAE execution -> LLM reporting)...\n")
 
+    # Parallelism is OFF by default for this graph. All analyses now share one
+    # GAE engine, and ten concurrent loads of 3.1M vertices / 17.5M edges push
+    # it over: the 2026-10-14 run lost analyses to `503 Service Unavailable` on
+    # /loaddata and to jobs not registering inside the status-poll grace window.
+    # Sequential is slower per run but actually finishes.
+    parallel = os.environ.get("FINREFLECT_PARALLEL", "0") == "1"
+    max_executions = int(os.environ.get("FINREFLECT_MAX_EXECUTIONS", "10"))
+    print(f"Parallelism:   {'on' if parallel else 'off'}  "
+          f"(max_executions={max_executions})")
+
     final_state = asyncio.run(
         runner.run_async(
             input_documents=[str(REQUIREMENTS_FILE)],
-            max_executions=10,
-            enable_parallelism=True,
+            max_executions=max_executions,
+            enable_parallelism=parallel,
         )
     )
 

@@ -12,6 +12,7 @@ Automates complete GAE analysis workflows including:
 Works with both Arango Managed Platform (AMP) and self-managed deployments.
 """
 
+import inspect
 import os
 import time
 import json
@@ -936,8 +937,19 @@ class GAEOrchestrator:
 
         exec_start = datetime.now()
 
-        # Build algorithm parameters (graph_id + any custom params)
+        # Build algorithm parameters (graph_id + any custom params), then drop
+        # anything the target engine method does not accept (NFR-19).
+        #
+        # These params are splatted into a typed signature, so a single unknown
+        # key raises TypeError and loses the whole analysis — and the parameter
+        # names are authored in a different module from the signatures that
+        # consume them (TemplateGenerator._optimize_parameters), which is
+        # exactly the drift that produced `max_iterations`, `sample_size` and
+        # `threshold` against methods that accept none of them. Tuning is
+        # advisory; losing an analysis over a tuning knob is not an acceptable
+        # failure mode, so filter and warn rather than raise.
         params = {"graph_id": result.graph_id, **result.config.algorithm_params}
+        params = self._accepted_params(result.config.algorithm, params)
 
         # Call the appropriate algorithm
         # Only algorithms supported by GAEConnectionBase are available
@@ -1205,6 +1217,38 @@ class GAEOrchestrator:
             # If validation fails, it's a critical bug
             self._log(f"✗ Result validation failed: {e}", "ERROR")
             raise
+
+    def _accepted_params(
+        self, algorithm: str, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Drop params the engine method will not accept, warning about each.
+
+        Returns ``params`` unchanged if the method cannot be introspected, so an
+        unexpected connection implementation degrades to the previous behaviour
+        rather than silently running with no tuning at all.
+        """
+        method = getattr(self.gae, f"run_{algorithm}", None)
+        if method is None:
+            return params
+        try:
+            accepted = set(inspect.signature(method).parameters)
+        except (TypeError, ValueError):
+            return params
+        if any(
+            p.kind is inspect.Parameter.VAR_KEYWORD
+            for p in inspect.signature(method).parameters.values()
+        ):
+            return params
+
+        kept = {k: v for k, v in params.items() if k in accepted}
+        dropped = sorted(set(params) - set(kept))
+        if dropped:
+            self._log(
+                f"⚠ run_{algorithm}() does not accept {', '.join(dropped)}; "
+                f"ignoring (tuning only — the analysis still runs)",
+                "WARN",
+            )
+        return kept
 
     def _cleanup_engine(self, result: AnalysisResult):
         """Delete the engine to stop billing.

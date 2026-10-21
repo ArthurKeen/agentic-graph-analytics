@@ -44,6 +44,18 @@ class AgentDefaults:
     # Maximum number of analyses to execute in a single workflow
     MAX_EXECUTIONS = 3
 
+    # How many analyses may be in flight at once.
+    #
+    # Analyses share one GAE engine, and each one loads the whole graph before
+    # it runs. Fanning every template out at once therefore multiplies the load
+    # on a single engine rather than spreading it: a FinReflectKG run (3.1M
+    # vertices / 17.5M edges) lost analyses to `503 Service Unavailable` on
+    # /loaddata and to jobs that never registered inside the status-poll grace
+    # window, and left three orphaned engines billing. 2 keeps some overlap
+    # without stampeding the engine; raise it only for small graphs.
+    # Override with GAE_MAX_CONCURRENT_ANALYSES.
+    MAX_CONCURRENT_ANALYSES = 2
+
     # Maximum retry attempts for failed steps
     MAX_RETRIES = 2
 

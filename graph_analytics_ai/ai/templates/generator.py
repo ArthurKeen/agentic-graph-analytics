@@ -570,16 +570,18 @@ class TemplateGenerator:
             elif total_docs < 1000:
                 optimized["maximum_supersteps"] = 150  # More for small graphs
 
-            # Adjust threshold based on density
-            if avg_degree > 10:
-                optimized["threshold"] = 0.0005  # Tighter for dense graphs
+            # NOTE: no `threshold` knob here. The engine API
+            # (GAEConnectionBase.run_pagerank) takes only `damping_factor` and
+            # `maximum_supersteps`; these params are splatted straight into that
+            # signature, so inventing a name raises TypeError at execution time.
 
         elif algorithm_type == AlgorithmType.LABEL_PROPAGATION:
-            # Adjust iterations based on graph size
+            # Adjust iterations based on graph size. The engine calls this
+            # `maximum_supersteps` — NOT `max_iterations`, which it will reject.
             if total_docs > 10000:
-                optimized["max_iterations"] = 30  # Fewer for large graphs
+                optimized["maximum_supersteps"] = 30  # Fewer for large graphs
             elif total_docs < 1000:
-                optimized["max_iterations"] = 100  # More for small graphs
+                optimized["maximum_supersteps"] = 100  # More for small graphs
 
         elif algorithm_type == AlgorithmType.WCC:
             # WCC doesn't have many tunable parameters
@@ -587,9 +589,10 @@ class TemplateGenerator:
             pass
 
         elif algorithm_type == AlgorithmType.BETWEENNESS_CENTRALITY:
-            # For very large graphs, might want to sample
+            # No sampling knob exists: run_betweenness takes only
+            # `maximum_supersteps`. Cap the work that way instead.
             if total_docs > 50000:
-                optimized["sample_size"] = 1000  # Sample nodes
+                optimized["maximum_supersteps"] = 50
 
         return optimized
 

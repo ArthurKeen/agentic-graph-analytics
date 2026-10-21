@@ -6,6 +6,7 @@ Each agent has specific expertise and responsibilities.
 
 import asyncio
 import os
+from datetime import datetime
 from typing import Any, Optional, List
 
 from ..llm.base import LLMProvider
@@ -16,7 +17,12 @@ from ..documents.parser import DocumentParser
 from ..documents.extractor import RequirementsExtractor
 from ..generation.use_cases import UseCaseGenerator
 from ..templates import TemplateGenerator
-from ..execution import AnalysisExecutor
+from ..execution import (
+    AnalysisExecutor,
+    AnalysisJob,
+    ExecutionResult,
+    ExecutionStatus,
+)
 from ..reporting import ReportGenerator
 
 from .base import (
@@ -988,24 +994,70 @@ Your goal: Execute analyses reliably and efficiently."""
         )
         templates_to_run = state.templates[:max_executions]
 
-        # Execute templates in parallel!
-        tasks = []
-        for template in templates_to_run:
-            self.log(f"Queueing: {template.name}")
-            loop = asyncio.get_event_loop()
-            task = loop.run_in_executor(
-                None,
-                self.executor.execute_template,
-                template,
-                True,  # wait=True
-                state.metadata.get("epoch_id"),
-                state.metadata.get("requirements_id"),
-                state.metadata.get("use_case_id"),
+        # Execute templates concurrently, but BOUNDED (FR-27, NFR-19).
+        #
+        # `enable_parallelism=False` sequences workflow *steps*; it does not
+        # reach here, so this fan-out used to run every template at once
+        # whatever the caller asked for. FR-27 promises distinct agentic and
+        # parallel-agentic modes; bounding both is honest but does not yet
+        # derive the limit from WorkflowMode, so FR-27 stays PARTIAL. Analyses share one GAE engine and each
+        # loads the whole graph first, so an unbounded gather multiplies load on
+        # a single engine: a FinReflectKG run died on `503 Service Unavailable`
+        # from /loaddata, with jobs failing to register inside the status-poll
+        # window and three engines left orphaned and billing.
+        limit = int(
+            os.environ.get(
+                "GAE_MAX_CONCURRENT_ANALYSES",
+                AgentDefaults.MAX_CONCURRENT_ANALYSES,
             )
-            tasks.append(task)
+        )
+        limit = max(1, min(limit, len(templates_to_run) or 1))
+        semaphore = asyncio.Semaphore(limit)
+        self.log(f"Executing {len(templates_to_run)} analyses, " f"{limit} at a time")
 
-        # Wait for all executions to complete
-        results = await asyncio.gather(*tasks)
+        async def _run(template):
+            async with semaphore:
+                self.log(f"Starting: {template.name}")
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(
+                    None,
+                    self.executor.execute_template,
+                    template,
+                    True,  # wait=True
+                    state.metadata.get("epoch_id"),
+                    state.metadata.get("requirements_id"),
+                    state.metadata.get("use_case_id"),
+                )
+
+        # return_exceptions keeps one blown-up analysis from cancelling the rest;
+        # a raising task is recorded as a failure like any other.
+        raw = await asyncio.gather(
+            *(_run(t) for t in templates_to_run), return_exceptions=True
+        )
+        results = []
+        for template, item in zip(templates_to_run, raw):
+            if isinstance(item, BaseException):
+                self.log(
+                    f"✗ {template.name} raised: {type(item).__name__}: {item}",
+                    "error",
+                )
+                results.append(
+                    ExecutionResult(
+                        job=AnalysisJob(
+                            job_id="",
+                            template_name=template.name,
+                            algorithm=template.algorithm.algorithm.value,
+                            status=ExecutionStatus.FAILED,
+                            submitted_at=datetime.now(),
+                            result_collection=template.config.result_collection,
+                            error_message=str(item),
+                        ),
+                        success=False,
+                        error=str(item),
+                    )
+                )
+            else:
+                results.append(item)
 
         # Log results
         for result in results:
@@ -1013,9 +1065,11 @@ Your goal: Execute analyses reliably and efficiently."""
                 result.job.template_name if hasattr(result, "job") else "unknown"
             )
             if result.success:
-                self.log(
-                    f"✓ {template_name} completed in {result.job.execution_time_seconds:.1f}s"
-                )
+                # execution_time_seconds is Optional; formatting None with
+                # :.1f raises TypeError and would crash the run from a log line.
+                elapsed = getattr(result.job, "execution_time_seconds", None)
+                took = f" in {elapsed:.1f}s" if elapsed is not None else ""
+                self.log(f"✓ {template_name} completed{took}")
             else:
                 self.log(f"✗ {template_name} failed: {result.error}", "error")
 
