@@ -1203,6 +1203,19 @@ older requirement, this section wins.
 
 #### Multi-Graph Workspaces
 
+- **FR-65a (Projection hints from layout):** Where the analyzer reports a
+  sharding layout, the system MUST derive projection guidance for the GAE
+  orchestrator from it, because a OneShard or satellite layout keeps a join
+  local to one DBServer and so admits a cheaper projection than a sharded one.
+  *(Implemented: `SchemaAnalysis.gae_projection_hints`,
+  `graph_analytics_ai/ai/schema/sharding.py:85`.)*
+- **FR-65c (Tenant scoping and cross-tenant warning):** Where a tenant key is
+  inferred, the system MUST surface it so analysis questions can be
+  tenant-scoped, and MUST warn when an analysis would span tenants rather than
+  silently aggregating across them. An analysis that silently spans tenants is a
+  wrong answer, not a slow one.
+  *(Implemented: `graph_analytics_ai/product/service.py:6558`. FR-65b is
+  unassigned; the lettering skips it.)*
 - **FR-66 (Per-named-graph profiles):** A connection profile may have
   zero or more `GraphProfile` rows per database — one per named graph
   the user activates. The `(workspace_id, connection_profile_id,
@@ -1228,6 +1241,23 @@ older requirement, this section wins.
 
   The classifier is deterministic, runs in the analyzer, and is
   user-overridable; an audit event records every override.
+- **FR-67b (Active graph profile):** A workspace pins at most one
+  `GraphProfile` as current, and the workbench renders that one. Setting it MUST
+  be idempotent and clearable (null returns the workspace to no explicit
+  selection, falling back to the most recently updated profile), and MUST emit
+  an audit event naming the previous and new profile. The selector MUST offer
+  every profile discovered on the workspace's connection profiles, including the
+  synthetic database-scope `default` covering all collections, so a user can
+  change scope without creating a new workspace. Because connection profiles are
+  workspace-scoped, adding one does NOT change what is rendered until the active
+  profile is changed — the UI MUST make the active profile visible rather than
+  implying the newest connection is in use.
+  *(Implemented: `ProductService.set_active_graph_profile`,
+  `graph_analytics_ai/product/service.py:765`; selector rendered at
+  `frontend/src/components/workspace/WorkspaceShell.tsx:1598`. The final clause
+  is written from an observed support question: a second connection profile was
+  added and the UI was reported as "staying on" the first graph, which is this
+  requirement working as designed.)*
 - **FR-68 (Workspace GraphSet):** A new workspace-level entity
   `GraphSet` records which `GraphProfile`s belong together and how they
   link. Required fields: `graph_set_id`, `workspace_id`,
@@ -1451,16 +1481,22 @@ older requirement, this section wins.
   rather than silently doing nothing. Where an outcome cannot be determined,
   the ambiguous case MUST resolve to the reading that is safe to act on: an
   unconfirmed deletion reports as *not* deleted, an unconfirmed success as
-  *not* succeeded. *(Five instances motivated this: GAE cleanup stamping
+  *not* succeeded. *(Six instances motivated this: GAE cleanup stamping
   `CLEANING_UP` over `FAILED` so ten reports claimed completion with zero
   results (`gae_orchestrator.py`, `ai/execution/executor.py`); "Delete Run",
-  which hides a row locally while claiming an irreversible action (still
-  open); demo fixtures left in place when a workspace failed to load, so a
-  live connection profile appeared deleted; FR-37's `artifact_refs` written
-  only by tests, so every step reported "Artifacts: 0"; and
-  `sweep_orphan_runs` catching AttributeError and returning `[]` on every
-  startup because `list_workflow_runs_by_status` did not exist — runs left
-  RUNNING by a dead process stayed RUNNING forever.)*
+  which hid a row locally while claiming an irreversible action (closed:
+  `delete_workflow_run`, `graph_analytics_ai/product/service.py:1070`, wired
+  through `frontend/src/components/workspace/useWorkspaceData.ts:760`); demo
+  fixtures left in place when a workspace failed to load, so a live connection
+  profile appeared deleted; FR-37's `artifact_refs` written only by tests, so
+  every step reported "Artifacts: 0"; `sweep_orphan_runs` catching
+  AttributeError and returning `[]` on every startup because
+  `list_workflow_runs_by_status` did not exist — runs left RUNNING by a dead
+  process stayed RUNNING forever; and GAE result rows carrying identifiers with
+  no entity names, so reports described distributions without naming them and an
+  LLM filled the gap by citing sectors the graph does not contain (closed:
+  `AnalysisExecutor._attach_source_attributes`,
+  `graph_analytics_ai/ai/execution/executor.py:494`).)*
 - **NFR-20 (Identifiable build):** A running instance MUST report which build it
   is, from a single source. The version exposed by `/openapi.json` and
   `/healthz` MUST derive from the package `__version__` — never a literal — and

@@ -777,8 +777,9 @@ export function useWorkspaceData({
     }
     await apiClient.deleteConnectionProfile(connectionProfileId);
     // Refresh so the Assets panel reflects the removal; the profile is gone
-    // server-side, and hiding it client-side only would repeat the mistake the
-    // "Delete Run" action makes.
+    // server-side, and hiding it client-side only would claim an effect that
+    // did not happen (NFR-19). "Delete Run" once had that defect and no longer
+    // does -- it deletes server-side via deleteWorkflowRun.
     await refreshOverview();
   };
 
