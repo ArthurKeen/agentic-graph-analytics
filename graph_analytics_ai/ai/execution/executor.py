@@ -475,16 +475,110 @@ class AnalysisExecutor:
                     f"groups={effective_selection.groups}, per_group={effective_selection.per_group})"
                 )
 
+            enriched = self._attach_source_attributes(db, results)
+
             print(
                 f"✓ Collected {len(results)} results from {job.result_collection} "
                 f"(selection={selection_desc})"
             )
-            return results
+            return enriched
 
         except Exception as e:
             # Log error but don't fail
             print(f"Warning: Could not collect results: {e}")
             return []
+
+    # Attributes tried, in order, as a human-readable label for a vertex.
+    _LABEL_ATTRIBUTES = ("name", "title", "label", "display_name", "displayName")
+
+    def _attach_source_attributes(
+        self, db: Any, results: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Resolve each result row back to its source vertex's name and type (NFR-19).
+
+        GAE result rows carry only identifiers -- ``{"id": "Node/ab12", "rank":
+        0.0016}`` -- so a report built from them can describe the shape of a
+        distribution but never say what is in it. A FinReflectKG PageRank report
+        read "the top-ranked node (0.00157) is 6.9x more influential than the
+        10th", when the top two were `net income` and `revenue`. Worse, the
+        missing names invited invention: one insight attributed the result to
+        "multiple GICS sectors", a dimension absent from the graph entirely —
+        which is NFR-19's case exactly, a product reporting what it did not
+        establish. Names are what let a report cite evidence instead of inferring.
+
+        Community/component fields hold a representative vertex id too, so those
+        are resolved as well -- a component is far more legible as "anchored on
+        net income" than as `Node/e5f41aa9`.
+
+        Best-effort by construction: unresolvable ids are left alone and any
+        failure returns the rows untouched, because losing names degrades a
+        report while losing results destroys it.
+        """
+        if not results:
+            return results
+
+        def _looks_like_id(value: Any) -> bool:
+            return isinstance(value, str) and value.count("/") == 1 and len(value) < 256
+
+        wanted: set = set()
+        for row in results:
+            for key, value in row.items():
+                if key.startswith("_"):
+                    continue
+                if _looks_like_id(value):
+                    wanted.add(value)
+        if not wanted:
+            return results
+
+        try:
+            cursor = db.aql.execute(
+                """
+                FOR id IN @ids
+                    LET d = DOCUMENT(id)
+                    FILTER d != null
+                    RETURN {id: id, doc: d}
+                """,
+                bind_vars={"ids": sorted(wanted)},
+            )
+            resolved = {r["id"]: r["doc"] for r in cursor}
+        except Exception as exc:  # noqa: BLE001 - enrichment must never fail collection
+            print(f"Warning: could not resolve source attributes: {exc}")
+            return results
+
+        if not resolved:
+            return results
+
+        def _label_of(doc: Dict[str, Any]) -> Optional[str]:
+            for attr in self._LABEL_ATTRIBUTES:
+                value = doc.get(attr)
+                if isinstance(value, str) and value.strip():
+                    return value
+            return None
+
+        enriched: List[Dict[str, Any]] = []
+        for row in results:
+            new_row = dict(row)
+            for key, value in row.items():
+                if key.startswith("_") or not _looks_like_id(value):
+                    continue
+                doc = resolved.get(value)
+                if not doc:
+                    continue
+                label = _label_of(doc)
+                # `id` is the row's own subject: name it plainly so a report can
+                # say "net income" rather than "the id field of the top row".
+                prefix = "source" if key == "id" else key
+                if label:
+                    new_row[f"{prefix}_name"] = label
+                doc_type = doc.get("type")
+                if isinstance(doc_type, str) and doc_type.strip():
+                    new_row[f"{prefix}_type"] = doc_type
+            enriched.append(new_row)
+
+        named = sum(1 for r in enriched if "source_name" in r)
+        if named:
+            print(f"  resolved names for {named}/{len(enriched)} result rows")
+        return enriched
 
     def _track_execution(
         self,

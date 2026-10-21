@@ -2,7 +2,7 @@
 
 ## Overview
 
-The platform currently supports **5 major industry verticals** with specialized analysis prompts and pattern detectors:
+The platform currently supports **6 major industry verticals** with specialized analysis prompts and pattern detectors:
 
 ---
 
@@ -160,7 +160,52 @@ The platform currently supports **5 major industry verticals** with specialized 
 
 ---
 
-## 5. 🔧 Generic / Default
+## 5. 📑 Corporate Disclosure / SEC Filings
+
+**Industry Keys:** `corporate_disclosure`, `finreflect`, `sec_filings`, `disclosure`
+
+### Domain Focus:
+- Aggregate intelligence from mandatory corporate disclosure
+- Knowledge graphs extracted from 10-K SEC filings
+- Systemic and shared-exposure risk, measured across filings rather than within one
+
+### Key Entities:
+- **Nodes:** Organizations, financial metrics, risk factors, regulatory requirements,
+  accounting policies, macro conditions, geographies, raw materials, products, segments
+- **Edges:** `discloses`, `depends_on`, `subject_to`, `operates_in`,
+  `negatively_impacts` / `positively_impacts`, `has_stake_in`, `competes_with`
+
+### Business Use Cases:
+- Disclosure salience — which concepts dominate across the whole index
+- Corporate ecosystem influence, independent of market capitalization
+- Shared exposures that transmit shocks between unrelated firms
+- A risk taxonomy derived from evidence rather than from GICS
+- Disclosure drift across years
+- Extraction quality, since the graph is LLM-derived
+
+### Pattern Detection:
+- **Salience:** concepts disclosed by many firms independently
+- **Chokepoints:** high betweenness with low salience — structurally critical,
+  rarely discussed
+- **Cross-sector communities:** co-disclosure clusters spanning several sectors
+- **Feedback loops:** cycles in dependency and impact edges
+- **Extraction artifacts:** reciprocal duplicate pairs, long-tail near-duplicate types
+
+### Metrics:
+- Disclosure rank, ecosystem rank, bridge centrality
+- Dominant-component share as a corpus-coherence gate
+- Rank movement year over year
+
+### Topology Note:
+The graph is a **star radiating from `ORG`** — filing companies are a small
+fraction of vertices but the source of nearly every edge. Whole-graph PageRank
+therefore ranks *concepts* correctly and *companies* near the bottom; ranking
+companies requires an explicit `ORG`→`ORG` projection. The prompt is primed for
+this so out-degree is not misread as importance.
+
+---
+
+## 6. 🔧 Generic / Default
 
 **Industry Keys:** `generic`, `default`
 
@@ -191,6 +236,7 @@ The platform currently supports **5 major industry verticals** with specialized 
 | **FinTech** | `fintech` | `financial_services`, `banking` | ✅ Production |
 | **Fraud Intelligence** | `fraud_intelligence` | `fraud`, `aml`, `indian_banking` | ✅ Production |
 | **Social Networks** | `social` | `social_network`, `community` | ✅ Production |
+| **Corporate Disclosure** | `corporate_disclosure` | `finreflect`, `sec_filings`, `disclosure` | ✅ Production |
 | **Generic** | `generic` | `default` | ✅ Production |
 
 ---
