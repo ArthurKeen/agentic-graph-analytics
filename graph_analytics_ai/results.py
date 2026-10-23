@@ -70,7 +70,16 @@ def ensure_result_collection_indexes(
             else:
                 # Create index on 'id' field
                 index_name = f"idx_{coll_name}_id"
-                coll.add_persistent_index(fields=["id"], unique=False, name=index_name)
+                # add_persistent_index is deprecated in python-arango 8 in
+                # favour of add_index; see graph_analytics_ai/arango_index.py.
+                coll.add_index(
+                    {
+                        "type": "persistent",
+                        "fields": ["id"],
+                        "unique": False,
+                        "name": index_name,
+                    }
+                )
                 if verbose:
                     logger.info(f"{coll_name}: Created index on 'id' field")
                 indexes_created += 1

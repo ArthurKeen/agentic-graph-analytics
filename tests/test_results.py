@@ -35,7 +35,7 @@ class TestEnsureResultCollectionIndexes:
         assert result["created"] == 1
         assert result["existing"] == 0
         assert result["missing"] == 0
-        mock_coll.add_persistent_index.assert_called_once()
+        mock_coll.add_index.assert_called_once()
 
     def test_index_already_exists(self):
         """Test when index already exists."""
@@ -56,7 +56,7 @@ class TestEnsureResultCollectionIndexes:
         assert result["created"] == 0
         assert result["existing"] == 1
         assert result["missing"] == 0
-        mock_coll.add_persistent_index.assert_not_called()
+        mock_coll.add_index.assert_not_called()
 
     def test_collection_missing(self):
         """Test when collection doesn't exist."""

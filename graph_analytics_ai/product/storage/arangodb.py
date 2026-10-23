@@ -6,6 +6,8 @@ from threading import Lock
 from typing import Any, Dict, List, Optional
 
 from arango.database import StandardDatabase
+
+from ...arango_index import IndexSpec, ensure_persistent_indexes
 from arango.exceptions import DocumentGetError, DocumentInsertError, DocumentUpdateError
 
 from ..constants import (
@@ -128,122 +130,84 @@ class ProductArangoStorage:
             collection.insert(doc)
 
     def _create_indexes(self) -> None:
-        """Create indexes used by dashboard and API queries."""
+        """Create indexes used by dashboard and API queries (NFR-12).
 
-        try:
-            self.db.collection(WORKSPACES_COLLECTION).add_hash_index(
-                fields=["status"], unique=False
-            )
-            self.db.collection(WORKSPACES_COLLECTION).add_skiplist_index(
-                fields=["created_at"], unique=False
-            )
+        Declared as data rather than 50 imperative calls so the set is
+        reviewable at a glance and testable without a database. Every index is
+        persistent: `add_hash_index`/`add_skiplist_index` were removed in
+        python-arango 8, and a persistent index serves both the equality
+        lookups hash provided and the range/sort access skiplist provided.
+        """
 
-            connections = self.db.collection(CONNECTION_PROFILES_COLLECTION)
-            connections.add_hash_index(fields=["workspace_id"], unique=False)
-            connections.add_hash_index(fields=["workspace_id", "name"], unique=False)
-            connections.add_hash_index(
-                fields=["last_verification_status"], unique=False
-            )
+        workspace_scoped = [
+            GRAPH_PROFILES_COLLECTION,
+            COLLECTION_ROLES_COLLECTION,
+            DOCUMENTS_COLLECTION,
+            REQUIREMENT_INTERVIEWS_COLLECTION,
+            REQUIREMENT_VERSIONS_COLLECTION,
+            WORKFLOW_RUNS_COLLECTION,
+            REPORT_MANIFESTS_COLLECTION,
+            REPORT_SECTIONS_COLLECTION,
+            CHART_SPECS_COLLECTION,
+            PUBLISHED_SNAPSHOTS_COLLECTION,
+            AUDIT_EVENTS_COLLECTION,
+            ANALYSIS_EXECUTIONS_COLLECTION,
+            ANALYSIS_EPOCHS_COLLECTION,
+            USE_CASES_COLLECTION,
+            ANALYSIS_TEMPLATES_COLLECTION,
+            RETENTION_POLICIES_COLLECTION,
+        ]
 
-            for collection_name in [
-                GRAPH_PROFILES_COLLECTION,
-                COLLECTION_ROLES_COLLECTION,
-                DOCUMENTS_COLLECTION,
-                REQUIREMENT_INTERVIEWS_COLLECTION,
-                REQUIREMENT_VERSIONS_COLLECTION,
-                WORKFLOW_RUNS_COLLECTION,
-                REPORT_MANIFESTS_COLLECTION,
-                REPORT_SECTIONS_COLLECTION,
-                CHART_SPECS_COLLECTION,
-                PUBLISHED_SNAPSHOTS_COLLECTION,
-                AUDIT_EVENTS_COLLECTION,
-                ANALYSIS_EXECUTIONS_COLLECTION,
-                ANALYSIS_EPOCHS_COLLECTION,
-                USE_CASES_COLLECTION,
-                ANALYSIS_TEMPLATES_COLLECTION,
-                RETENTION_POLICIES_COLLECTION,
-            ]:
-                collection = self.db.collection(collection_name)
-                collection.add_hash_index(fields=["workspace_id"], unique=False)
+        specs = [IndexSpec(name, ["workspace_id"]) for name in workspace_scoped]
+        specs += [
+            IndexSpec(WORKSPACES_COLLECTION, ["status"]),
+            IndexSpec(WORKSPACES_COLLECTION, ["created_at"]),
+            IndexSpec(CONNECTION_PROFILES_COLLECTION, ["workspace_id"]),
+            IndexSpec(CONNECTION_PROFILES_COLLECTION, ["workspace_id", "name"]),
+            IndexSpec(CONNECTION_PROFILES_COLLECTION, ["last_verification_status"]),
+            IndexSpec(DOCUMENTS_COLLECTION, ["workspace_id", "sha256"]),
+            IndexSpec(REQUIREMENT_INTERVIEWS_COLLECTION, ["graph_profile_id"]),
+            IndexSpec(REQUIREMENT_VERSIONS_COLLECTION, ["analysis_requirements_id"]),
+            IndexSpec(WORKFLOW_RUNS_COLLECTION, ["status"]),
+            IndexSpec(WORKFLOW_RUNS_COLLECTION, ["requirement_version_id"]),
+            IndexSpec(REPORT_MANIFESTS_COLLECTION, ["run_id"]),
+            IndexSpec(REPORT_SECTIONS_COLLECTION, ["report_id"]),
+            IndexSpec(CHART_SPECS_COLLECTION, ["report_id"]),
+            IndexSpec(PUBLISHED_SNAPSHOTS_COLLECTION, ["report_id"]),
+            IndexSpec(AUDIT_EVENTS_COLLECTION, ["timestamp"]),
+            # FR-25: template version chains resolve by lineage_id; use cases
+            # are filtered by status in the review queue.
+            IndexSpec(ANALYSIS_TEMPLATES_COLLECTION, ["lineage_id"]),
+            IndexSpec(ANALYSIS_TEMPLATES_COLLECTION, ["use_case_id"]),
+            IndexSpec(USE_CASES_COLLECTION, ["workspace_id", "status"]),
+            # PRD v0.6: cache_key is the SchemaCache lookup field used by every
+            # acquire_schema call. Non-unique because
+            # (workspace_id, database, graph_name) -> cache_key is deterministic
+            # but a workspace-clone flow could legally produce two rows for the
+            # same logical key during the transition. Lookups select the most
+            # recent by updated_at, so duplicates are tolerated, not enforced.
+            IndexSpec(SCHEMA_SNAPSHOTS_COLLECTION, ["cache_key"]),
+            IndexSpec(SCHEMA_SNAPSHOTS_COLLECTION, ["workspace_id", "database"]),
+            IndexSpec(SCHEMA_SNAPSHOTS_COLLECTION, ["schema_kind"]),
+            # PRD v0.6 / FR-68: a workspace can host many graph sets, but the
+            # workbench often filters by name. Non-unique on name -- the
+            # workspace UI deduplicates client-side.
+            IndexSpec(GRAPH_SETS_COLLECTION, ["workspace_id"]),
+            IndexSpec(GRAPH_SETS_COLLECTION, ["workspace_id", "name"]),
+            IndexSpec(ANALYSIS_EXECUTIONS_COLLECTION, ["run_id"]),
+            IndexSpec(ANALYSIS_EXECUTIONS_COLLECTION, ["epoch_id"]),
+            IndexSpec(ANALYSIS_EXECUTIONS_COLLECTION, ["workspace_id", "algorithm"]),
+            IndexSpec(ANALYSIS_EXECUTIONS_COLLECTION, ["workspace_id", "status"]),
+            IndexSpec(ANALYSIS_EXECUTIONS_COLLECTION, ["graph_profile_id"]),
+            IndexSpec(ANALYSIS_EXECUTIONS_COLLECTION, ["started_at"]),
+            IndexSpec(ANALYSIS_EPOCHS_COLLECTION, ["workspace_id", "name"]),
+            IndexSpec(ANALYSIS_EPOCHS_COLLECTION, ["workspace_id", "status"]),
+            IndexSpec(ANALYSIS_EPOCHS_COLLECTION, ["timestamp"]),
+        ]
 
-            self.db.collection(DOCUMENTS_COLLECTION).add_hash_index(
-                fields=["workspace_id", "sha256"], unique=False
-            )
-            self.db.collection(REQUIREMENT_INTERVIEWS_COLLECTION).add_hash_index(
-                fields=["graph_profile_id"], unique=False
-            )
-            self.db.collection(REQUIREMENT_VERSIONS_COLLECTION).add_hash_index(
-                fields=["analysis_requirements_id"], unique=False
-            )
-            self.db.collection(WORKFLOW_RUNS_COLLECTION).add_hash_index(
-                fields=["status"], unique=False
-            )
-            self.db.collection(WORKFLOW_RUNS_COLLECTION).add_hash_index(
-                fields=["requirement_version_id"], unique=False
-            )
-            self.db.collection(REPORT_MANIFESTS_COLLECTION).add_hash_index(
-                fields=["run_id"], unique=False
-            )
-            self.db.collection(REPORT_SECTIONS_COLLECTION).add_hash_index(
-                fields=["report_id"], unique=False
-            )
-            self.db.collection(CHART_SPECS_COLLECTION).add_hash_index(
-                fields=["report_id"], unique=False
-            )
-            self.db.collection(PUBLISHED_SNAPSHOTS_COLLECTION).add_hash_index(
-                fields=["report_id"], unique=False
-            )
-            self.db.collection(AUDIT_EVENTS_COLLECTION).add_skiplist_index(
-                fields=["timestamp"], unique=False
-            )
-            # FR-25: template version chains are resolved by lineage_id, and
-            # use cases are filtered by status in the review queue.
-            self.db.collection(ANALYSIS_TEMPLATES_COLLECTION).add_hash_index(
-                fields=["lineage_id"], unique=False
-            )
-            self.db.collection(ANALYSIS_TEMPLATES_COLLECTION).add_hash_index(
-                fields=["use_case_id"], unique=False
-            )
-            self.db.collection(USE_CASES_COLLECTION).add_hash_index(
-                fields=["workspace_id", "status"], unique=False
-            )
-            # PRD v0.6: cache_key is the SchemaCache lookup field used
-            # by every acquire_schema call. Hash index is non-unique
-            # because (workspace_id, database, graph_name) → cache_key
-            # is deterministic but a workspace-clone flow could legally
-            # produce two rows for the same logical key during the
-            # transition. Lookups always select the most recent by
-            # ``updated_at`` so duplicates are tolerated, not enforced.
-            schema_snapshots = self.db.collection(SCHEMA_SNAPSHOTS_COLLECTION)
-            schema_snapshots.add_hash_index(fields=["cache_key"], unique=False)
-            schema_snapshots.add_hash_index(
-                fields=["workspace_id", "database"], unique=False
-            )
-            schema_snapshots.add_hash_index(fields=["schema_kind"], unique=False)
-            # PRD v0.6 / FR-68: graph sets indexed by workspace_id and
-            # name (a workspace can host many sets, but the workbench
-            # often filters by name). Hash index, non-unique on name —
-            # the workspace UI deduplicates client-side.
-            graph_sets = self.db.collection(GRAPH_SETS_COLLECTION)
-            graph_sets.add_hash_index(fields=["workspace_id"], unique=False)
-            graph_sets.add_hash_index(fields=["workspace_id", "name"], unique=False)
-
-            executions = self.db.collection(ANALYSIS_EXECUTIONS_COLLECTION)
-            executions.add_hash_index(fields=["run_id"], unique=False)
-            executions.add_hash_index(fields=["epoch_id"], unique=False)
-            executions.add_hash_index(
-                fields=["workspace_id", "algorithm"], unique=False
-            )
-            executions.add_hash_index(fields=["workspace_id", "status"], unique=False)
-            executions.add_hash_index(fields=["graph_profile_id"], unique=False)
-            executions.add_skiplist_index(fields=["started_at"], unique=False)
-
-            epochs = self.db.collection(ANALYSIS_EPOCHS_COLLECTION)
-            epochs.add_hash_index(fields=["workspace_id", "name"], unique=False)
-            epochs.add_hash_index(fields=["workspace_id", "status"], unique=False)
-            epochs.add_skiplist_index(fields=["timestamp"], unique=False)
-        except Exception as exc:
-            logger.warning("Failed to create some product indexes: %s", exc)
+        ensure_persistent_indexes(
+            self.db, specs, logger=logger, context="product indexes"
+        )
 
     # --- Workspace operations ---
 

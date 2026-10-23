@@ -12,6 +12,8 @@ from threading import Lock
 from typing import Dict, List, Optional, Any
 
 from arango.database import StandardDatabase
+
+from ...arango_index import IndexSpec, ensure_persistent_indexes
 from arango.exceptions import DocumentInsertError, DocumentGetError, DocumentUpdateError
 
 from .base import StorageBackend
@@ -132,53 +134,37 @@ class ArangoDBStorage(StorageBackend):
             raise StorageError(f"Failed to initialize collections: {e}") from e
 
     def _create_indexes(self) -> None:
-        """Create indexes for efficient queries."""
-        try:
-            executions = self.db.collection(self.EXECUTIONS_COLLECTION)
-
+        """Create indexes for efficient queries (NFR-12)."""
+        specs = [
             # Timestamp for time-series queries
-            executions.add_skiplist_index(fields=["timestamp"], unique=False)
-
-            # Algorithm and epoch for filtering
-            executions.add_hash_index(fields=["algorithm"], unique=False)
-            executions.add_hash_index(fields=["epoch_id"], unique=False)
-            executions.add_hash_index(fields=["status"], unique=False)
-
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["timestamp"]),
+            # Algorithm, epoch and status for filtering
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["algorithm"]),
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["epoch_id"]),
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["status"]),
             # Lineage foreign keys
-            executions.add_hash_index(fields=["requirements_id"], unique=False)
-            executions.add_hash_index(fields=["use_case_id"], unique=False)
-            executions.add_hash_index(fields=["template_id"], unique=False)
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["requirements_id"]),
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["use_case_id"]),
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["template_id"]),
+            # Composite for the common query pattern
+            IndexSpec(self.EXECUTIONS_COLLECTION, ["algorithm", "timestamp"]),
+            # Epochs. The unique index on name is the only thing enforcing
+            # epoch-name uniqueness, so losing it is a correctness problem
+            # rather than a slow query.
+            IndexSpec(self.EPOCHS_COLLECTION, ["name"], unique=True),
+            IndexSpec(self.EPOCHS_COLLECTION, ["timestamp"]),
+            IndexSpec(self.EPOCHS_COLLECTION, ["status"]),
+            IndexSpec(self.REQUIREMENTS_COLLECTION, ["epoch_id"]),
+            IndexSpec(self.USE_CASES_COLLECTION, ["requirements_id"]),
+            IndexSpec(self.USE_CASES_COLLECTION, ["epoch_id"]),
+            IndexSpec(self.TEMPLATES_COLLECTION, ["use_case_id"]),
+            IndexSpec(self.TEMPLATES_COLLECTION, ["requirements_id"]),
+            IndexSpec(self.TEMPLATES_COLLECTION, ["epoch_id"]),
+        ]
 
-            # Composite index for common query patterns
-            executions.add_skiplist_index(
-                fields=["algorithm", "timestamp"], unique=False
-            )
-
-            # Epochs
-            epochs = self.db.collection(self.EPOCHS_COLLECTION)
-            epochs.add_hash_index(fields=["name"], unique=True)  # Unique names
-            epochs.add_skiplist_index(fields=["timestamp"], unique=False)
-            epochs.add_hash_index(fields=["status"], unique=False)
-
-            # Requirements
-            requirements = self.db.collection(self.REQUIREMENTS_COLLECTION)
-            requirements.add_hash_index(fields=["epoch_id"], unique=False)
-
-            # Use Cases
-            use_cases = self.db.collection(self.USE_CASES_COLLECTION)
-            use_cases.add_hash_index(fields=["requirements_id"], unique=False)
-            use_cases.add_hash_index(fields=["epoch_id"], unique=False)
-
-            # Templates
-            templates = self.db.collection(self.TEMPLATES_COLLECTION)
-            templates.add_hash_index(fields=["use_case_id"], unique=False)
-            templates.add_hash_index(fields=["requirements_id"], unique=False)
-            templates.add_hash_index(fields=["epoch_id"], unique=False)
-
-            logger.info("Created indexes for catalog collections")
-
-        except Exception as e:
-            logger.warning(f"Failed to create some indexes: {e}")
+        ensure_persistent_indexes(
+            self.db, specs, logger=logger, context="catalog indexes"
+        )
 
     def _create_graph(self) -> None:
         """
