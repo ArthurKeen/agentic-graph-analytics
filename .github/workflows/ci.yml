@@ -16,6 +16,21 @@ jobs:
       ARANGO_USERNAME: "root"
       ARANGO_PASSWORD: "test_password"
       ARANGO_DB_NAME: "test_db"
+      # Real server for the database-backed storage suites. Deliberately NOT
+      # port 8529, so the dummy endpoint above stays unreachable as before.
+      ARANGO_TEST_URL: "http://127.0.0.1:18529"
+      ARANGO_TEST_USERNAME: "root"
+      ARANGO_TEST_PASSWORD: "test"
+      ARANGO_TEST_DB: "aga_test"
+
+    services:
+      arangodb:
+        image: arangodb:3.12.11
+        env:
+          ARANGO_ROOT_PASSWORD: "test"
+        ports:
+          - 18529:8529
+
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -42,6 +57,34 @@ jobs:
         pip install -e .
         pip install -r requirements-dev.txt
     
+    - name: Wait for ArangoDB
+      run: |
+        for _ in $(seq 1 60); do
+          curl -fsS -u root:test "$ARANGO_TEST_URL/_api/version" >/dev/null && break
+          sleep 2
+        done
+        curl -fsS -u root:test "$ARANGO_TEST_URL/_api/version"
+        curl -fsS -u root:test -X POST "$ARANGO_TEST_URL/_api/database" \
+          -H 'Content-Type: application/json' \
+          -d "{\"name\": \"$ARANGO_TEST_DB\"}"
+
+    - name: Run database-backed storage tests
+      # These suites skip themselves when ARANGO_TEST_URL is unset, which is
+      # how they sat unexecuted while the index-creation regression (#25) went
+      # unnoticed. The guard below fails the build if they ever skip again.
+      run: |
+        pytest tests/catalog/test_storage.py tests/product/test_storage.py \
+          -q --junitxml=db-tests.xml
+        python - <<'GUARD'
+        import sys, xml.etree.ElementTree as ET
+        root = ET.parse("db-tests.xml").getroot()
+        suite = root.find("testsuite") if root.tag == "testsuites" else root
+        ran = int(suite.get("tests", 0)) - int(suite.get("skipped", 0))
+        if ran < 20:
+            sys.exit(f"database-backed tests did not run: only {ran} executed")
+        print(f"{ran} database-backed tests executed")
+        GUARD
+
     - name: Run tests with coverage
       run: |
         pytest --cov=graph_analytics_ai --cov-report=term-missing --cov-report=xml

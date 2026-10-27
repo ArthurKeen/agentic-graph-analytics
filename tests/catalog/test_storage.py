@@ -75,6 +75,24 @@ class TestArangoDBStorage:
         """Test collection initialization."""
         storage = ArangoDBStorage(arango_db, auto_initialize=False)
 
+        # Cold start. reset() truncates rather than drops, so without this the
+        # index assertions below would pass on indexes left by an earlier run.
+        # The vertex collections belong to the catalog graph, so the graph goes
+        # first or the drop is refused.
+        if arango_db.has_graph(storage.CATALOG_GRAPH_NAME):
+            arango_db.delete_graph(storage.CATALOG_GRAPH_NAME)
+        for collection_name in (
+            storage.EXECUTIONS_COLLECTION,
+            storage.EPOCHS_COLLECTION,
+            storage.REQUIREMENTS_COLLECTION,
+            storage.USE_CASES_COLLECTION,
+            storage.TEMPLATES_COLLECTION,
+            storage.LINEAGE_EDGES_COLLECTION,
+            storage.EPOCH_EDGES_COLLECTION,
+        ):
+            if arango_db.has_collection(collection_name):
+                arango_db.delete_collection(collection_name)
+
         # Initialize
         storage.initialize_collections()
 
@@ -82,6 +100,25 @@ class TestArangoDBStorage:
         assert arango_db.has_collection(storage.EXECUTIONS_COLLECTION)
         assert arango_db.has_collection(storage.EPOCHS_COLLECTION)
         assert arango_db.has_collection(storage.REQUIREMENTS_COLLECTION)
+
+        # Indexes, not just collections (NFR-12). Issue #25 shipped a storage
+        # backend that created every collection and zero indexes, because the
+        # only assertion here was has_collection().
+        for collection_name, expected in (
+            (storage.EXECUTIONS_COLLECTION, 8),
+            (storage.EPOCHS_COLLECTION, 3),
+            (storage.REQUIREMENTS_COLLECTION, 1),
+            (storage.USE_CASES_COLLECTION, 2),
+            (storage.TEMPLATES_COLLECTION, 3),
+        ):
+            persistent = [
+                index
+                for index in arango_db.collection(collection_name).indexes()
+                if index["type"] == "persistent"
+            ]
+            assert (
+                len(persistent) == expected
+            ), f"{collection_name}: expected {expected} persistent indexes, got {len(persistent)}"
 
         # Safe to call multiple times
         storage.initialize_collections()
