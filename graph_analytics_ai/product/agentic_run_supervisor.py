@@ -34,6 +34,7 @@ Naming notes:
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 import threading
@@ -46,6 +47,28 @@ from ..ai.agents.orchestrator import WorkflowCancelled
 from ..ai.tracing import TraceEvent, TraceEventType
 
 logger = logging.getLogger(__name__)
+
+
+def _accepts_keyword(callable_object: Any, name: str) -> bool:
+    """Whether a callable will accept this keyword argument.
+
+    A callable taking **kwargs accepts anything, which is how the test
+    doubles behave. Signature inspection fails on some builtins and C
+    extensions, and the safe answer there is "no": skipping an optional
+    flag costs a feature, passing an unsupported one costs the run.
+    """
+
+    try:
+        parameters = inspect.signature(callable_object).parameters
+    except (TypeError, ValueError):
+        return False
+
+    if any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        return True
+    return name in parameters
 
 
 # ---------------------------------------------------------------------------
@@ -579,6 +602,20 @@ class AgenticRunSupervisor:
             "max_executions": max_executions,
             "cancel_token": handle.cancel_event,
         }
+
+        # FR-75: an autonomous run has no human brief, so the pipeline plans
+        # its own use cases from the schema. Only passed when asked for, and
+        # only to a runner that declares it, so a runner predating the flag
+        # degrades to an ordinary run instead of raising TypeError.
+        if (run.metadata or {}).get("discovery_mode"):
+            if _accepts_keyword(runner.run, "discovery_mode"):
+                kwargs["discovery_mode"] = True
+            else:
+                logger.warning(
+                    "Runner for %s does not accept discovery_mode; "
+                    "running without autonomous planning",
+                    run.run_id,
+                )
 
         wants_parallel = run.workflow_mode is WorkflowMode.PARALLEL_AGENTIC
         run_async = getattr(runner, "run_async", None)

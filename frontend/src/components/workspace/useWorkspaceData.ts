@@ -27,6 +27,7 @@ import type {
   GraphProfileSummary,
   ProductAPIClient,
   QuickAnalysisInput,
+  AutonomousAnalysisInput,
   RequirementInterview,
   RequirementVersion,
   RequirementsDraftResult,
@@ -231,6 +232,9 @@ interface WorkspaceDataResult extends WorkspaceDataState {
   createWorkflowRun: (input: CreateWorkflowRunInput) => Promise<CreateWorkflowRunResult>;
   /** FR-73: one-shot analysis from a prompt against a graph profile. */
   quickAnalysis: (input: QuickAnalysisInput) => Promise<CreateWorkflowRunResult>;
+  autonomousAnalysis: (
+    input: AutonomousAnalysisInput
+  ) => Promise<CreateWorkflowRunResult>;
   startWorkflowRun: (runId: string) => Promise<WorkflowRunSummary>;
   /** FR-31a: cooperative cancel for an agentic run. */
   cancelWorkflowRun: (runId: string, actor?: string) => Promise<WorkflowRunSummary>;
@@ -1284,6 +1288,45 @@ export function useWorkspaceData({
     return result;
   };
 
+  const autonomousAnalysis = async (
+    input: AutonomousAnalysisInput
+  ): Promise<CreateWorkflowRunResult> => {
+    const workspaceId = effectiveWorkspaceId ?? demoDag.workspaceId;
+    const result = isLive
+      ? await apiClient.autonomousAnalysis(workspaceId, input)
+      : statefulDemoCreateWorkflowRun(workspaceId, {
+          workflowMode: input.workflowMode ?? "agentic",
+          stepLabels: [
+            "Schema Analysis",
+            "Requirements Extraction",
+            "Use Case Generation",
+            "Template Generation",
+            "Execution",
+            "Reporting"
+          ]
+        });
+    const asset: WorkspaceAsset = {
+      id: result.workflowRun.runId,
+      kind: "run",
+      label: `Run ${result.workflowRun.runId}`,
+      description: `Autonomous (${result.workflowRun.status})`
+    };
+    setState((current) => ({
+      ...current,
+      assets: [asset, ...current.assets.filter((item) => item.id !== asset.id)],
+      dagByRunId: {
+        ...current.dagByRunId,
+        [result.workflowRun.runId]: result.dagView
+      },
+      recoveryActionsByRunId: {
+        ...current.recoveryActionsByRunId,
+        [result.workflowRun.runId]: demoRecoveryActions(result.dagView)
+      }
+    }));
+
+    return result;
+  };
+
   const startWorkflowRun = async (runId: string): Promise<WorkflowRunSummary> => {
     const workflowRun = isLive
       ? await apiClient.startWorkflowRun(runId)
@@ -1500,6 +1543,7 @@ export function useWorkspaceData({
     importWorkspaceBundle,
     createWorkflowRun,
     quickAnalysis,
+    autonomousAnalysis,
     startWorkflowRun,
     cancelWorkflowRun,
     getWorkflowRunStatus,

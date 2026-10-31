@@ -42,6 +42,7 @@ export function buildGraphProfileContextMenu({
     },
     {
       id: "delete-graph-profile",
+      danger: true,
       label: "Delete Graph Profile",
       icon: "X",
       onSelect: onDelete

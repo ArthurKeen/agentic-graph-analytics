@@ -50,6 +50,7 @@ export function buildConnectionProfileContextMenu({
     },
     {
       id: "delete-connection-profile",
+      danger: true,
       label: "Delete Connection Profile",
       icon: "X",
       onSelect: onDelete

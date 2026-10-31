@@ -194,7 +194,7 @@ button {
 }
 
 .actions-label {
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--aga-muted);
@@ -231,7 +231,7 @@ button {
 }
 
 .analyze-mode-button .muted {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .asset-section {
@@ -263,7 +263,7 @@ button {
 
 .health-card-header span {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -285,7 +285,7 @@ button {
 
 .health-card li span {
   color: var(--aga-text);
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -333,7 +333,7 @@ button {
 }
 
 .asset-row-main strong { overflow-wrap: anywhere; }
-.asset-row-main .muted { font-size: 12px; overflow-wrap: anywhere; }
+.asset-row-main .muted { font-size: 13px; overflow-wrap: anywhere; }
 
 .asset-row-actions {
   display: flex;
@@ -361,7 +361,7 @@ button {
   border-radius: 6px;
   background: var(--aga-panel-soft);
   color: var(--aga-text);
-  font-size: 11px;
+  font-size: 13px;
   white-space: nowrap;
   padding: 4px 8px;
   cursor: pointer;
@@ -523,7 +523,7 @@ button {
 .agentic-status-panel dt {
   font-weight: 600;
   color: var(--aga-text-muted);
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -547,7 +547,7 @@ button {
 
 .agentic-status-panel__errors {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .agentic-status-panel__errors ul {
@@ -636,7 +636,7 @@ button {
 
 .report-canvas > header span {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -659,7 +659,7 @@ button {
   border-radius: 8px;
   background: var(--aga-panel);
   color: var(--aga-text, inherit);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
@@ -711,7 +711,7 @@ button {
 
 .report-chart span {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -763,7 +763,7 @@ button {
 
 .markdown-view .md-inline-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: 13px;
   background: var(--aga-hover);
   border: 1px solid var(--aga-border);
   border-radius: 4px;
@@ -772,7 +772,7 @@ button {
 
 .markdown-view .md-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: 13px;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid var(--aga-border);
   border-radius: 8px;
@@ -797,7 +797,7 @@ button {
   gap: 12px;
   padding: 8px 14px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid var(--aga-border);
   backdrop-filter: blur(6px);
   box-shadow: var(--aga-shadow);
@@ -806,7 +806,7 @@ button {
 .data-source-banner strong {
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .data-source-banner span {
@@ -851,7 +851,7 @@ button {
 
 .data-source-banner-database {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: 13px;
   background: var(--aga-hover);
   padding: 1px 6px;
   border-radius: 6px;
@@ -864,7 +864,7 @@ button {
   color: inherit;
   border-radius: 999px;
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -932,7 +932,7 @@ button {
 
 .connection-profile-canvas > header span {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -985,7 +985,7 @@ button {
 
 .graph-profile-canvas > header span {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -1056,7 +1056,7 @@ button {
 }
 
 .requirement-version-header-actions > span[data-status] {
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border: 1px solid var(--aga-border);
@@ -1077,7 +1077,7 @@ button {
 }
 
 .requirement-version-history-badge {
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--aga-muted);
@@ -1110,7 +1110,7 @@ button {
 
 .requirement-item-priority {
   display: inline-block;
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   border: 1px solid var(--aga-border);
@@ -1153,7 +1153,7 @@ button {
 
 .source-document-canvas > header span {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -1320,7 +1320,7 @@ button {
 }
 
 .copilot-save-badge {
-  font-size: 11px;
+  font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 8px;
@@ -1422,7 +1422,7 @@ button {
 
 .detail-list dt {
   color: var(--aga-muted);
-  font-size: 12px;
+  font-size: 13px;
   text-transform: uppercase;
 }
 
@@ -1744,7 +1744,7 @@ button {
   border-radius: 999px;
   background: var(--aga-panel-soft);
   color: var(--aga-muted, #9aa5b1);
-  font-size: 11px;
+  font-size: 13px;
   letter-spacing: 0.02em;
   padding: 4px 10px;
   text-transform: none;
@@ -1774,4 +1774,40 @@ button {
   color: var(--aga-accent-strong);
   outline: none;
   text-decoration-thickness: 2px;
+}
+
+/* The selected object's actions, in the canvas header.
+ *
+ * NFR-23: these are the same items the context menu carries. The header
+ * previously held the line "Right-click steps or canvas for actions", which
+ * told the user where the product had hidden them. */
+.object-action-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.object-action {
+  border: 1px solid var(--aga-border);
+  border-radius: 6px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  font-size: 13px;
+  white-space: nowrap;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.object-action:hover,
+.object-action:focus-visible {
+  border-color: var(--aga-accent);
+  color: var(--aga-accent);
+  outline: none;
+}
+
+.object-action[data-danger="true"]:hover,
+.object-action[data-danger="true"]:focus-visible {
+  border-color: var(--aga-danger, #b3261e);
+  color: var(--aga-danger, #b3261e);
 }

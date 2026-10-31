@@ -92,7 +92,7 @@ export function buildCanvasContextMenu({
     items.push({
       id: "upload-document",
       label: "Upload Document",
-      icon: "📄",
+      icon: "doc",
       onSelect: onUploadDocument
     });
   }
@@ -101,19 +101,19 @@ export function buildCanvasContextMenu({
     {
       id: "view-operational",
       label: "View As Operational DAG",
-      icon: "👁",
+      icon: "view",
       onSelect: onViewAsOperational
     },
     {
       id: "fit-all",
       label: "Fit All",
-      icon: "⬜",
+      icon: "fit",
       onSelect: onFitAll
     },
     {
       id: "center-view",
       label: "Center View",
-      icon: "🎯",
+      icon: "center",
       onSelect: onCenterView
     },
     {

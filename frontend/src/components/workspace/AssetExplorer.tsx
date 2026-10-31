@@ -3,13 +3,8 @@
 import { useMemo, useState } from "react";
 
 import type { WorkspaceAsset, WorkspaceHealth } from "@/lib/product-api/types";
-import { buildAssetContextMenu } from "./contextMenus/asset";
-import { buildConnectionProfileContextMenu } from "./contextMenus/connectionProfile";
-import { buildDocumentContextMenu } from "./contextMenus/document";
-import { buildGraphProfileContextMenu } from "./contextMenus/graphProfile";
-import { buildReportContextMenu } from "./contextMenus/report";
-import { buildRequirementsContextMenu } from "./contextMenus/requirements";
-import { buildRunContextMenu } from "./contextMenus/run";
+import { buildAssetMenuItems } from "./contextMenus/forAsset";
+import type { AssetMenuHandlers } from "./contextMenus/forAsset";
 import type { ContextMenuState } from "./contextMenus/types";
 
 /** Sidebar groups, in reading order.
@@ -96,6 +91,9 @@ interface AssetExplorerProps {
   onRequestConnectDatabase: () => void;
   /** Three analysis modes (fast → comprehensive). */
   onRequestQuickAnalysis: () => void;
+  /** FR-75: starts immediately. There is nothing to ask the user for. */
+  onRequestAutonomousAnalysis: () => void;
+  isStartingAutonomousAnalysis?: boolean;
   onRequestGuidedAnalysis: () => void;
   onRequestDetailedAnalysis: () => void;
   /** Whether the workspace has at least one graph profile (gates the three
@@ -129,6 +127,8 @@ export function AssetExplorer({
   onOpenMenu,
   onRequestConnectDatabase,
   onRequestQuickAnalysis,
+  onRequestAutonomousAnalysis,
+  isStartingAutonomousAnalysis = false,
   onRequestGuidedAnalysis,
   onRequestDetailedAnalysis,
   hasGraphProfile,
@@ -174,92 +174,56 @@ export function AssetExplorer({
     onPublishReport: onRequestPublishReport
   };
 
-  /** Full action set, still on right-click. Unchanged behaviour — only the
-   * dispatch moved out of the row so the row could carry its own buttons. */
-  const openContextMenu = (asset: WorkspaceAsset, event: React.MouseEvent) => {
-    event.preventDefault();
-    const openInfo = () => {
+  /** Full action set, still on right-click.
+   *
+   * The items themselves come from buildAssetMenuItems, which the canvas
+   * action bar also renders. One definition, two surfaces (NFR-23).
+   */
+  const assetMenuHandlers: AssetMenuHandlers = {
+    onOpenInCanvas: (asset) => {
+      if (asset.kind === "run") {
+        onOpenRun(asset.id);
+        return;
+      }
+      if (asset.kind === "connection-profile") {
+        onOpenConnectionProfile(asset.id);
+        return;
+      }
+      if (asset.kind === "graph-profile") {
+        onOpenGraphProfile(asset.id);
+        return;
+      }
+      if (asset.kind === "document") {
+        onOpenDocument(asset.id);
+        return;
+      }
+      onSelectAsset(asset);
+    },
+    onViewInfo: (asset) => {
       onSelectAsset(asset);
       onRequestAssetInfo(asset);
-    };
-    const copyId = () => void navigator.clipboard?.writeText(asset.id);
-    const at = { x: event.clientX, y: event.clientY };
+    },
+    onCopyId: (asset) => void navigator.clipboard?.writeText(asset.id),
+    onVerifyConnection: (asset) => onVerifyConnectionProfile(asset.id),
+    onDiscoverGraph: onRequestDiscoverGraph,
+    onDeleteConnectionProfile: onRequestDeleteConnectionProfile,
+    onStartCopilot: onRequestStartRequirementsCopilot,
+    onDeleteGraphProfile: onRequestDeleteGraphProfile,
+    onReopenCopilot: onRequestReopenRequirementsCopilot,
+    onStartRun: onStartRun,
+    onRetryRun: (asset) => onOpenRun(asset.id),
+    onDeleteRun: onRequestDeleteRun,
+    onViewReport: (asset) => onOpenReport(asset.id),
+    onPublishReport: onRequestPublishReport
+  };
 
-    if (asset.kind === "run") {
-      onOpenMenu({
-        ...at,
-        items: buildRunContextMenu({
-          onViewPipeline: () => onOpenRun(asset.id),
-          onCopyRunId: copyId,
-          onStartRun: () => onStartRun(asset),
-          onRetryRun: () => onOpenRun(asset.id),
-          onDeleteRun: () => onRequestDeleteRun(asset)
-        })
-      });
-      return;
-    }
-    if (asset.kind === "connection-profile") {
-      onOpenMenu({
-        ...at,
-        items: buildConnectionProfileContextMenu({
-          onOpenInCanvas: () => onOpenConnectionProfile(asset.id),
-          onVerifyConnection: () => onVerifyConnectionProfile(asset.id),
-          onDiscoverGraph: () => onRequestDiscoverGraph(asset),
-          onViewInfo: openInfo,
-          onCopyId: copyId,
-          onDelete: () => onRequestDeleteConnectionProfile(asset)
-        })
-      });
-      return;
-    }
-    if (asset.kind === "graph-profile") {
-      onOpenMenu({
-        ...at,
-        items: buildGraphProfileContextMenu({
-          onOpenInCanvas: () => onOpenGraphProfile(asset.id),
-          onStartRequirementsCopilot: () => onRequestStartRequirementsCopilot(asset),
-          onViewInfo: openInfo,
-          onCopyId: copyId,
-          onDelete: () => onRequestDeleteGraphProfile(asset)
-        })
-      });
-      return;
-    }
-    if (asset.kind === "document") {
-      onOpenMenu({
-        ...at,
-        items: buildDocumentContextMenu({
-          onOpenInCanvas: () => onOpenDocument(asset.id),
-          onViewInfo: openInfo,
-          onCopyId: copyId
-        })
-      });
-      return;
-    }
-    if (asset.kind === "report") {
-      onOpenMenu({
-        ...at,
-        items: buildReportContextMenu({
-          onViewReport: () => onOpenReport(asset.id),
-          onCopyReportId: copyId,
-          onPublishReport: () => onRequestPublishReport(asset)
-        })
-      });
-      return;
-    }
-    if (asset.kind === "requirements") {
-      onOpenMenu({
-        ...at,
-        items: buildRequirementsContextMenu({
-          onOpenInCanvas: () => onSelectAsset(asset),
-          onReopenCopilot: () => onRequestReopenRequirementsCopilot(asset),
-          onViewInfo: openInfo,
-          onCopyId: copyId
-        })
-      });
-      return;
-    }
-    onOpenMenu({ ...at, items: buildAssetContextMenu({ onViewInfo: openInfo, onCopyId: copyId }) });
+  const openContextMenu = (asset: WorkspaceAsset, event: React.MouseEvent) => {
+    event.preventDefault();
+    onOpenMenu({
+      x: event.clientX,
+      y: event.clientY,
+      items: buildAssetMenuItems(asset, assetMenuHandlers)
+    });
   };
 
   return (
@@ -305,10 +269,28 @@ export function AssetExplorer({
         <button
           type="button"
           className="analyze-mode-button"
+          disabled={!hasGraphProfile || isStartingAutonomousAnalysis}
+          title={
+            hasGraphProfile
+              ? "Reads the schema, picks the analyses, writes the reports"
+              : "Connect to a database and discover a graph first"
+          }
+          onClick={onRequestAutonomousAnalysis}
+        >
+          <strong>
+            {isStartingAutonomousAnalysis ? "Starting" : "Autonomous Analysis"}
+          </strong>
+          <span className="muted">
+            No input. The system decides what to analyze.
+          </span>
+        </button>
+        <button
+          type="button"
+          className="analyze-mode-button"
           disabled={!hasGraphProfile}
           title={
             hasGraphProfile
-              ? "Ask one question in plain English, get one report — no approvals"
+              ? "Ask one question in plain English, get one report, no approvals"
               : "Connect to a database and discover a graph first"
           }
           onClick={onRequestQuickAnalysis}

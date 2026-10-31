@@ -25,7 +25,7 @@ export function buildRunContextMenu({
     {
       id: "copy-run-id",
       label: "Copy Run ID",
-      icon: "📋",
+      icon: "copy",
       onSelect: onCopyRunId
     },
     {
@@ -37,13 +37,13 @@ export function buildRunContextMenu({
     {
       id: "retry-run",
       label: "Retry",
-      icon: "🔄",
+      icon: "retry",
       onSelect: onRetryRun
     },
     {
       id: "delete-run",
       label: "Delete Run",
-      icon: "🗑️",
+      icon: "delete",
       danger: true,
       onSelect: onDeleteRun
     }

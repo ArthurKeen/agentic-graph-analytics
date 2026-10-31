@@ -1508,6 +1508,191 @@ class ProductService:
 
         return self.start_workflow_run(run.run_id, actor=actor)
 
+    def autonomous_analysis(
+        self,
+        workspace_id: str,
+        graph_profile_id: str,
+        workflow_mode: Optional[str] = None,
+        options: Optional[Dict[str, Any]] = None,
+        actor: Optional[str] = None,
+    ) -> WorkflowRun:
+        """FR-75 autonomous analysis: no prompt, no interview.
+
+        Where :meth:`quick_analysis` turns one sentence from the user into a
+        run, this turns the graph itself into one. The brief is built from
+        the profile's observed schema and handed to the agentic pipeline with
+        ``discovery_mode`` set, so the Use Case agent plans the analyses from
+        the graph rather than from requirements nobody wrote.
+
+        The brief matters more than it looks. With no documents at all the
+        Requirements agent falls back to "General graph analytics
+        requirements", and every downstream use case inherits that vagueness.
+        Naming the real entity and relationship types is what keeps the plan
+        specific to this graph.
+
+        Artifacts are ephemeral and tagged ``origin="autonomous"``, so an
+        unattended run does not accumulate in the curated Requirements list
+        (FR-17).
+        """
+
+        self.repository.get_workspace(workspace_id)
+        graph_profile = self.repository.get_graph_profile(graph_profile_id)
+        if graph_profile.workspace_id != workspace_id:
+            raise ValidationError(
+                "graph_profile_id does not belong to the given workspace"
+            )
+
+        requested_mode = workflow_mode or "agentic"
+        if isinstance(requested_mode, WorkflowMode):
+            requested_mode = requested_mode.value
+        if str(requested_mode) not in ("agentic", "parallel_agentic"):
+            raise ValidationError(
+                "autonomous_analysis workflow_mode must be 'agentic' or "
+                "'parallel_agentic'"
+            )
+
+        observations = self._schema_observations_from_graph_profile(graph_profile)
+        brief = self._build_autonomous_brief(graph_profile, observations)
+
+        existing = self.repository.list_requirement_versions(workspace_id)
+        next_version = max((v.version for v in existing), default=0) + 1
+        requirement_version = create_requirement_version(
+            workspace_id=workspace_id,
+            version=next_version,
+            status=RequirementVersionStatus.APPROVED,
+            summary=(
+                f"Autonomous analysis of {graph_profile.graph_name}"
+                if graph_profile.graph_name
+                else "Autonomous analysis"
+            )[:280],
+            approved_at=current_timestamp(),
+            metadata={
+                "source": "autonomous",
+                "origin": "autonomous",
+                "ephemeral": True,
+                "draft_brd": brief,
+                "schema_observations": observations,
+            },
+        )
+        self.repository.create_requirement_version(requirement_version)
+
+        run = self.create_workflow_run_from_steps(
+            workspace_id=workspace_id,
+            workflow_mode=(
+                WorkflowMode.PARALLEL_AGENTIC
+                if str(requested_mode) == "parallel_agentic"
+                else WorkflowMode.AGENTIC
+            ),
+            steps=[],
+            dag_edges=[],
+            requirement_version_id=requirement_version.requirement_version_id,
+            graph_profile_id=graph_profile_id,
+            metadata={
+                "origin": "autonomous",
+                "ephemeral": True,
+                # Read by AgenticRunSupervisor._execute_runner to turn on
+                # schema-driven use case planning.
+                "discovery_mode": True,
+                "requested_mode": str(requested_mode),
+                "options": dict(options or {}),
+            },
+        )
+
+        self.repository.create_audit_event(
+            create_audit_event(
+                workspace_id=workspace_id,
+                actor=actor or "workspace-ui",
+                action="autonomous_analysis",
+                target_type="workflow_run",
+                target_id=run.run_id,
+                metadata={
+                    "graph_profile_id": graph_profile_id,
+                    "requirement_version_id": (
+                        requirement_version.requirement_version_id
+                    ),
+                    "requested_mode": str(requested_mode),
+                },
+            )
+        )
+
+        return self.start_workflow_run(run.run_id, actor=actor)
+
+    def _build_autonomous_brief(
+        self,
+        graph_profile: GraphProfile,
+        observations: Dict[str, Any],
+    ) -> str:
+        """Render the observed schema as a brief the pipeline can act on.
+
+        Deliberately states what is known and what is not. An autonomous run
+        has no business context, and a brief that invents one would send the
+        planner after questions nobody asked.
+        """
+
+        lines: List[str] = [
+            f"- Graph: {observations.get('graph_name', graph_profile.graph_name)}"
+        ]
+        if observations.get("graph_purpose"):
+            lines.append(f"- Stated purpose: {observations['graph_purpose']}")
+
+        entity_types = observations.get("entity_types") or []
+        relationship_types = observations.get("relationship_types") or []
+        if entity_types:
+            lines.append(
+                f"- Entity types ({len(entity_types)}): {', '.join(entity_types)}"
+            )
+        if relationship_types:
+            lines.append(
+                f"- Relationship types ({len(relationship_types)}): "
+                + ", ".join(
+                    f"{rel['type']} ({rel['from']} to {rel['to']})"
+                    for rel in relationship_types
+                )
+            )
+
+        vertex_collections = observations.get("vertex_collections") or []
+        edge_collections = observations.get("edge_collections") or []
+        lines.append(
+            f"- Vertex collections: {', '.join(vertex_collections) or 'None observed'}"
+        )
+        lines.append(
+            f"- Edge collections: {', '.join(edge_collections) or 'None observed'}"
+        )
+        counts = observations.get("counts") or {}
+        if counts:
+            lines.append(f"- Counts: {json.dumps(counts, sort_keys=True)}")
+
+        return "\n".join(
+            [
+                "# Autonomous Analysis Brief",
+                "",
+                "## Origin",
+                "Generated from the graph schema. No business requirements "
+                "were supplied and none should be assumed.",
+                "",
+                "## Observed Graph Schema",
+                *lines,
+                "",
+                "## Business Goal",
+                "Establish what this graph shows: which entities matter most, "
+                "how the graph is connected, and where its structure is "
+                "unusual enough to be worth a person's attention.",
+                "",
+                "## Analytics Questions",
+                "To be decided from the schema and the graph's measured "
+                "shape, using only the algorithms the engine implements.",
+                "",
+                "## Reporting Audience",
+                "Someone who knows the domain but has not seen this analysis. "
+                "Findings must name real entities, not node identifiers.",
+                "",
+                "## Constraints",
+                "No human review before results. Every finding must be "
+                "traceable to an algorithm result on this graph.",
+                "",
+            ]
+        )
+
     @staticmethod
     def is_supervised_agentic_mode(workflow_mode: "WorkflowMode") -> bool:
         """Whether this mode is executed by the AgenticRunSupervisor.

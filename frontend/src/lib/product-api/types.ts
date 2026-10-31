@@ -764,6 +764,12 @@ export interface QuickAnalysisInput {
   workflowMode?: string;
 }
 
+/** FR-75: a graph profile is the whole input. The system writes the brief. */
+export interface AutonomousAnalysisInput {
+  graphProfileId: string;
+  workflowMode?: string;
+}
+
 export interface CreateWorkflowRunResult {
   workflowRun: WorkflowRunSummary;
   dagView: WorkflowDAGView;
@@ -1075,6 +1081,10 @@ export interface ProductAPIClient {
   quickAnalysis(
     workspaceId: string,
     input: QuickAnalysisInput
+  ): Promise<CreateWorkflowRunResult>;
+  autonomousAnalysis(
+    workspaceId: string,
+    input: AutonomousAnalysisInput
   ): Promise<CreateWorkflowRunResult>;
   startWorkflowRun(runId: string): Promise<WorkflowRunSummary>;
   /** FR-31a: cooperative cancel of a running agentic workflow. */
