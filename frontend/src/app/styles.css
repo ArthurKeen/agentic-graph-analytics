@@ -1811,3 +1811,79 @@ button {
   border-color: var(--aga-danger, #b3261e);
   color: var(--aga-danger, #b3261e);
 }
+
+/* Workspace-level actions (FR-1, FR-13).
+ *
+ * Create, upload, edit, archive, export and import were reachable only by
+ * right-clicking empty canvas, which is the one gesture a new user never
+ * tries. The canvas menu still carries them as an accelerator. */
+.workspace-menus {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.workspace-menu {
+  position: relative;
+}
+
+.workspace-menu-trigger {
+  border: 1px solid var(--aga-border);
+  border-radius: 6px;
+  background: var(--aga-panel-soft);
+  color: var(--aga-text);
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.workspace-menu-trigger:hover,
+.workspace-menu-trigger:focus-visible {
+  border-color: var(--aga-accent);
+  color: var(--aga-accent);
+  outline: none;
+}
+
+.workspace-menu-items {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 220px;
+  border: 1px solid var(--aga-border);
+  border-radius: 12px;
+  background: var(--aga-panel);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 35%);
+  padding: 6px;
+}
+
+.workspace-menu-items button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--aga-text);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.workspace-menu-items button:hover,
+.workspace-menu-items button:focus-visible {
+  background: var(--aga-panel-soft);
+  outline: none;
+}
+
+.workspace-menu-items button[data-danger="true"] {
+  color: var(--aga-danger, #b3261e);
+}
+
+/* A rule between groups, so the canvas menu stops reading as one flat list
+ * of twelve unrelated things. */
+.context-menu button[data-group-start="true"] {
+  border-top: 1px solid var(--aga-border);
+  margin-top: 6px;
+  padding-top: 12px;
+}

@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 
 import type { WorkspaceAsset, WorkspaceHealth } from "@/lib/product-api/types";
 import { buildAssetMenuItems } from "./contextMenus/forAsset";
+import { WorkspaceMenuButton } from "./WorkspaceMenuButton";
+import type { ContextMenuItem } from "./contextMenus/types";
 import type { AssetMenuHandlers } from "./contextMenus/forAsset";
 import type { ContextMenuState } from "./contextMenus/types";
 
@@ -91,6 +93,9 @@ interface AssetExplorerProps {
   onRequestConnectDatabase: () => void;
   /** Three analysis modes (fast → comprehensive). */
   onRequestQuickAnalysis: () => void;
+  /** Workspace-level actions (FR-1, FR-13). Built by buildWorkspaceActions
+   * in the shell so the canvas menu and these menus cannot disagree. */
+  workspaceActions: ContextMenuItem[];
   /** FR-75: starts immediately. There is nothing to ask the user for. */
   onRequestAutonomousAnalysis: () => void;
   isStartingAutonomousAnalysis?: boolean;
@@ -127,6 +132,7 @@ export function AssetExplorer({
   onOpenMenu,
   onRequestConnectDatabase,
   onRequestQuickAnalysis,
+  workspaceActions,
   onRequestAutonomousAnalysis,
   isStartingAutonomousAnalysis = false,
   onRequestGuidedAnalysis,
@@ -252,6 +258,17 @@ export function AssetExplorer({
           <h1>Graph Analytics Workspace</h1>
         </div>
       </div>
+
+      <section className="workspace-menus" aria-label="Workspace">
+        <WorkspaceMenuButton
+          label="New"
+          items={workspaceActions.filter((item) => item.group === "create")}
+        />
+        <WorkspaceMenuButton
+          label="Workspace"
+          items={workspaceActions.filter((item) => item.group === "workspace")}
+        />
+      </section>
 
       <section className="setup-actions" aria-label="Setup">
         <span className="actions-label">Setup</span>

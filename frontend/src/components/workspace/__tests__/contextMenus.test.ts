@@ -32,13 +32,44 @@ describe("workspace context menu builders", () => {
       "create-workspace",
       "create-connection-profile",
       "create-workflow-run",
-      "export-workspace",
       "import-workspace",
+      "export-workspace",
       "view-operational",
       "fit-all",
       "center-view",
       "show-help"
     ]);
+  });
+
+  it("keeps each group contiguous", () => {
+    // The sidebar renders the create and workspace groups as two separate
+    // menus, and the context menu draws a rule between groups. Both rely on
+    // items of a group sitting together; interleaving them would split a
+    // menu in two without any test noticing.
+    const items = buildCanvasContextMenu({
+      onCreateWorkspace: noop,
+      onEditWorkspace: noop,
+      onArchiveWorkspace: noop,
+      onCreateConnectionProfile: noop,
+      onCreateWorkflowRun: noop,
+      onExportWorkspace: noop,
+      onImportWorkspace: noop,
+      onUploadDocument: noop,
+      onFitAll: noop,
+      onCenterView: noop,
+      onViewAsOperational: noop,
+      onShowHelp: noop
+    });
+
+    const seen: string[] = [];
+    for (const item of items) {
+      const group = item.group ?? "ungrouped";
+      if (seen[seen.length - 1] !== group) {
+        expect(seen, `group ${group} appears in two blocks`).not.toContain(group);
+        seen.push(group);
+      }
+    }
+    expect(seen).toEqual(["create", "workspace", "view", "help"]);
   });
 
   it("includes Edit and Archive actions when the shell provides handlers", () => {
@@ -63,10 +94,15 @@ describe("workspace context menu builders", () => {
     const ids = items.map((item) => item.id);
     expect(ids).toContain("edit-workspace");
     expect(ids).toContain("archive-workspace");
-    // Edit/archive should appear next to the create-workspace entry so the
-    // workspace lifecycle actions stay visually grouped at the top.
-    expect(ids.indexOf("edit-workspace")).toBe(ids.indexOf("create-workspace") + 1);
-    expect(ids.indexOf("archive-workspace")).toBe(ids.indexOf("edit-workspace") + 1);
+    // Both belong to the workspace group, which the sidebar renders as the
+    // "Workspace" menu. They used to sit beside create-workspace; creating a
+    // workspace and archiving the one you are in are different enough jobs
+    // to belong in different menus.
+    for (const id of ["edit-workspace", "archive-workspace", "export-workspace"]) {
+      expect(items.find((item) => item.id === id)?.group).toBe("workspace");
+    }
+    // Archiving is destructive and must be styled as such on both surfaces.
+    expect(items.find((item) => item.id === "archive-workspace")?.danger).toBe(true);
   });
 
   it("builds generic explorer asset actions", () => {

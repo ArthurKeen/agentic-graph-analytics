@@ -120,12 +120,21 @@ export function ContextMenu({ menu, onClose }: ContextMenuProps) {
       onKeyDown={onKeyDown}
       onContextMenu={(event) => event.preventDefault()}
     >
-      {menu.items.map((item) => (
+      {menu.items.map((item, index) => (
         <button
           key={item.id}
           type="button"
           role="menuitem"
           data-danger={item.danger ? "true" : undefined}
+          // A rule above the first item of each group. The canvas menu mixed
+          // creation, workspace lifecycle, view controls and help as equals.
+          data-group-start={
+            index > 0 &&
+            item.group !== undefined &&
+            item.group !== menu.items[index - 1]?.group
+              ? "true"
+              : undefined
+          }
           onClick={() => {
             item.onSelect();
             onClose();

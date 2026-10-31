@@ -22,6 +22,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
 import { buildAssetMenuItems } from "./contextMenus/forAsset";
+import { buildWorkspaceActions } from "./contextMenus/canvas";
 import type { ContextMenuItem, ContextMenuState } from "./contextMenus/types";
 import type {
   ConnectionVerificationResult,
@@ -627,6 +628,74 @@ export function WorkspaceShell({
     );
   }, [activeGraphProfile, connectionProfileById, overview]);
 
+  // FR-1 / FR-13: the same items the canvas right-click menu carries, so the
+  // sidebar can render them as visible New and Workspace menus.
+  // buildCanvasContextMenu composes buildWorkspaceActions, which is what
+  // keeps the two surfaces from drifting apart.
+  const workspaceActions = useMemo<ContextMenuItem[]>(
+    () =>
+      buildWorkspaceActions({
+        onCreateWorkspace: () => {
+          setCreateWorkspaceErrorMessage(null);
+          setShowCreateWorkspace(true);
+        },
+        onEditWorkspace: currentWorkspaceSummary
+          ? () => {
+              setEditWorkspaceErrorMessage(null);
+              setShowEditWorkspace(true);
+            }
+          : undefined,
+        onArchiveWorkspace:
+          currentWorkspaceSummary && currentWorkspaceSummary.status !== "archived"
+            ? () => {
+                setArchiveWorkspaceErrorMessage(null);
+                setShowArchiveWorkspace(true);
+              }
+            : undefined,
+        onCreateConnectionProfile: () => {
+          setCreateConnectionErrorMessage(null);
+          setShowCreateConnectionProfile(true);
+        },
+        onCreateWorkflowRun: () => {
+          setCreateWorkflowRunErrorMessage(null);
+          setShowCreateWorkflowRun(true);
+        },
+        onExportWorkspace: () => {
+          setExportMessage(null);
+          setExportErrorMessage(null);
+          void exportWorkspaceBundle()
+            .then((bundle) => {
+              const workspaceId = String(
+                bundle.workspace.workspace_id ?? bundle.workspace._key ?? "workspace"
+              );
+              const filename = `${workspaceId}-aga-workspace-bundle.json`;
+              downloadJSON(filename, bundle);
+              setExportMessage(`Exported ${filename}`);
+            })
+            .catch((error) =>
+              setExportErrorMessage(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to export workspace bundle"
+              )
+            );
+        },
+        onImportWorkspace: () => {
+          setImportWorkspaceErrorMessage(null);
+          setImportWorkspaceMessage(null);
+          setShowImportWorkspaceBundle(true);
+        },
+        onUploadDocument: currentWorkspaceSummary
+          ? () => {
+              setUploadDocumentErrorMessage(null);
+              setUploadDocumentMessage(null);
+              setShowUploadDocument(true);
+            }
+          : undefined
+      }),
+    [currentWorkspaceSummary, exportWorkspaceBundle]
+  );
+
   // NFR-23: the canvas header renders these as buttons, the explorer renders
   // them on right-click. Both call buildAssetMenuItems, so an action cannot
   // exist on one surface and not the other.
@@ -724,6 +793,7 @@ export function WorkspaceShell({
       />
       <AssetExplorer
         assets={visibleAssets}
+        workspaceActions={workspaceActions}
         health={health}
         auditEvents={overview?.latestAuditEvents ?? []}
         onSelectAsset={(asset) => {
