@@ -35,6 +35,7 @@ from graph_analytics_ai.product import (
     create_workflow_run,
     create_workspace,
 )
+from graph_analytics_ai.product.exceptions import StorageError
 from graph_analytics_ai.product.constants import (
     AUDIT_EVENTS_COLLECTION,
     CHART_SPECS_COLLECTION,
@@ -391,3 +392,40 @@ def test_report_and_audit_crud(storage, arango_db):
     assert [
         e.audit_event_id for e in repository.list_audit_events(workspace.workspace_id)
     ] == [event.audit_event_id]
+
+
+def test_delete_document_by_key_against_a_real_server(storage, arango_db):
+    """The FR-54 sweep's delete, verified against the driver rather than a stub.
+
+    The sweep reads False as "already gone" and counts it a clean skip, so the
+    whole fix rests on python-arango returning exactly False for a missing
+    document under ignore_missing, and raising for anything else. Both halves
+    were covered only by a hand-written stub, which is the gap this suite
+    exists to close.
+    """
+
+    collection = arango_db.collection(DOCUMENTS_COLLECTION)
+    collection.insert({"_key": "doomed", "workspace_id": "ws-1"})
+
+    assert storage.delete_document_by_key(DOCUMENTS_COLLECTION, "doomed") is True
+    assert not collection.has("doomed")
+
+    # Already gone: the one case the sweep is entitled to shrug at.
+    assert storage.delete_document_by_key(DOCUMENTS_COLLECTION, "doomed") is False
+    assert (
+        storage.delete_document_by_key(DOCUMENTS_COLLECTION, "never-existed") is False
+    )
+
+
+def test_delete_document_by_key_raises_on_a_missing_collection(storage):
+    """A collection that is not there is a failure, not an absent document.
+
+    This is the distinction the sweep depends on: returning False here would
+    report a clean skip for every record in a collection that has been dropped.
+    """
+
+    with pytest.raises(StorageError) as raised:
+        storage.delete_document_by_key("aga_no_such_collection", "whatever")
+
+    assert "aga_no_such_collection" in str(raised.value)
+    assert "whatever" in str(raised.value)

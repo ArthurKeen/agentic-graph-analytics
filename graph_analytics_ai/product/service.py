@@ -1126,27 +1126,47 @@ class ProductService:
         # Cascade: sections and charts first, then their manifest, then the
         # executions, then the run itself — so a failure part-way never leaves
         # a manifest pointing at rows that are already gone.
+        # FR-53: a cascade that stops half way has still deleted rows, and the
+        # audit event is written after it. Record what was removed before
+        # re-raising, or those deletions leave no trace.
         deleted_sections = 0
         deleted_charts = 0
-        for report in reports:
-            for section_id in report.section_ids or []:
-                if self.repository.delete_document_by_key(
-                    REPORT_SECTIONS_COLLECTION, section_id
-                ):
-                    deleted_sections += 1
-            for chart_id in report.chart_ids or []:
-                if self.repository.delete_document_by_key(
-                    CHART_SPECS_COLLECTION, chart_id
-                ):
-                    deleted_charts += 1
-            self.repository.delete_document_by_key(
-                REPORT_MANIFESTS_COLLECTION, report.report_id
-            )
-        for execution in executions:
-            self.repository.delete_document_by_key(
-                ANALYSIS_EXECUTIONS_COLLECTION, execution.analysis_execution_id
-            )
-        self.repository.delete_document_by_key(WORKFLOW_RUNS_COLLECTION, run_id)
+        cascade_error: Optional[Exception] = None
+        try:
+            for report in reports:
+                for section_id in report.section_ids or []:
+                    if self.repository.delete_document_by_key(
+                        REPORT_SECTIONS_COLLECTION, section_id
+                    ):
+                        deleted_sections += 1
+                for chart_id in report.chart_ids or []:
+                    if self.repository.delete_document_by_key(
+                        CHART_SPECS_COLLECTION, chart_id
+                    ):
+                        deleted_charts += 1
+                self.repository.delete_document_by_key(
+                    REPORT_MANIFESTS_COLLECTION, report.report_id
+                )
+            for execution in executions:
+                self.repository.delete_document_by_key(
+                    ANALYSIS_EXECUTIONS_COLLECTION, execution.analysis_execution_id
+                )
+            self.repository.delete_document_by_key(WORKFLOW_RUNS_COLLECTION, run_id)
+        except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
+            cascade_error = exc
+
+        details: Dict[str, Any] = {
+            "status": getattr(run.status, "value", run.status),
+            "reports_deleted": len(reports),
+            "executions_deleted": len(executions),
+            "sections_deleted": deleted_sections,
+            "charts_deleted": deleted_charts,
+        }
+        if cascade_error is not None:
+            # The counts above are what was ATTEMPTED; say so, since the
+            # cascade stopped before finishing them.
+            details["failed"] = True
+            details["error"] = str(cascade_error)
 
         self.repository.create_audit_event(
             create_audit_event(
@@ -1155,15 +1175,12 @@ class ProductService:
                 action="delete_workflow_run",
                 target_type="workflow_run",
                 target_id=run_id,
-                details={
-                    "status": getattr(run.status, "value", run.status),
-                    "reports_deleted": len(reports),
-                    "executions_deleted": len(executions),
-                    "sections_deleted": deleted_sections,
-                    "charts_deleted": deleted_charts,
-                },
+                details=details,
             )
         )
+
+        if cascade_error is not None:
+            raise cascade_error
         return {
             "run_id": run_id,
             "workspace_id": run.workspace_id,
@@ -1960,17 +1977,36 @@ class ProductService:
         if dry_run:
             return result
 
+        # FR-53: whatever happens, the deletions that DID happen get recorded.
+        # The storage layer now raises on a real failure rather than reporting
+        # "already gone", which is correct, but an exception escaping here
+        # would skip the audit event entirely and leave the rows that were
+        # already deleted with no surviving record of it.
         removed = 0
-        for items in result["candidates"].values():
-            for item in items:
-                if self.repository.delete_document_by_key(
-                    item["collection"], item["id"]
-                ):
-                    removed += 1
+        sweep_error: Optional[Exception] = None
+        try:
+            for items in result["candidates"].values():
+                for item in items:
+                    if self.repository.delete_document_by_key(
+                        item["collection"], item["id"]
+                    ):
+                        removed += 1
+        except Exception as exc:  # noqa: BLE001 - recorded, then re-raised
+            sweep_error = exc
+
         result["removed"] = removed
 
-        policy.last_applied_at = now
-        self.repository.update_retention_policy(policy)
+        details: Dict[str, Any] = {"removed": removed, "counts": result["counts"]}
+        if sweep_error is not None:
+            details["failed"] = True
+            details["error"] = str(sweep_error)
+
+        # Only a completed sweep marks the workspace as swept. A partial one
+        # must be retried, so last_applied_at stays where it was.
+        if sweep_error is None:
+            policy.last_applied_at = now
+            self.repository.update_retention_policy(policy)
+
         self.repository.create_audit_event(
             create_audit_event(
                 workspace_id=workspace_id,
@@ -1978,9 +2014,12 @@ class ProductService:
                 action="apply_retention_policy",
                 target_type="workspace",
                 target_id=workspace_id,
-                details={"removed": removed, "counts": result["counts"]},
+                details=details,
             )
         )
+
+        if sweep_error is not None:
+            raise sweep_error
         return result
 
     # --- Use cases (FR-19..FR-21) ---

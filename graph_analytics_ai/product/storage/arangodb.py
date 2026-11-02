@@ -863,13 +863,24 @@ class ProductArangoStorage:
 
         Used by the FR-54 retention sweep; kept generic because the sweep
         spans several collections and each already has a typed reader.
+
+        Only an already-gone document returns False. Anything else — an
+        unreachable server, a missing collection, a permission error — is
+        raised, because the sweep counts False as "nothing to do" and would
+        otherwise record a clean run and advance ``last_applied_at`` while
+        deleting nothing.
         """
 
         try:
-            self.db.collection(collection_name).delete(key)
-            return True
-        except Exception:  # noqa: BLE001 — already-gone is not an error
-            return False
+            deleted = self.db.collection(collection_name).delete(
+                key, ignore_missing=True
+            )
+        except Exception as exc:  # noqa: BLE001 — surfaced as StorageError
+            # NFR-16: name the collection and key, not just "delete failed".
+            raise StorageError(
+                f"Failed to delete '{key}' from '{collection_name}': {exc}"
+            ) from exc
+        return deleted is not False
 
     # --- Report operations ---
 
