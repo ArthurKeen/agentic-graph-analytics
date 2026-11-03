@@ -14,9 +14,8 @@
   and the system derives the brief from the observed schema, plans use cases
   from the graph's own entity and relationship types, and runs them. Written
   down now so its two safety constraints are pinned: the engine-algorithm
-  whitelist, and a runnable plan with no LLM provider configured. One clause
-  — reporting what it chose and why — is specified but not yet implemented,
-  and is marked as such. (2) FR-1, FR-13 and NFR-23 implementation notes
+  whitelist, and a runnable plan with no LLM provider configured.
+  (2) FR-1, FR-13 and NFR-23 implementation notes
   corrected: they cited the canvas right-click menu as evidence those
   requirements were met, which is the practice NFR-23 exists to forbid. PR
   #28 moved those verbs to visible sidebar menus; the notes now cite that
@@ -1483,7 +1482,7 @@ older requirement, this section wins.
   configured, the mode MUST still produce a runnable plan. Artifacts MUST be
   ephemeral and tagged `origin="autonomous"` so unattended runs do not
   accumulate in the curated Requirements list (FR-17).
-  *(PARTIAL — one clause open, see below. Done: entry point
+  *(Implemented. Entry point
   `POST /api/workspaces/{workspace_id}/autonomous-analysis` →
   `ProductService.autonomous_analysis`
   (`graph_analytics_ai/product/service.py:1528`), reachable from the sidebar
@@ -1499,13 +1498,19 @@ older requirement, this section wins.
   `_coerce_use_case` and verified non-vacuous; with no provider configured the
   mode falls back to `generate_discovery_use_cases`; autonomous artifacts are
   tagged and filtered out of the curated list at `service.py:845`.
-  NOT YET DONE: "MUST report what it chose and why". The planner records a
-  per-use-case rationale and a discovery run does emit a "0. Discovery Summary"
-  section, but `_create_discovery_summary_content`
-  (`graph_analytics_ai/ai/reporting/generator.py:167`) composes that section from
-  baseline comparisons and insight confidence only — the rationale stops at
-  `UseCase.description` and never reaches the reader. Tracked as a drift alert
-  on FR-75.)*
+  "Reports what it chose and why": the planner's reason is carried on
+  `UseCase.rationale` (`ai/generation/use_cases.py:47`) rather than folded into
+  the description, and the Discovery Summary opens with the analysis selected,
+  its algorithm, the collections it was scoped to, and the reason
+  (`_create_discovery_summary_content`,
+  `graph_analytics_ai/ai/reporting/generator.py:183`). Each report is matched to
+  its use case through the template that produced it
+  (`_use_case_for_result`, `graph_analytics_ai/ai/agents/specialized.py:1365`)
+  rather than by position in
+  the results list: a failed execution used to shift every later report onto the
+  previous analysis's reason, which was invisible while the context held only a
+  title and becomes a false statement once it carries the reason (NFR-19). Where
+  no sound match exists, nothing is claimed.)*
 
 ---
 

@@ -7,7 +7,7 @@ Each agent has specific expertise and responsibilities.
 import asyncio
 import os
 from datetime import datetime
-from typing import Any, Optional, List
+from typing import Any, Dict, Optional, List
 
 from ..llm.base import LLMProvider
 from ..schema.acquire import acquire_schema
@@ -1257,6 +1257,12 @@ Remember: Business stakeholders need insights they can act on immediately, not j
                     "use_case_type": (
                         uc.use_case_type.value if hasattr(uc, "use_case_type") else None
                     ),
+                    # FR-75: what was chosen, and why. The Discovery Summary
+                    # renders these; without them a report cannot say whether
+                    # the analysis was reasoned about or fell back to a default.
+                    "rationale": getattr(uc, "rationale", "") or "",
+                    "algorithms": list(getattr(uc, "graph_algorithms", []) or []),
+                    "target_collections": list(getattr(uc, "data_needs", []) or []),
                 }
                 for uc in state.use_cases
             ],
@@ -1276,12 +1282,16 @@ Remember: Business stakeholders need insights they can act on immediately, not j
                 self.generator.industry = self.industry
 
         baseline_epoch_id = state.metadata.get("baseline_epoch_id")
+        use_case_lookup = self._use_case_lookup(state, context)
         reports = []
         for i, result in enumerate(successful_results):
             # Add use case-specific context if available
             use_case_context = context.copy()
-            if i < len(state.use_cases):
-                use_case_context["use_case"] = context["use_cases"][i]
+            resolved = self._use_case_for_result(
+                result, i, successful_results, state, use_case_lookup, context
+            )
+            if resolved is not None:
+                use_case_context["use_case"] = resolved
 
             report = self.generator.generate_report(result, context=use_case_context)
 
@@ -1330,6 +1340,59 @@ Remember: Business stakeholders need insights they can act on immediately, not j
             },
             reply_to=message.message_id,
         )
+
+    @staticmethod
+    def _use_case_lookup(
+        state: AgentState, context: Dict[str, Any]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Map each template name to the use case entry it was built from.
+
+        The template carries ``use_case_id``, and the executed job records the
+        template's name, so this is the one link that survives execution.
+        """
+
+        by_id = {entry["id"]: entry for entry in context["use_cases"]}
+        lookup: Dict[str, Dict[str, Any]] = {}
+        for template in state.templates or []:
+            name = getattr(template, "name", None)
+            use_case_id = getattr(template, "use_case_id", None)
+            entry = by_id.get(use_case_id)
+            if name and entry is not None:
+                lookup[str(name)] = entry
+        return lookup
+
+    @staticmethod
+    def _use_case_for_result(
+        result: Any,
+        index: int,
+        successful_results: List[Any],
+        state: AgentState,
+        lookup: Dict[str, Dict[str, Any]],
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Find the use case a report belongs to.
+
+        Matching by position was wrong whenever an execution failed:
+        ``successful_results`` is filtered, so one failure shifted every
+        later report onto the previous use case's context. That was
+        invisible while the context held only a title, and becomes a
+        falsehood in the report once it carries the rationale (FR-75,
+        NFR-19). Position is used only when nothing was dropped.
+        """
+
+        template_name = str(getattr(getattr(result, "job", None), "template_name", ""))
+        entry = lookup.get(template_name)
+        if entry is not None:
+            return entry
+
+        if len(successful_results) == len(state.use_cases) and index < len(
+            context["use_cases"]
+        ):
+            return context["use_cases"][index]
+
+        # No sound match. A report with no rationale is honest; a report
+        # carrying another analysis's rationale is not.
+        return None
 
     @handle_agent_errors_async
     async def process_async(
@@ -1395,6 +1458,12 @@ Remember: Business stakeholders need insights they can act on immediately, not j
                     "use_case_type": (
                         uc.use_case_type.value if hasattr(uc, "use_case_type") else None
                     ),
+                    # FR-75: what was chosen, and why. The Discovery Summary
+                    # renders these; without them a report cannot say whether
+                    # the analysis was reasoned about or fell back to a default.
+                    "rationale": getattr(uc, "rationale", "") or "",
+                    "algorithms": list(getattr(uc, "graph_algorithms", []) or []),
+                    "target_collections": list(getattr(uc, "data_needs", []) or []),
                 }
                 for uc in state.use_cases
             ],
@@ -1417,11 +1486,15 @@ Remember: Business stakeholders need insights they can act on immediately, not j
         # Generate reports in parallel!
         tasks = []
         loop = asyncio.get_event_loop()
+        use_case_lookup = self._use_case_lookup(state, context)
         for i, result in enumerate(successful_results):
             # Add use case-specific context if available
             use_case_context = context.copy()
-            if i < len(state.use_cases):
-                use_case_context["use_case"] = context["use_cases"][i]
+            resolved = self._use_case_for_result(
+                result, i, successful_results, state, use_case_lookup, context
+            )
+            if resolved is not None:
+                use_case_context["use_case"] = resolved
 
             task = loop.run_in_executor(
                 None, self.generator.generate_report, result, use_case_context

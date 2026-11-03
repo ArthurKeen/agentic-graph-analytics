@@ -44,6 +44,16 @@ class UseCase:
     priority: Priority
     """Priority level."""
 
+    rationale: str = ""
+    """Why this analysis was chosen for *this* graph (FR-75).
+
+    Empty for the hand-curated and fixed-bundle paths, which have no
+    selection to justify. The autonomous planner fills it, and the
+    Discovery Summary renders it: without a field of its own the
+    rationale was concatenated into ``description`` and could not be
+    told apart from the rest of the text at report time.
+    """
+
     related_requirements: List[str] = field(default_factory=list)
     """IDs of related requirements."""
 

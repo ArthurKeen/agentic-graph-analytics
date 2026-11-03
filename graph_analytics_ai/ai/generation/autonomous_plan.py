@@ -267,6 +267,7 @@ def _coerce_use_case(index: int, raw: Any) -> Optional[UseCase]:
         id=f"UC-A{index:02d}",
         title=title,
         description=" ".join(description_parts) or title,
+        rationale=rationale,
         use_case_type=ALGORITHM_USE_CASE_TYPE[algorithm],
         priority=PRIORITY_BY_NAME.get(
             str(raw.get("priority", "")).strip().lower(), Priority.MEDIUM
