@@ -22,7 +22,7 @@ from graph_analytics_ai.product import (
     create_workflow_run,
     create_workspace,
 )
-from graph_analytics_ai.product.exceptions import ValidationError
+from graph_analytics_ai.product.exceptions import StorageError, ValidationError
 from graph_analytics_ai.product.models import DocumentStorageMode, current_timestamp
 
 from test_service import FakeProductRepository
@@ -302,3 +302,152 @@ def test_records_inside_the_window_are_kept():
     result = service.apply_retention_policy(workspace.workspace_id)
 
     assert result["counts"]["documents"] == 0
+
+
+class _OutageRepository(_RetentionRepository):
+    """A repository whose deletes fail the way an unreachable server fails."""
+
+    def delete_document_by_key(self, collection_name, key):
+        raise StorageError(
+            f"Failed to delete '{key}' from '{collection_name}': server unreachable"
+        )
+
+
+def test_a_failing_delete_stops_the_sweep_instead_of_reporting_a_clean_run():
+    """An outage must not look like "nothing was due".
+
+    The sweep counts a False return as "already gone", so a delete helper that
+    swallowed every error turned a dead server into removed=0 -- and then
+    advanced last_applied_at, so the expired records were never revisited.
+    """
+
+    repository = _OutageRepository()
+    workspace = _workspace(repository)
+    service = ProductService(repository)
+    service.set_retention_policy(
+        workspace.workspace_id, enabled=True, document_retention_days=30
+    )
+
+    document = create_source_document(
+        workspace_id=workspace.workspace_id,
+        filename="old.md",
+        mime_type="text/markdown",
+        sha256="abc",
+        storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+    )
+    document.uploaded_at = _aged(90)
+    repository.source_documents.append(document)
+
+    assert (
+        service.apply_retention_policy(workspace.workspace_id)["counts"]["documents"]
+        == 1
+    ), "the document must be a candidate, or the test proves nothing"
+
+    with pytest.raises(StorageError):
+        service.apply_retention_policy(workspace.workspace_id, dry_run=False)
+
+    policy = service.get_retention_policy(workspace.workspace_id)
+    assert (
+        policy["last_applied_at"] is None
+    ), "a failed sweep must not mark the workspace as swept"
+
+
+class _PartialOutageRepository(_RetentionRepository):
+    """Deletes succeed until the Nth, then the server goes away."""
+
+    def __init__(self, fail_after):
+        super().__init__()
+        self.fail_after = fail_after
+
+    def delete_document_by_key(self, collection_name, key):
+        if len(self.deleted) >= self.fail_after:
+            raise StorageError(
+                f"Failed to delete '{key}' from '{collection_name}': unreachable"
+            )
+        self.deleted.append((collection_name, key))
+        return True
+
+
+def _expired_documents(repository, workspace, count):
+    for index in range(count):
+        document = create_source_document(
+            workspace_id=workspace.workspace_id,
+            filename=f"old{index}.md",
+            mime_type="text/markdown",
+            sha256=f"hash{index}",
+            storage_mode=DocumentStorageMode.EXTRACT_ONLY,
+        )
+        document.uploaded_at = _aged(90)
+        repository.source_documents.append(document)
+
+
+def test_a_sweep_that_dies_half_way_still_records_what_it_deleted():
+    """FR-53: deletion is the one operation that leaves no surviving record of
+    itself, so the rows already removed must be audited even though the sweep
+    then fails. Without this the three deleted documents vanish silently."""
+
+    repository = _PartialOutageRepository(fail_after=3)
+    workspace = _workspace(repository)
+    service = ProductService(repository)
+    service.set_retention_policy(
+        workspace.workspace_id, enabled=True, document_retention_days=30
+    )
+    _expired_documents(repository, workspace, 10)
+    repository.audit_events.clear()
+
+    with pytest.raises(StorageError):
+        service.apply_retention_policy(workspace.workspace_id, dry_run=False)
+
+    assert len(repository.deleted) == 3, "three documents were really deleted"
+    events = [
+        event
+        for event in repository.audit_events
+        if event.action == "apply_retention_policy"
+    ]
+    assert len(events) == 1, "the deletions that happened must be recorded"
+    assert events[0].details["removed"] == 3
+    assert events[0].details["failed"] is True
+    assert "unreachable" in events[0].details["error"]
+
+
+def test_a_failed_sweep_is_not_marked_as_applied():
+    """Retrying is the point: a partial sweep must come back to the rest."""
+
+    repository = _PartialOutageRepository(fail_after=3)
+    workspace = _workspace(repository)
+    service = ProductService(repository)
+    service.set_retention_policy(
+        workspace.workspace_id, enabled=True, document_retention_days=30
+    )
+    _expired_documents(repository, workspace, 10)
+
+    with pytest.raises(StorageError):
+        service.apply_retention_policy(workspace.workspace_id, dry_run=False)
+
+    assert (
+        service.get_retention_policy(workspace.workspace_id)["last_applied_at"] is None
+    )
+
+
+def test_a_completed_sweep_still_records_success_and_marks_applied():
+    """The happy path must not have been broken by the error handling."""
+
+    repository = _PartialOutageRepository(fail_after=99)
+    workspace = _workspace(repository)
+    service = ProductService(repository)
+    service.set_retention_policy(
+        workspace.workspace_id, enabled=True, document_retention_days=30
+    )
+    _expired_documents(repository, workspace, 4)
+    repository.audit_events.clear()
+
+    result = service.apply_retention_policy(workspace.workspace_id, dry_run=False)
+
+    assert result["removed"] == 4
+    events = [
+        event
+        for event in repository.audit_events
+        if event.action == "apply_retention_policy"
+    ]
+    assert "failed" not in events[0].details
+    assert service.get_retention_policy(workspace.workspace_id)["last_applied_at"]
