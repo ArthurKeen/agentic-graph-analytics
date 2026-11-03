@@ -15,19 +15,16 @@ export function buildReportContextMenu({
     {
       id: "view-report",
       label: "View Report",
-      icon: "📊",
       onSelect: onViewReport
     },
     {
       id: "copy-report-id",
       label: "Copy Report ID",
-      icon: "📋",
       onSelect: onCopyReportId
     },
     {
       id: "publish-report",
       label: "Publish",
-      icon: "🚀",
       onSelect: onPublishReport
     }
   ];

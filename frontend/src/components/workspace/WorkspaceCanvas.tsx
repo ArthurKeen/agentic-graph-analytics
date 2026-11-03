@@ -14,6 +14,8 @@ import { SourceDocumentCanvas } from "./SourceDocumentCanvas";
 import { AssetInfoPanel } from "./AssetInfoPanel";
 import { FloatingDetailPanel } from "./FloatingDetailPanel";
 import { WorkspaceHelpOverlay } from "./WorkspaceHelpOverlay";
+import { ObjectActionBar } from "./ObjectActionBar";
+import type { ContextMenuItem } from "./contextMenus/types";
 import { buildCanvasContextMenu } from "./contextMenus/canvas";
 import { buildPipelineStepContextMenu } from "./contextMenus/pipelineStep";
 import type { ContextMenuState } from "./contextMenus/types";
@@ -49,6 +51,9 @@ import type {
 
 interface WorkspaceCanvasProps {
   selectedAsset: WorkspaceAsset | null;
+  /** The selected object's actions, built by buildAssetMenuItems so the
+   * header and the context menu cannot disagree (NFR-23). */
+  selectedAssetActions: ContextMenuItem[];
   selectedStep: WorkflowDAGNode | null;
   connectionProfile: ConnectionProfileSummary | null;
   connectionVerificationResult: ConnectionVerificationResult | null;
@@ -197,6 +202,7 @@ interface WorkspaceCanvasProps {
 
 export function WorkspaceCanvas({
   selectedAsset,
+  selectedAssetActions,
   selectedStep,
   connectionProfile,
   connectionVerificationResult,
@@ -345,7 +351,10 @@ export function WorkspaceCanvas({
           <div className="lens-indicator">({lensName} view)</div>
         </div>
         <div className="workspace-header-actions">
-          <p className="muted">Right-click steps or canvas for actions.</p>
+          <ObjectActionBar
+            items={selectedAssetActions}
+            omitIds={["open-in-canvas", "view-pipeline", "view-report"]}
+          />
           <button
             className="help-button"
             type="button"

@@ -20,6 +20,7 @@ import type {
   ListClusterDatabasesInput,
   ProductAPIClient,
   QuickAnalysisInput,
+  AutonomousAnalysisInput,
   RawConnectionGraphSummary,
   RawConnectionGraphsResult,
   RawConnectionProfileSummary,
@@ -709,6 +710,22 @@ export function createProductAPIClient(
         {
           graph_profile_id: input.graphProfileId,
           prompt: input.prompt,
+          ...(input.workflowMode ? { workflow_mode: input.workflowMode } : {})
+        }
+      );
+      return {
+        workflowRun: mapWorkflowRunSummary(workflowRun),
+        dagView: mapWorkflowRunToDAGView(workflowRun)
+      };
+    },
+    async autonomousAnalysis(
+      workspaceId: string,
+      input: AutonomousAnalysisInput
+    ): Promise<CreateWorkflowRunResult> {
+      const workflowRun = await postJSON<RawWorkflowRunSummary>(
+        `${normalizedBaseUrl}/api/workspaces/${workspaceId}/autonomous-analysis`,
+        {
+          graph_profile_id: input.graphProfileId,
           ...(input.workflowMode ? { workflow_mode: input.workflowMode } : {})
         }
       );

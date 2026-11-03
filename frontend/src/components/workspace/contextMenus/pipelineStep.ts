@@ -35,19 +35,16 @@ export function buildPipelineStepContextMenu({
     {
       id: "view-step-details",
       label: "View Step Details",
-      icon: "🔍",
       onSelect: onViewStepDetails
     },
     {
       id: "copy-error",
       label: "Copy Error",
-      icon: "📋",
       onSelect: onCopyError
     },
     {
       id: "view-run-results",
       label: "View Run Results",
-      icon: "📊",
       onSelect: onViewRunResults
     }
   ];
@@ -56,7 +53,6 @@ export function buildPipelineStepContextMenu({
     items.push({
       id: isPaused ? "resume-run" : "retry-run",
       label: isPaused ? "Resume Run" : "Retry Run",
-      icon: isPaused ? "▶️" : "🔄",
       onSelect: onRetryRun
     });
   }

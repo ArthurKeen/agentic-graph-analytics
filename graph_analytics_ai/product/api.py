@@ -412,6 +412,18 @@ PRODUCT_API_ENDPOINTS = [
         request_model="QuickAnalysisRequest",
         response_model="WorkflowRun",
     ),
+    # FR-75. Autonomous analysis: a graph profile and nothing else. The
+    # brief is built from the observed schema and the pipeline plans its own
+    # use cases, so there is no prompt, interview or approval step.
+    ProductAPIEndpoint(
+        method="POST",
+        path="/api/workspaces/{workspace_id}/autonomous-analysis",
+        service_method="autonomous_analysis",
+        summary="Run an analysis the system plans from the graph itself",
+        tags=["workflow-runs"],
+        request_model="AutonomousAnalysisRequest",
+        response_model="WorkflowRun",
+    ),
     ProductAPIEndpoint(
         method="POST",
         path="/api/runs/{run_id}/start",

@@ -4,7 +4,7 @@ GAE template generator.
 Converts use cases into executable GAE analysis templates.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
 from ..generation.use_cases import UseCase, UseCaseType
 from ..schema.models import GraphSchema, SchemaAnalysis
@@ -322,6 +322,32 @@ class TemplateGenerator:
                 edge_collections = list(schema.edge_collections.keys())[:5]
                 print(f"[TEMPLATE DEBUG] Fallback edge collections: {edge_collections}")
 
+        # FR-75: a use case that names its own collections means it, and the
+        # selection above is a default rather than a decision. Without this
+        # the planner's entity choice is discarded: two use cases differing
+        # only in target collections produced byte-identical configs, so a
+        # report scoped to one collection was answered from the whole graph.
+        requested_vertices, requested_edges = self._resolve_requested_collections(
+            use_case, schema
+        )
+        if requested_vertices or requested_edges:
+            if requested_vertices:
+                vertex_collections = requested_vertices
+            if requested_edges:
+                edge_collections = requested_edges
+            elif requested_vertices:
+                edge_collections = self._edges_within(
+                    schema, requested_vertices, edge_collections
+                )
+            selection_metadata["requested_collections"] = {
+                "vertices": requested_vertices,
+                "edges": requested_edges,
+            }
+            print(
+                "[TEMPLATE DEBUG] NARROWED to use case targets: "
+                f"{vertex_collections} / {edge_collections}"
+            )
+
         print("[TEMPLATE DEBUG] FINAL collections for template:")
         print(f"  Vertex collections ({len(vertex_collections)}): {vertex_collections}")
         print(f"  Edge collections ({len(edge_collections)}): {edge_collections}")
@@ -604,6 +630,84 @@ class TemplateGenerator:
         return recommend_engine_size(
             vertex_count=schema.total_documents, edge_count=schema.total_edges
         )
+
+    def _resolve_requested_collections(
+        self, use_case: UseCase, schema: Optional[GraphSchema] = None
+    ) -> Tuple[List[str], List[str]]:
+        """Resolve a use case's stated targets to real collections.
+
+        ``data_needs`` is free text: the autonomous planner emits one
+        collection name per entry, while the fixed discovery bundle packs
+        several into a comma-separated line and labels the edge line
+        ``"Edges: A, B"``. Both are split the same way, and a token that
+        does not name a collection in THIS schema is dropped — the same
+        treatment an unimplemented algorithm already gets, for the same
+        reason. A model naming a plausible collection the graph lacks
+        should narrow nothing rather than fail inside an execution.
+
+        Returns ``([], [])`` when nothing resolves, which leaves the
+        selection above untouched.
+        """
+
+        if schema is None or not use_case.data_needs:
+            return [], []
+
+        by_lower_vertex = {
+            name.lower(): name for name in (schema.vertex_collections or {})
+        }
+        by_lower_edge = {name.lower(): name for name in (schema.edge_collections or {})}
+
+        vertices: List[str] = []
+        edges: List[str] = []
+        for need in use_case.data_needs:
+            text = str(need)
+            # "Edges: HAS_PORT, WIRED_TO" — the label is not a collection.
+            if ":" in text:
+                text = text.split(":", 1)[1]
+            for token in text.replace("/", ",").split(","):
+                key = token.strip().lower()
+                if not key:
+                    continue
+                if key in by_lower_vertex:
+                    vertices.append(by_lower_vertex[key])
+                elif key in by_lower_edge:
+                    edges.append(by_lower_edge[key])
+
+        return list(dict.fromkeys(vertices)), list(dict.fromkeys(edges))
+
+    def _edges_within(
+        self,
+        schema: Optional[GraphSchema],
+        vertices: List[str],
+        fallback: List[str],
+    ) -> List[str]:
+        """Edges whose endpoints both sit inside ``vertices``.
+
+        A use case that names only entity types still needs edges, and
+        keeping ones that leave the chosen set would silently restore the
+        collections it asked to exclude. Where the schema does not record
+        endpoints the honest answer is "unknown", so the caller's existing
+        selection stands rather than a guess.
+        """
+
+        if schema is None or not vertices:
+            return fallback
+
+        chosen = set(vertices)
+        within: List[str] = []
+        endpoints_known = False
+        for name, collection in (schema.edge_collections or {}).items():
+            sources = set(getattr(collection, "from_collections", None) or ())
+            targets = set(getattr(collection, "to_collections", None) or ())
+            if not sources and not targets:
+                continue
+            endpoints_known = True
+            if sources <= chosen and targets <= chosen:
+                within.append(name)
+
+        if not endpoints_known:
+            return fallback
+        return within
 
     def _extract_collections(
         self, use_case: UseCase, schema: Optional[GraphSchema] = None

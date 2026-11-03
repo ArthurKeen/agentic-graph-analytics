@@ -26,25 +26,21 @@ export function buildRequirementsContextMenu({
     {
       id: "open-in-canvas",
       label: "Open in Canvas",
-      icon: "R",
       onSelect: onOpenInCanvas
     },
     {
       id: "reopen-requirements-copilot",
       label: "Reopen Requirements Copilot",
-      icon: "C",
       onSelect: onReopenCopilot
     },
     {
       id: "view-info",
       label: "View Info",
-      icon: "i",
       onSelect: onViewInfo
     },
     {
       id: "copy-id",
       label: "Copy ID",
-      icon: "#",
       onSelect: onCopyId
     }
   ];

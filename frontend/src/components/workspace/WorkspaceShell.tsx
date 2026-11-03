@@ -21,7 +21,9 @@ import { StartRequirementsCopilotOverlay } from "./StartRequirementsCopilotOverl
 import { ThemeToggle } from "./ThemeToggle";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 import { useWorkspaceData } from "./useWorkspaceData";
-import type { ContextMenuState } from "./contextMenus/types";
+import { buildAssetMenuItems } from "./contextMenus/forAsset";
+import { buildWorkspaceActions } from "./contextMenus/canvas";
+import type { ContextMenuItem, ContextMenuState } from "./contextMenus/types";
 import type {
   ConnectionVerificationResult,
   GraphProfileSummary,
@@ -102,6 +104,7 @@ export function WorkspaceShell({
     importWorkspaceBundle,
     createWorkflowRun,
     quickAnalysis,
+    autonomousAnalysis,
     startWorkflowRun,
     cancelWorkflowRun,
     getWorkflowRunStatus,
@@ -163,6 +166,7 @@ export function WorkspaceShell({
   const [showQuickAnalysis, setShowQuickAnalysis] = useState(false);
   const [isRunningQuickAnalysis, setIsRunningQuickAnalysis] = useState(false);
   const [quickAnalysisErrorMessage, setQuickAnalysisErrorMessage] = useState<string | null>(null);
+  const [isStartingAutonomous, setIsStartingAutonomous] = useState(false);
   const [createConnectionErrorMessage, setCreateConnectionErrorMessage] = useState<string | null>(
     null
   );
@@ -624,6 +628,152 @@ export function WorkspaceShell({
     );
   }, [activeGraphProfile, connectionProfileById, overview]);
 
+  // FR-1 / FR-13: the same items the canvas right-click menu carries, so the
+  // sidebar can render them as visible New and Workspace menus.
+  // buildCanvasContextMenu composes buildWorkspaceActions, which is what
+  // keeps the two surfaces from drifting apart.
+  const workspaceActions = useMemo<ContextMenuItem[]>(
+    () =>
+      buildWorkspaceActions({
+        onCreateWorkspace: () => {
+          setCreateWorkspaceErrorMessage(null);
+          setShowCreateWorkspace(true);
+        },
+        onEditWorkspace: currentWorkspaceSummary
+          ? () => {
+              setEditWorkspaceErrorMessage(null);
+              setShowEditWorkspace(true);
+            }
+          : undefined,
+        onArchiveWorkspace:
+          currentWorkspaceSummary && currentWorkspaceSummary.status !== "archived"
+            ? () => {
+                setArchiveWorkspaceErrorMessage(null);
+                setShowArchiveWorkspace(true);
+              }
+            : undefined,
+        onCreateConnectionProfile: () => {
+          setCreateConnectionErrorMessage(null);
+          setShowCreateConnectionProfile(true);
+        },
+        onCreateWorkflowRun: () => {
+          setCreateWorkflowRunErrorMessage(null);
+          setShowCreateWorkflowRun(true);
+        },
+        onExportWorkspace: () => {
+          setExportMessage(null);
+          setExportErrorMessage(null);
+          void exportWorkspaceBundle()
+            .then((bundle) => {
+              const workspaceId = String(
+                bundle.workspace.workspace_id ?? bundle.workspace._key ?? "workspace"
+              );
+              const filename = `${workspaceId}-aga-workspace-bundle.json`;
+              downloadJSON(filename, bundle);
+              setExportMessage(`Exported ${filename}`);
+            })
+            .catch((error) =>
+              setExportErrorMessage(
+                error instanceof Error
+                  ? error.message
+                  : "Failed to export workspace bundle"
+              )
+            );
+        },
+        onImportWorkspace: () => {
+          setImportWorkspaceErrorMessage(null);
+          setImportWorkspaceMessage(null);
+          setShowImportWorkspaceBundle(true);
+        },
+        onUploadDocument: currentWorkspaceSummary
+          ? () => {
+              setUploadDocumentErrorMessage(null);
+              setUploadDocumentMessage(null);
+              setShowUploadDocument(true);
+            }
+          : undefined
+      }),
+    [currentWorkspaceSummary, exportWorkspaceBundle]
+  );
+
+  // NFR-23: the canvas header renders these as buttons, the explorer renders
+  // them on right-click. Both call buildAssetMenuItems, so an action cannot
+  // exist on one surface and not the other.
+  const selectedAssetActions = useMemo<ContextMenuItem[]>(() => {
+    if (!selectedAsset) {
+      return [];
+    }
+    const select = (asset: WorkspaceAsset) => {
+      setSelectedAsset(asset);
+      setSelectedStep(null);
+    };
+    return buildAssetMenuItems(selectedAsset, {
+      onOpenInCanvas: select,
+      onViewInfo: (asset) => {
+        select(asset);
+        setIsAssetInfoOpen(true);
+      },
+      onCopyId: (asset) => void navigator.clipboard?.writeText(asset.id),
+      onVerifyConnection: (asset) => {
+        select(asset);
+        verifySelectedConnectionProfile(asset.id);
+      },
+      onDiscoverGraph: (asset) => {
+        setDiscoverGraphErrorMessage(null);
+        setPendingDiscoverGraph(asset);
+      },
+      onDeleteConnectionProfile: (asset) => {
+        setDeleteConnectionProfileError(null);
+        setPendingDeleteConnectionProfile(asset);
+      },
+      onStartCopilot: (asset) => {
+        setStartCopilotErrorMessage(null);
+        setPendingReopenVersion(null);
+        setPendingStartCopilot(asset);
+      },
+      onDeleteGraphProfile: (asset) => {
+        setDeleteConnectionProfileError(null);
+        setPendingDeleteGraphProfile(asset);
+      },
+      onReopenCopilot: (asset) => {
+        const graphProfileAsset =
+          visibleAssets.find((profile) => profile.kind === "graph-profile") ?? null;
+        const priorVersion = activeApprovedRequirementVersion;
+        if (!graphProfileAsset || !priorVersion) {
+          setStartCopilotErrorMessage(
+            "Cannot reopen the Requirements Copilot without an active version and a graph profile in this workspace."
+          );
+          return;
+        }
+        setStartCopilotErrorMessage(null);
+        select(asset);
+        setPendingReopenVersion({
+          requirementVersionId: priorVersion.requirementVersionId,
+          version: priorVersion.version
+        });
+        setPendingStartCopilot(graphProfileAsset);
+      },
+      onStartRun: (asset) => {
+        if (activeGraphProfile?.shardingProfile?.isMultitenant) {
+          setPendingCrossTenantRun(asset);
+          return;
+        }
+        launchWorkflowRun(asset);
+      },
+      onRetryRun: select,
+      onDeleteRun: (asset) => setPendingDeleteRun(asset),
+      onViewReport: select,
+      onPublishReport: (asset) => setPendingPublishReport(asset)
+    });
+  }, [
+    selectedAsset,
+    visibleAssets,
+    activeApprovedRequirementVersion,
+    activeGraphProfile,
+    launchWorkflowRun,
+    verifySelectedConnectionProfile
+  ]);
+
   return (
     <div className="workspace-shell" onClick={() => setMenu(null)}>
       {/* Fixed to the viewport rather than placed in the canvas header, so the
@@ -643,6 +793,7 @@ export function WorkspaceShell({
       />
       <AssetExplorer
         assets={visibleAssets}
+        workspaceActions={workspaceActions}
         health={health}
         auditEvents={overview?.latestAuditEvents ?? []}
         onSelectAsset={(asset) => {
@@ -756,6 +907,41 @@ export function WorkspaceShell({
           setQuickAnalysisErrorMessage(null);
           setShowQuickAnalysis(true);
         }}
+        isStartingAutonomousAnalysis={isStartingAutonomous}
+        onRequestAutonomousAnalysis={async () => {
+          const graphProfileId =
+            activeGraphProfile?.graphProfileId ??
+            selectableGraphProfiles[0]?.graphProfileId;
+          if (!graphProfileId) {
+            setRunActionErrorMessage(
+              "Connect to a database and discover a graph profile first."
+            );
+            return;
+          }
+          setRunActionErrorMessage(null);
+          setIsStartingAutonomous(true);
+          try {
+            const result = await autonomousAnalysis({ graphProfileId });
+            setSelectedAsset({
+              id: result.workflowRun.runId,
+              kind: "run",
+              label: `Run ${result.workflowRun.runId}`,
+              description: `Autonomous (${result.workflowRun.status})`
+            });
+            setSelectedStep(null);
+            setRunActionMessage(
+              `Started autonomous run ${result.workflowRun.runId}. It is planning the analyses now.`
+            );
+          } catch (error) {
+            setRunActionErrorMessage(
+              error instanceof Error
+                ? error.message
+                : "Failed to start the autonomous run"
+            );
+          } finally {
+            setIsStartingAutonomous(false);
+          }
+        }}
         onRequestGuidedAnalysis={() => {
           // Guided = Requirements Copilot interview, anchored on the active
           // graph profile (fallback: first graph-profile asset).
@@ -785,6 +971,7 @@ export function WorkspaceShell({
       />
       <WorkspaceCanvas
         selectedAsset={selectedAsset}
+        selectedAssetActions={selectedAssetActions}
         selectedStep={selectedStep}
         connectionProfile={connectionProfile}
         connectionVerificationResult={

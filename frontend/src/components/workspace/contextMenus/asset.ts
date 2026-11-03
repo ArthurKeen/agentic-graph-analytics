@@ -13,13 +13,11 @@ export function buildAssetContextMenu({
     {
       id: "view-info",
       label: "View Info",
-      icon: "ℹ️",
       onSelect: onViewInfo
     },
     {
       id: "copy-id",
       label: "Copy ID",
-      icon: "📋",
       onSelect: onCopyId
     }
   ];

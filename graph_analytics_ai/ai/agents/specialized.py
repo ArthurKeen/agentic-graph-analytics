@@ -541,15 +541,15 @@ Your goal: Generate actionable analytics use cases."""
 
         use_cases = self.generator.generate(state.requirements, state.schema_analysis)
 
-        # Opt-in Discovery Mode: add a deterministic unknown-unknowns bundle first
+        # Opt-in Discovery Mode: plan an unknown-unknowns bundle from the
+        # graph itself (FR-75), falling back to the fixed bundle inside the
+        # planner when no provider is configured.
         if state.metadata.get("discovery_mode"):
             try:
-                from ..generation.discovery_use_cases import (
-                    generate_discovery_use_cases,
-                )
+                from ..generation.autonomous_plan import plan_use_cases
 
-                discovery_cases = generate_discovery_use_cases(
-                    state.schema, state.schema_analysis
+                discovery_cases = plan_use_cases(
+                    state.schema, state.schema_analysis, self.llm_provider
                 )
                 # Put discovery first so execution cap prioritizes it
                 use_cases = discovery_cases + use_cases
@@ -603,12 +603,16 @@ Your goal: Generate actionable analytics use cases."""
 
         if state.metadata.get("discovery_mode"):
             try:
-                from ..generation.discovery_use_cases import (
-                    generate_discovery_use_cases,
-                )
+                from ..generation.autonomous_plan import plan_use_cases
 
-                discovery_cases = generate_discovery_use_cases(
-                    state.schema, state.schema_analysis
+                # Planning is one LLM call, so it runs in the executor like
+                # the generator above rather than blocking the event loop.
+                discovery_cases = await loop.run_in_executor(
+                    None,
+                    plan_use_cases,
+                    state.schema,
+                    state.schema_analysis,
+                    self.llm_provider,
                 )
                 use_cases = discovery_cases + list(use_cases)
             except Exception as e:
