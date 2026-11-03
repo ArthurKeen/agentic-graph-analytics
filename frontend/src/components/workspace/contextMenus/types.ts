@@ -1,7 +1,6 @@
 export interface ContextMenuItem {
   id: string;
   label: string;
-  icon: string;
   danger?: boolean;
   /** Which menu an item belongs to. The canvas menu was a flat list of
    * twelve mixing object creation, workspace lifecycle, view controls and
