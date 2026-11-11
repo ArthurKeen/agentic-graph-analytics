@@ -1357,8 +1357,17 @@ Remember: Business stakeholders need insights they can act on immediately, not j
             name = getattr(template, "name", None)
             use_case_id = getattr(template, "use_case_id", None)
             entry = by_id.get(use_case_id)
-            if name and entry is not None:
-                lookup[str(name)] = entry
+            if not name or entry is None:
+                continue
+            # The scope the template was actually built over. The use case's
+            # data_needs are what the plan asked for; targets that do not
+            # resolve against the schema are dropped, so the two can differ
+            # and the report must not pass one off as the other.
+            config = getattr(template, "config", None)
+            applied = list(getattr(config, "vertex_collections", None) or []) + list(
+                getattr(config, "edge_collections", None) or []
+            )
+            lookup[str(name)] = {**entry, "applied_collections": applied}
         return lookup
 
     @staticmethod

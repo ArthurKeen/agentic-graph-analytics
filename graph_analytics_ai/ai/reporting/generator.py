@@ -148,6 +148,9 @@ class ReportGenerator:
                     "target_collections": list(
                         use_case_ctx.get("target_collections") or []
                     ),
+                    # None means "not known", which the summary reports as
+                    # silence; [] means "ran over the whole graph".
+                    "applied_collections": use_case_ctx.get("applied_collections"),
                 }
 
         # Extract metrics from results
@@ -201,14 +204,37 @@ class ReportGenerator:
         if selected:
             title = selected.get("title") or selected.get("id") or "this analysis"
             lines.append(f"**Analysis selected:** {title}")
-            algorithms = [str(a) for a in selected.get("algorithms") or []]
-            if algorithms:
-                lines.append(f"- **Algorithm:** {', '.join(algorithms)}")
-            targets = [str(t) for t in selected.get("target_collections") or []]
-            if targets:
-                lines.append(f"- **Scoped to:** {', '.join(targets)}")
+
+            # The algorithm that RAN, not the one the plan named. A use case
+            # can carry an unparseable algorithm string (a free-form analyzer
+            # suggestion), in which case the template generator silently falls
+            # back to the use-case-type mapping and something else executes.
+            if report.algorithm:
+                lines.append(f"- **Algorithm:** {report.algorithm}")
+
+            # Likewise the collections the template was actually built over.
+            # Targets the plan named that do not resolve against the schema are
+            # dropped, leaving the analysis at full scope — reporting the
+            # request as though it were applied is the failure this section
+            # exists to prevent.
+            applied = selected.get("applied_collections")
+            requested = [str(t) for t in selected.get("target_collections") or []]
+            if applied is None:
+                # The template this report came from could not be identified,
+                # so the scope that ran is unknown. Saying nothing beats
+                # repeating the request as though it had been applied.
+                pass
+            elif applied:
+                lines.append(f"- **Scoped to:** {', '.join(str(t) for t in applied)}")
             else:
                 lines.append("- **Scoped to:** the whole graph (no narrower target)")
+            if applied is not None:
+                dropped = [t for t in requested if t not in applied]
+                if dropped:
+                    lines.append(
+                        f"- **Requested but not applied:** {', '.join(dropped)} "
+                        "(not found in the graph's schema)"
+                    )
             rationale = selected.get("rationale") or ""
             if rationale:
                 lines.append(f"- **Why:** {rationale}")

@@ -148,7 +148,7 @@ def test_the_discovery_summary_says_which_analysis_and_why():
 def test_an_analysis_with_no_rationale_says_so_rather_than_implying_one():
     use_case = _use_case("UC-D01", "Overall influence", "", [])
     context = _context([use_case])
-    context["use_case"] = context["use_cases"][0]
+    context["use_case"] = {**context["use_cases"][0], "applied_collections": []}
 
     generator = ReportGenerator(use_llm_interpretation=False, enable_charts=False)
     report = generator.generate_report(_result("UC-D01: Overall influence"), context)
@@ -249,3 +249,95 @@ def test_the_assembled_reporting_agent_attributes_the_surviving_report():
     summary = _discovery_summary(state.reports[0])
     assert "Authors drive citation flow." in summary
     assert "Venues are small." not in summary
+
+
+def test_the_summary_names_the_algorithm_that_ran_not_the_one_planned():
+    """A use case can carry an unparseable algorithm string.
+
+    ``UseCaseGenerator._use_case_from_suggestion`` copies a free-form
+    analyzer suggestion into ``graph_algorithms`` verbatim. The template
+    generator cannot parse it, falls back to the use-case-type mapping,
+    and something else runs. Reporting the planned name would state an
+    algorithm that never executed (NFR-19).
+    """
+
+    use_case = _use_case("UC-S01", "Household resolution", "Accounts cluster.", [])
+    use_case.graph_algorithms = ["centrality"]  # not an AlgorithmType value
+
+    context = _context([use_case])
+    context["use_case"] = {**context["use_cases"][0], "applied_collections": ["Person"]}
+
+    generator = ReportGenerator(use_llm_interpretation=False, enable_charts=False)
+    # The job records what the engine actually ran.
+    report = generator.generate_report(_result("UC-S01: Household resolution"), context)
+
+    summary = _discovery_summary(report)
+    assert "- **Algorithm:** pagerank" in summary
+    assert "centrality" not in summary
+
+
+def test_a_target_that_was_dropped_is_not_reported_as_the_scope():
+    """``_resolve_requested_collections`` drops targets the schema does not
+    have, leaving the analysis at full scope. Repeating the request as the
+    scope is the failure PR #28 fixed one layer down."""
+
+    use_case = _use_case("UC-A01", "Households", "Group by address.", ["Household"])
+    context = _context([use_case])
+    context["use_case"] = {
+        **context["use_cases"][0],
+        "applied_collections": ["Person", "KNOWS"],
+    }
+
+    generator = ReportGenerator(use_llm_interpretation=False, enable_charts=False)
+    report = generator.generate_report(_result("UC-A01: Households"), context)
+
+    summary = _discovery_summary(report)
+    assert "- **Scoped to:** Person, KNOWS" in summary
+    assert "- **Requested but not applied:** Household" in summary
+
+
+def test_an_unknown_scope_is_left_unstated_rather_than_called_whole_graph():
+    """No template match means the scope that ran is unknown. Silence is
+    correct; "the whole graph" would be a claim."""
+
+    use_case = _use_case("UC-A01", "Venues", "Venues are small.", ["Venue"])
+    context = _context([use_case])
+    context["use_case"] = dict(context["use_cases"][0])  # no applied_collections
+
+    generator = ReportGenerator(use_llm_interpretation=False, enable_charts=False)
+    report = generator.generate_report(_result("UC-A01: Venues"), context)
+
+    summary = _discovery_summary(report)
+    assert "Scoped to" not in summary
+    assert "Requested but not applied" not in summary
+    assert "Venues are small." in summary
+
+
+def test_the_agent_carries_the_template_s_real_scope_into_the_report():
+    """End-to-end: the scope in the report comes from the template that ran."""
+
+    from graph_analytics_ai.ai.agents.base import AgentMessage
+
+    use_case = _use_case("UC-A01", "Households", "Group by address.", ["Household"])
+    template = _template(use_case)
+    template.config.vertex_collections = ["Person"]
+    template.config.edge_collections = ["KNOWS"]
+
+    state = AgentState()
+    state.use_cases = [use_case]
+    state.templates = [template]
+    state.execution_results = [_result("UC-A01: Households")]
+    state.metadata["discovery_mode"] = True
+
+    agent = ReportingAgent(llm_provider=_StubProvider())
+    agent.generator.use_llm_interpretation = False
+    agent.process(
+        AgentMessage(
+            from_agent="test", to_agent="reporting", message_type="task", content={}
+        ),
+        state,
+    )
+
+    summary = _discovery_summary(state.reports[0])
+    assert "- **Scoped to:** Person, KNOWS" in summary
+    assert "- **Requested but not applied:** Household" in summary
