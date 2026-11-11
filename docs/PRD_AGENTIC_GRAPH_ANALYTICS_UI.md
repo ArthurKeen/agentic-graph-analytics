@@ -1,13 +1,26 @@
 # Product Requirements Document: Agentic Graph Analytics UI
 
-**Version:** 0.7  
-**Date:** 2026-06-17  
+**Version:** 0.8  
+**Date:** 2026-11-03  
 **Status:** Draft  
 **Target Release:** Product UI MVP  
 **Related Document:** [Agentic Graph Analytics UI Vision](UI_PRODUCT_VISION.md)
 
 **Changelog:**
 
+- **0.8 (2026-11-03)** — One addition and one correction, both from
+  `/prd-sync`. (1) **FR-75 (Autonomous analysis)** — a fourth mode, built
+  before it was specified: the user picks a graph profile and nothing else,
+  and the system derives the brief from the observed schema, plans use cases
+  from the graph's own entity and relationship types, and runs them. Written
+  down now so its two safety constraints are pinned: the engine-algorithm
+  whitelist, and a runnable plan with no LLM provider configured. One clause
+  — reporting what it chose and why — is specified but not yet implemented,
+  and is marked as such. (2) FR-1, FR-13 and NFR-23 implementation notes
+  corrected: they cited the canvas right-click menu as evidence those
+  requirements were met, which is the practice NFR-23 exists to forbid. PR
+  #28 moved those verbs to visible sidebar menus; the notes now cite that
+  surface, and NFR-23's open-gap list is down to FR-5a.
 - **0.7 (2026-06-17)** — Two additions and a status reconciliation.
   (1) **FR-73 (Ad-hoc Prompt Analysis)** — a "one-shot" path where a
   user gives a single natural-language prompt against a graph profile
@@ -491,7 +504,7 @@ version without losing prior context, audit trail, or domain.
 
 ### Workspace Management
 
-- **FR-1:** Users can create, view, update, archive, and export workspaces. *(Implemented: `PATCH /api/workspaces/{id}` for editable metadata + `POST /api/workspaces/{id}/archive` for soft-delete; canvas right-click menu surfaces both. Edit emits an audit diff per changed field; archive is idempotent and emits a typed lifecycle event.)*
+- **FR-1:** Users can create, view, update, archive, and export workspaces. *(Implemented: `PATCH /api/workspaces/{id}` for editable metadata + `POST /api/workspaces/{id}/archive` for soft-delete; the sidebar "New" and "Workspace" menus surface both (`frontend/src/components/workspace/AssetExplorer.tsx:263`), with the canvas right-click menu as an accelerator built from the same `buildWorkspaceActions` definition. Edit emits an audit diff per changed field; archive is idempotent and emits a typed lifecycle event.)*
 - **FR-2:** A workspace includes customer name, project name, environment, description, tags, and status.
 - **FR-3:** A workspace can have multiple connection profiles.
 - **FR-4:** A workspace can have multiple graph profiles.
@@ -587,8 +600,11 @@ version without losing prior context, audit trail, or domain.
   `graph_analytics_ai/product/service.py:3457`. Content is base64-encoded in a JSON body
   rather than multipart — every other route in this API is JSON-only
   (`fastapi_app._request_json`), so multipart would fork the dispatcher for one endpoint.
-  UI: `frontend/src/components/workspace/UploadSourceDocumentOverlay.tsx`, reached via the
-  canvas right-click "Upload Document" action. Verified end-to-end in a browser: file
+  UI: `frontend/src/components/workspace/UploadSourceDocumentOverlay.tsx`, reached from
+  the sidebar "New" menu, and from the canvas right-click menu as an accelerator — both
+  render the same action definition
+  (`frontend/src/components/workspace/contextMenus/canvas.ts:71`). Verified end-to-end in
+  a browser: file
   picker → base64 → persisted document → Assets panel → audit event.)*
 - **FR-14:** The system stores document metadata, hash, extracted text, and source location.
   *(Implemented: the upload path populates `filename`, `mime_type`, `sha256` (of the raw
@@ -1454,6 +1470,46 @@ older requirement, this section wins.
     `create_edge_query` / `create_traversal_query`) is a usable
     reference for safe query construction with bind variables.
 
+#### Autonomous Analysis (v0.8)
+
+- **FR-75 (Autonomous analysis):** A user MUST be able to start an analysis
+  from a graph profile alone, with no prompt, interview or approval step. The
+  system MUST derive the analysis brief from the observed schema, MUST choose
+  the use cases from the graph's own entity types, relationship types and
+  measured scale rather than from a fixed list, and MUST report what it chose
+  and why. Only algorithms the Graph Analytics Engine implements may be
+  planned; a proposed analysis naming any other algorithm MUST be discarded
+  before execution rather than failing inside a run. Where no LLM provider is
+  configured, the mode MUST still produce a runnable plan. Artifacts MUST be
+  ephemeral and tagged `origin="autonomous"` so unattended runs do not
+  accumulate in the curated Requirements list (FR-17*).
+  *(PARTIAL — one clause open, see below. Done: entry point
+  `POST /api/workspaces/{workspace_id}/autonomous-analysis` →
+  `ProductService.autonomous_analysis`
+  (`graph_analytics_ai/product/service.py:1528`), reachable from the sidebar
+  Analyze group (`frontend/src/components/workspace/AssetExplorer.tsx:289`);
+  the brief is built from the observed schema by `_build_autonomous_brief`
+  (`service.py:1637`); use cases are planned from real collection counts and
+  relationship types by `plan_use_cases`
+  (`graph_analytics_ai/ai/generation/autonomous_plan.py:281`), and the chosen
+  targets now reach execution — `_resolve_requested_collections`
+  (`graph_analytics_ai/ai/templates/generator.py:330`) narrows the template to
+  the collections the plan named, which `CollectionSelector` previously
+  overrode on every path; the algorithm whitelist is enforced in
+  `_coerce_use_case` and verified non-vacuous; with no provider configured the
+  mode falls back to `generate_discovery_use_cases`; autonomous artifacts are
+  tagged `origin="autonomous"` with `ephemeral` set (`service.py:1587` for the
+  requirement version, `service.py:1607` for the run) and ephemeral versions are
+  filtered out of the curated list in `get_workspace_overview`
+  (`service.py:842`).
+  NOT YET DONE: "MUST report what it chose and why". The planner records a
+  per-use-case rationale and a discovery run does emit a "0. Discovery Summary"
+  section, but `_create_discovery_summary_content`
+  (`graph_analytics_ai/ai/reporting/generator.py:167`) composes that section from
+  baseline comparisons and insight confidence only — the rationale stops at
+  `UseCase.description` and never reaches the reader. Tracked as a drift alert
+  on FR-75.)*
+
 ---
 
 ## Non-Functional Requirements
@@ -1619,21 +1675,28 @@ older requirement, this section wins.
   be the only route to an action the user needs next; a collapse default that
   depends on loaded state MUST be derived at render time, since the workspace
   loads after first render.
-  *(PARTIAL — tracked as drift alerts on FR-1, FR-5a and FR-13. Done:
+  *(PARTIAL — tracked as a drift alert on FR-5a. Done:
   `frontend/src/components/workspace/AssetExplorer.tsx` — `primaryActions` puts
   six verbs on their rows (Discover graph, Verify, Start copilot, Reopen
   copilot, Start, Publish), `GROUPS` organises the panel by role, and the Setup
   collapse default is derived per render, open while no graph is active because
-  that is where Discover graph lives. Not yet done, still reachable ONLY by
-  right-click: edit, archive, export and import of a workspace (FR-1), delete
-  connection profile (FR-5a), upload document (FR-13), delete graph profile,
-  delete run, and retry. Row actions are deliberately capped at two, so the
-  destructive ones need an overflow on the row and the workspace ones belong in
-  the canvas header. Measured before any of this: 32 actions reachable only by
-  right-click, and a panel that had to instruct "Left-click selects.
-  Right-click opens object actions." This rule supersedes the reasoning in the
-  FR-1 and FR-13 notes, which cite a right-click menu as evidence those
-  requirements are met — they are PARTIAL until the gaps above close.)*
+  that is where Discover graph lives. The workspace-level verbs now live in the
+  sidebar "New" and "Workspace" menus rather than the canvas header, built from
+  one `buildWorkspaceActions` definition the canvas menu also composes. Not yet
+  done, still reachable from the sidebar row only by right-click: delete
+  connection profile (FR-5a), delete graph profile, delete run, and retry. The
+  canvas header does carry all four once the object is selected — it renders
+  `buildAssetMenuItems` as buttons (`ObjectActionBar`,
+  `frontend/src/components/workspace/WorkspaceShell.tsx:702`), the same builder
+  the context menu uses — so these are PARTIAL, not absent. Row actions are
+  deliberately capped at two, so the destructive ones need an overflow on the
+  row. Measured
+  before any of this: 32 actions reachable only by right-click, and a panel that
+  had to instruct "Left-click selects. Right-click opens object actions." FR-1
+  and FR-13 closed in PR #28; their notes now cite the visible surface. FR-5a
+  remains PARTIAL: the capability is reachable from the canvas header once the
+  object is selected, but the sidebar row still offers delete only on
+  right-click, which needs a row overflow control.)*
 - **NFR-24 (Platform login, no baked password):** On the Arango platform the
   gateway forwards each signed-in user's login and the platform injects the
   cluster endpoint (`ARANGO_DEPLOYMENT_ENDPOINT`), its CA
