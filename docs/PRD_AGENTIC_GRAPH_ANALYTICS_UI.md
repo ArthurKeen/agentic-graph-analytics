@@ -1481,7 +1481,7 @@ older requirement, this section wins.
   before execution rather than failing inside a run. Where no LLM provider is
   configured, the mode MUST still produce a runnable plan. Artifacts MUST be
   ephemeral and tagged `origin="autonomous"` so unattended runs do not
-  accumulate in the curated Requirements list (FR-17).
+  accumulate in the curated Requirements list (FR-17*).
   *(Implemented. Entry point
   `POST /api/workspaces/{workspace_id}/autonomous-analysis` →
   `ProductService.autonomous_analysis`
@@ -1497,7 +1497,10 @@ older requirement, this section wins.
   overrode on every path; the algorithm whitelist is enforced in
   `_coerce_use_case` and verified non-vacuous; with no provider configured the
   mode falls back to `generate_discovery_use_cases`; autonomous artifacts are
-  tagged and filtered out of the curated list at `service.py:845`.
+  tagged `origin="autonomous"` with `ephemeral` set (`service.py:1587` for the
+  requirement version, `service.py:1607` for the run) and ephemeral versions are
+  filtered out of the curated list in `get_workspace_overview`
+  (`service.py:842`).
   "Reports what it chose and why": the planner's reason is carried on
   `UseCase.rationale` (`ai/generation/use_cases.py:47`) rather than folded into
   the description, and the Discovery Summary opens with the analysis selected,
@@ -1506,11 +1509,11 @@ older requirement, this section wins.
   `graph_analytics_ai/ai/reporting/generator.py:183`). Each report is matched to
   its use case through the template that produced it
   (`_use_case_for_result`, `graph_analytics_ai/ai/agents/specialized.py:1365`)
-  rather than by position in
-  the results list: a failed execution used to shift every later report onto the
-  previous analysis's reason, which was invisible while the context held only a
-  title and becomes a false statement once it carries the reason (NFR-19). Where
-  no sound match exists, nothing is claimed.)*
+  rather than by position in the results list: a failed execution used to shift
+  every later report onto the previous analysis's reason, which was invisible
+  while the context held only a title and becomes a false statement once it
+  carries the reason (NFR-19). Where no sound match exists, nothing is
+  claimed.)*
 
 ---
 
@@ -1685,9 +1688,14 @@ older requirement, this section wins.
   that is where Discover graph lives. The workspace-level verbs now live in the
   sidebar "New" and "Workspace" menus rather than the canvas header, built from
   one `buildWorkspaceActions` definition the canvas menu also composes. Not yet
-  done, still reachable ONLY by right-click: delete connection profile (FR-5a),
-  delete graph profile, delete run, and retry. Row actions are deliberately
-  capped at two, so the destructive ones need an overflow on the row. Measured
+  done, still reachable from the sidebar row only by right-click: delete
+  connection profile (FR-5a), delete graph profile, delete run, and retry. The
+  canvas header does carry all four once the object is selected — it renders
+  `buildAssetMenuItems` as buttons (`ObjectActionBar`,
+  `frontend/src/components/workspace/WorkspaceShell.tsx:702`), the same builder
+  the context menu uses — so these are PARTIAL, not absent. Row actions are
+  deliberately capped at two, so the destructive ones need an overflow on the
+  row. Measured
   before any of this: 32 actions reachable only by right-click, and a panel that
   had to instruct "Left-click selects. Right-click opens object actions." FR-1
   and FR-13 closed in PR #28; their notes now cite the visible surface. FR-5a
