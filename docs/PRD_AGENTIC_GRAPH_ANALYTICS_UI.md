@@ -17,6 +17,9 @@
   unchecked, and the template generator silently substitutes a different
   algorithm when it cannot parse it. Found while reviewing PR #30, which
   fixed the reporting half; the generating half is open and tracked.
+  *(Since 0.8.1: PR #32 closed the template clause — a substitution is now
+  recorded and logged rather than hidden. The generator still produces the
+  unvalidated value, so FR-18a remains PARTIAL.)*
 - **0.8 (2026-11-03)** — One addition and one correction, both from
   `/prd-sync`. (1) **FR-75 (Autonomous analysis)** — a fourth mode, built
   before it was specified: the user picks a graph profile and nothing else,
@@ -705,25 +708,32 @@ version without losing prior context, audit trail, or domain.
   `_coerce_use_case` drops any unsupported algorithm before execution; this
   generalises the rule to the curated and suggestion-derived paths, which
   predate it.
-  *(PARTIAL — the reporting half is done, the generating half is not. Done: the
-  Discovery Summary renders `report.algorithm`, the executed job's
+  *(PARTIAL — reporting and the template check are done, validation at the
+  generator is not. Done: the Discovery Summary renders `report.algorithm`,
+  the executed job's
   (`graph_analytics_ai/ai/reporting/generator.py:186`), so a substitution can no
   longer be reported as though it were the plan. Not done:
   `UseCaseGenerator._use_case_from_suggestion` copies the analyzer's free-form
   `suggestion["type"]` straight into `graph_algorithms`
   (`graph_analytics_ai/ai/generation/use_cases.py:226`) with nothing checking it
   against `AlgorithmType`, and `TemplateGenerator`
-  (`graph_analytics_ai/ai/templates/generator.py:151`) then skips the entries it
-  cannot parse and falls back to `USE_CASE_TO_ALGORITHM`. A use case naming
+  (`graph_analytics_ai/ai/templates/generator.py:184`) then skips the entries it
+  cannot parse and falls back to `USE_CASE_TO_ALGORITHM` (`:191`). A use case naming
   "centrality" therefore runs WCC. The planned name is not lost — it is copied
   into `template.metadata["algorithms"]`
-  (`graph_analytics_ai/ai/templates/generator.py:387`), which then sits beside a
-  `template.algorithm` of `wcc` and contradicts it, with nothing reconciling the
-  two and no warning logged. The unvalidated value also round-trips through
-  import, which reads it back into `graph_algorithms`
-  (`graph_analytics_ai/product/service.py:2883`). The fix is therefore to
-  reconcile two fields that already exist, not to add a third. Reproduced while
-  reviewing PR #30. Tracked as a drift alert on FR-18a.)*
+  (`graph_analytics_ai/ai/templates/generator.py:406`). The template now
+  reconciles the two rather than storing a contradiction: where the chosen
+  algorithm is absent from the planned set, or any planned entry names no
+  algorithm the engine implements, it records `algorithm_substituted_from`,
+  `algorithm_unrunnable_names` and a reason distinguishing the two facts, and
+  logs a warning (`graph_analytics_ai/ai/templates/generator.py:440`, PR #32).
+  The two conditions are checked separately because a planned list can carry
+  both, and a membership test alone passed a list whose other entry happened to
+  match. Clauses 1 and 2 remain open: the unvalidated value is still produced,
+  and it round-trips through import, which reads it back into
+  `graph_algorithms` (`graph_analytics_ai/product/service.py:2903`). The
+  substitution is recorded, not prevented. Reproduced while reviewing PR #30.
+  Tracked as a drift alert on FR-18a.)*
 - **FR-19:** Users can manually create and edit draft use cases. *(Implemented:
   `ProductService.create_use_case` / `update_use_case`
   (`graph_analytics_ai/product/service.py:1305`) back the authoring form in
