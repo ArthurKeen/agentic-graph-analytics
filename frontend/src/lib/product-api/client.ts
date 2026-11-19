@@ -6,6 +6,7 @@ import type {
   WorkflowRunDeletion,
   DefaultClusterDatabasesResult,
   ConnectionDefaults,
+  ConnectionLogin,
   ConnectionGraphSummary,
   ConnectionGraphsResult,
   ConnectionProfileSummary,
@@ -491,13 +492,15 @@ export function createProductAPIClient(
         username?: string;
         verify_ssl?: boolean;
         deployment_mode?: string;
+        login?: string;
       }>(`${normalizedBaseUrl}/api/connections/default-cluster/databases`, {});
       return {
         endpoint: raw.endpoint,
         databases: raw.databases ?? [],
         username: raw.username ?? "",
         verifySsl: raw.verify_ssl ?? true,
-        deploymentMode: raw.deployment_mode ?? ""
+        deploymentMode: raw.deployment_mode ?? "",
+        login: mapConnectionLogin(raw.login)
       };
     },
     async getConnectionDefaults(): Promise<ConnectionDefaults> {
@@ -508,6 +511,7 @@ export function createProductAPIClient(
         verify_ssl?: boolean;
         deployment_mode?: string;
         password_secret_env_var?: string;
+        login?: string;
       }>(`${normalizedBaseUrl}/api/connections/defaults`);
       return {
         endpoint: raw.endpoint ?? "",
@@ -515,7 +519,8 @@ export function createProductAPIClient(
         database: raw.database ?? "",
         verifySsl: raw.verify_ssl ?? true,
         deploymentMode: raw.deployment_mode ?? "",
-        passwordSecretEnvVar: raw.password_secret_env_var ?? "ARANGO_PASSWORD"
+        passwordSecretEnvVar: raw.password_secret_env_var ?? "ARANGO_PASSWORD",
+        login: mapConnectionLogin(raw.login)
       };
     },
     async listConnectionProfileGraphs(
@@ -1564,13 +1569,29 @@ export function workspaceAssetsFromOverview(overview: WorkspaceOverview): Worksp
   ];
 }
 
+/** The server's login kind; anything unrecognised is the password path. */
+export function mapConnectionLogin(raw: string | undefined): ConnectionLogin {
+  return raw === "platform" ? "platform" : "password";
+}
+
+/** The secret references a new profile carries: none for the platform login
+ * (each user acts as themselves), else the password's env-var name. */
+export function connectionSecretRefs(
+  input: CreateConnectionProfileInput
+): Record<string, Record<string, string>> {
+  if (input.login === "platform") {
+    return { password: { kind: "platform_login" } };
+  }
+  const passwordSecretEnvVar = input.passwordSecretEnvVar?.trim() ?? "";
+  return passwordSecretEnvVar
+    ? { password: { kind: "env", ref: passwordSecretEnvVar } }
+    : {};
+}
+
 function createConnectionProfilePayload(
   input: CreateConnectionProfileInput
 ): Record<string, unknown> {
-  const passwordSecretEnvVar = input.passwordSecretEnvVar?.trim() ?? "";
-  const secretRefs = passwordSecretEnvVar
-    ? { password: { kind: "env", ref: passwordSecretEnvVar } }
-    : {};
+  const secretRefs = connectionSecretRefs(input);
 
   return {
     name: input.name,
