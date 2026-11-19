@@ -4,6 +4,7 @@ GAE template generator.
 Converts use cases into executable GAE analysis templates.
 """
 
+import logging
 from typing import List, Optional, Dict, Any, Tuple
 
 from ..generation.use_cases import UseCase, UseCaseType
@@ -18,6 +19,38 @@ from .models import (
     DEFAULT_ALGORITHM_PARAMS,
     recommend_engine_size,
 )
+
+logger = logging.getLogger(__name__)
+
+# Spellings the planners and the schema analyzer have been seen to emit for
+# algorithms the engine does implement. Anything outside this map and the
+# AlgorithmType values is not an algorithm name we can run.
+ALGORITHM_ALIASES = {
+    "betweeness": "betweenness",
+    "betweenness_centrality": "betweenness",
+    "labelprop": "label_propagation",
+    "label-propagation": "label_propagation",
+    "page_rank": "pagerank",
+    "page-rank": "pagerank",
+}
+
+
+def resolve_algorithm_name(value: Any) -> Optional[AlgorithmType]:
+    """Resolve one planned algorithm name, or None if the engine has no such
+    algorithm.
+
+    Shared by template selection and the FR-18a substitution check so the two
+    cannot disagree about what counts as a match.
+    """
+
+    if not value:
+        return None
+    key = str(value).strip().lower()
+    try:
+        return AlgorithmType(ALGORITHM_ALIASES.get(key, key))
+    except ValueError:
+        return None
+
 
 # Mapping from use case types to algorithm types
 # Only includes algorithms that are actually supported by GAE
@@ -148,24 +181,10 @@ class TemplateGenerator:
 
             # Prefer explicit algorithm hints from the use case (when present)
             algorithms: List[AlgorithmType] = []
-            if getattr(use_case, "graph_algorithms", None):
-                for algo in use_case.graph_algorithms:
-                    if not algo:
-                        continue
-                    key = str(algo).strip().lower()
-                    # Normalize common aliases to supported enum values
-                    alias = {
-                        "betweeness": "betweenness",
-                        "betweenness_centrality": "betweenness",
-                        "labelprop": "label_propagation",
-                        "label-propagation": "label_propagation",
-                        "page_rank": "pagerank",
-                        "page-rank": "pagerank",
-                    }.get(key, key)
-                    try:
-                        algorithms.append(AlgorithmType(alias))
-                    except Exception:
-                        continue
+            for algo in getattr(use_case, "graph_algorithms", None) or []:
+                resolved = resolve_algorithm_name(algo)
+                if resolved is not None:
+                    algorithms.append(resolved)
 
             # Fall back to use-case-type mapping if no explicit algorithm was parsed
             if not algorithms:
@@ -388,6 +407,52 @@ class TemplateGenerator:
             "success_metrics": use_case.success_metrics,
             **selection_metadata,  # Include collection selection info
         }
+
+        # FR-18a: "algorithms" is what the use case planned; algorithm_type is
+        # what will run. They diverge whenever a planned name does not resolve
+        # — the schema analyzer's free-form suggestion type is copied into
+        # graph_algorithms unchecked — and selection then falls back to
+        # USE_CASE_TO_ALGORITHM. Storing both without saying so leaves the
+        # template asserting two different algorithms, which is the state the
+        # requirement forbids.
+        #
+        # Two distinct facts, either of which makes the stored list a lie about
+        # what runs, and a list can carry both at once:
+        #   - the chosen algorithm is not among the ones planned
+        #   - a planned entry names no algorithm the engine implements
+        # A membership test alone misses the second whenever some *other*
+        # entry happens to match, so they are checked separately.
+        planned = [
+            str(a).strip() for a in (use_case.graph_algorithms or []) if str(a).strip()
+        ]
+        resolved = {name: resolve_algorithm_name(name) for name in planned}
+        unrunnable = [name for name, algo in resolved.items() if algo is None]
+        substituted = planned and algorithm_type not in set(resolved.values())
+
+        if planned and (unrunnable or substituted):
+            reasons = []
+            if substituted:
+                reasons.append(
+                    f"none of {planned} was selected as the primary algorithm"
+                )
+            if unrunnable:
+                reasons.append(f"{unrunnable} name no algorithm the engine implements")
+            template_metadata["algorithm_substituted_from"] = planned
+            template_metadata["algorithm_unrunnable_names"] = unrunnable
+            template_metadata["algorithm_substitution_reason"] = (
+                f"use case {use_case.id} planned {planned}; "
+                + "; ".join(reasons)
+                + f". Running {algorithm_type.value}, chosen from the "
+                f"{use_case.use_case_type.value} mapping."
+            )
+            logger.warning(
+                "Template %s runs %s; planned %s (unrunnable: %s)",
+                f"{use_case.id}: {use_case.title}",
+                algorithm_type.value,
+                planned,
+                unrunnable or "none",
+            )
+
         if schema_kind:
             template_metadata["schema_kind"] = schema_kind
         if lpg_projections:
