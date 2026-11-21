@@ -85,7 +85,13 @@ docs/archive/local-reports/
 # repo permanently should land in scripts/, tests/, or the package.
 scratch/
 .prd-drift-queue/
-.claude/
+.claude/*
+# Skills are source and meant to be shared -- but only ones reviewed for private
+# content (absolute paths, internal endpoints) are un-ignored, one at a time.
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/pr-review/
+!.claude/skills/code-quality-review/
 CLAUDE.md
 .no-drift-gate
 .pattern-capture-queue/
@@ -103,3 +109,4 @@ frontend/out/
 # BYOC bundle — contains baked credentials (see scripts/platform/package.sh).
 aga-service.tar.gz
 *.tar.gz
+.cursor/rules/*.mdc.pre-update.*
